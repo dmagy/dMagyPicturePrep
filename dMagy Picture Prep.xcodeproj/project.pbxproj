@@ -1,0 +1,578 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		9968B99B2ED1092B001B37FA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9968B9852ED1092A001B37FA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9968B98C2ED1092A001B37FA;
+			remoteInfo = "dMagy Picture Prep";
+		};
+		9968B9A52ED1092B001B37FA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9968B9852ED1092A001B37FA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9968B98C2ED1092A001B37FA;
+			remoteInfo = "dMagy Picture Prep";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		9968B98D2ED1092A001B37FA /* dMagy Picture Prep.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "dMagy Picture Prep.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9968B99A2ED1092B001B37FA /* dMagy Picture PrepTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "dMagy Picture PrepTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9968B9A42ED1092B001B37FA /* dMagy Picture PrepUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "dMagy Picture PrepUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		9968B98F2ED1092A001B37FA /* dMagy Picture Prep */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "dMagy Picture Prep";
+			sourceTree = "<group>";
+		};
+		9968B99D2ED1092B001B37FA /* dMagy Picture PrepTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "dMagy Picture PrepTests";
+			sourceTree = "<group>";
+		};
+		9968B9A72ED1092B001B37FA /* dMagy Picture PrepUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "dMagy Picture PrepUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		9968B98A2ED1092A001B37FA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9972ED1092B001B37FA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9A12ED1092B001B37FA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		9968B9842ED1092A001B37FA = {
+			isa = PBXGroup;
+			children = (
+				9968B98F2ED1092A001B37FA /* dMagy Picture Prep */,
+				9968B99D2ED1092B001B37FA /* dMagy Picture PrepTests */,
+				9968B9A72ED1092B001B37FA /* dMagy Picture PrepUITests */,
+				9968B98E2ED1092A001B37FA /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9968B98E2ED1092A001B37FA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9968B98D2ED1092A001B37FA /* dMagy Picture Prep.app */,
+				9968B99A2ED1092B001B37FA /* dMagy Picture PrepTests.xctest */,
+				9968B9A42ED1092B001B37FA /* dMagy Picture PrepUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9968B98C2ED1092A001B37FA /* dMagy Picture Prep */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9968B9AE2ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture Prep" */;
+			buildPhases = (
+				9968B9892ED1092A001B37FA /* Sources */,
+				9968B98A2ED1092A001B37FA /* Frameworks */,
+				9968B98B2ED1092A001B37FA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9968B98F2ED1092A001B37FA /* dMagy Picture Prep */,
+			);
+			name = "dMagy Picture Prep";
+			packageProductDependencies = (
+			);
+			productName = "dMagy Picture Prep";
+			productReference = 9968B98D2ED1092A001B37FA /* dMagy Picture Prep.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9968B9992ED1092B001B37FA /* dMagy Picture PrepTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9968B9B12ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture PrepTests" */;
+			buildPhases = (
+				9968B9962ED1092B001B37FA /* Sources */,
+				9968B9972ED1092B001B37FA /* Frameworks */,
+				9968B9982ED1092B001B37FA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9968B99C2ED1092B001B37FA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9968B99D2ED1092B001B37FA /* dMagy Picture PrepTests */,
+			);
+			name = "dMagy Picture PrepTests";
+			packageProductDependencies = (
+			);
+			productName = "dMagy Picture PrepTests";
+			productReference = 9968B99A2ED1092B001B37FA /* dMagy Picture PrepTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		9968B9A32ED1092B001B37FA /* dMagy Picture PrepUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9968B9B42ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture PrepUITests" */;
+			buildPhases = (
+				9968B9A02ED1092B001B37FA /* Sources */,
+				9968B9A12ED1092B001B37FA /* Frameworks */,
+				9968B9A22ED1092B001B37FA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9968B9A62ED1092B001B37FA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				9968B9A72ED1092B001B37FA /* dMagy Picture PrepUITests */,
+			);
+			name = "dMagy Picture PrepUITests";
+			packageProductDependencies = (
+			);
+			productName = "dMagy Picture PrepUITests";
+			productReference = 9968B9A42ED1092B001B37FA /* dMagy Picture PrepUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9968B9852ED1092A001B37FA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					9968B98C2ED1092A001B37FA = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					9968B9992ED1092B001B37FA = {
+						CreatedOnToolsVersion = 26.1.1;
+						TestTargetID = 9968B98C2ED1092A001B37FA;
+					};
+					9968B9A32ED1092B001B37FA = {
+						CreatedOnToolsVersion = 26.1.1;
+						TestTargetID = 9968B98C2ED1092A001B37FA;
+					};
+				};
+			};
+			buildConfigurationList = 9968B9882ED1092A001B37FA /* Build configuration list for PBXProject "dMagy Picture Prep" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 9968B9842ED1092A001B37FA;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 9968B98E2ED1092A001B37FA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9968B98C2ED1092A001B37FA /* dMagy Picture Prep */,
+				9968B9992ED1092B001B37FA /* dMagy Picture PrepTests */,
+				9968B9A32ED1092B001B37FA /* dMagy Picture PrepUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9968B98B2ED1092A001B37FA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9982ED1092B001B37FA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9A22ED1092B001B37FA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9968B9892ED1092A001B37FA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9962ED1092B001B37FA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9968B9A02ED1092B001B37FA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9968B99C2ED1092B001B37FA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
+			targetProxy = 9968B99B2ED1092B001B37FA /* PBXContainerItemProxy */;
+		};
+		9968B9A62ED1092B001B37FA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
+			targetProxy = 9968B9A52ED1092B001B37FA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		9968B9AC2ED1092B001B37FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		9968B9AD2ED1092B001B37FA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		9968B9AF2ED1092B001B37FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-Prep";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9968B9B02ED1092B001B37FA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-Prep";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9968B9B22ED1092B001B37FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-PrepTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dMagy Picture Prep.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/dMagy Picture Prep";
+			};
+			name = Debug;
+		};
+		9968B9B32ED1092B001B37FA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-PrepTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dMagy Picture Prep.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/dMagy Picture Prep";
+			};
+			name = Release;
+		};
+		9968B9B52ED1092B001B37FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-PrepUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "dMagy Picture Prep";
+			};
+			name = Debug;
+		};
+		9968B9B62ED1092B001B37FA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 58V8GU52MS;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "dmagy.com.dMagy-Picture-PrepUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "dMagy Picture Prep";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9968B9882ED1092A001B37FA /* Build configuration list for PBXProject "dMagy Picture Prep" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9968B9AC2ED1092B001B37FA /* Debug */,
+				9968B9AD2ED1092B001B37FA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9968B9AE2ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture Prep" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9968B9AF2ED1092B001B37FA /* Debug */,
+				9968B9B02ED1092B001B37FA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9968B9B12ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture PrepTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9968B9B22ED1092B001B37FA /* Debug */,
+				9968B9B32ED1092B001B37FA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9968B9B42ED1092B001B37FA /* Build configuration list for PBXNativeTarget "dMagy Picture PrepUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9968B9B52ED1092B001B37FA /* Debug */,
+				9968B9B62ED1092B001B37FA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 9968B9852ED1092A001B37FA /* Project object */;
+}
