@@ -1,0 +1,28 @@
+{
+  "dmpms_version": "1.0",
+  "source_file": "sample1.jpg",
+
+  "title": "Family Camping Trip",
+  "description": "Sunset at the campsite during our 2025 adventure.",
+
+  "tags": ["camping", "family", "sunset"],
+
+  "date_taken": "2025-07-04",
+
+  "virtual_crops": [
+    {
+      "id": "crop-16x9-01",
+      "label": "Landscape 16:9",
+      "aspect_ratio": "16:9",
+      "rect": { "x": 0.0, "y": 0.1, "width": 1.0, "height": 0.8 }
+    }
+  ],
+
+  "history": [
+    {
+      "action": "added_crop",
+      "crop_id": "crop-16x9-01",
+      "timestamp": "2025-07-05T09:15:00-07:00"
+    }
+  ]
+}

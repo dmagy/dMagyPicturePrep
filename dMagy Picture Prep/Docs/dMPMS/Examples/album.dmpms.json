@@ -1,0 +1,15 @@
+{
+  "dmpms_version": "1.0",
+
+  "title": "Mesa Verde Trip",
+  "description": "A curated selection of images from our Colorado road trips in the 2020s.",
+  "tags": ["vacation", "colorado", "road-trip"],
+
+  "date_taken": "2020s",
+
+  "images": [
+    { "source_file": "IMG_0001.jpg" },
+    { "source_file": "IMG_0002.jpg" },
+    { "source_file": "IMG_0007.jpg" }
+  ]
+}
