@@ -11,7 +11,7 @@ import SwiftUI
 struct dMagy_Picture_PrepApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            DMPPImageEditorView()
         }
     }
 }
