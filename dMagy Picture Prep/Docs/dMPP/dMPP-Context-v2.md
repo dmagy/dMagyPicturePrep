@@ -16,7 +16,7 @@ dMPP is a macOS utility that prepares personal and archival photographs for adva
 
 Where **dMPS shows pictures**, **dMPP prepares them**.
 
----
+----
 
 ## **2. Relationship to dMPMS and dMPS**
 
