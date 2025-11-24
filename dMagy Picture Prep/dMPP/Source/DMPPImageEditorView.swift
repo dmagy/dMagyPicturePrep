@@ -52,7 +52,8 @@ struct DMPPImageEditorView: View {
             }
             .padding()
             .background(.thinMaterial)
-
+            .frame(maxWidth: .infinity, maxHeight: 60)
+            
             Divider()
 
             // -----------------------------------------------------
@@ -74,6 +75,7 @@ struct DMPPImageEditorView: View {
                         .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                         .padding()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // [DMPP-SI-EMPTY] Placeholder when no folder / image is selected
                 VStack(spacing: 12) {
@@ -85,6 +87,7 @@ struct DMPPImageEditorView: View {
                         .frame(maxWidth: 420)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+    
             }
         }
     }
@@ -104,40 +107,81 @@ struct DMPPCropEditorPane: View {
             Text("Crops")
                 .font(.title3.bold())
 
-            // [DMPP-SI-TABS] Tabs for each crop
+            // -------------------------------------------------
+            // [VC7-MAIN-PREVIEW] Large image preview + overlay
+            // -------------------------------------------------
+            if let nsImage = vm.nsImage, let selectedCrop = vm.selectedCrop {
+                ZStack {
+                    GeometryReader { geo in
+                        ZStack {
+                            // Base image
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geo.size.width, height: geo.size.height)
+
+                            // Crop overlay for the selected crop
+                            DMPPCropOverlayView(
+                                image: nsImage,
+                                rect: selectedCrop.rect
+                            ){ newRect in
+                                vm.updateVirtualCropRect(
+                                    cropID: selectedCrop.id,
+                                    newRect: newRect
+                                )
+                            }
+                        }
+                    }
+                }
+            //    .frame(height: 320)   // <-- FIXED HEIGHT
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.secondary.opacity(0.3))
+                )
+
+            } else {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.secondary.opacity(0.1))
+                    .overlay(
+                        Text("No image or crop selected")
+                            .foregroundStyle(.secondary)
+                    )
+             //       .frame(height: 320)
+            }
+
+            // -------------------------------------------------
+            // [DMPP-SI-TABS] Tabs for each crop (compact previews)
+            // -------------------------------------------------
             if vm.metadata.virtualCrops.isEmpty {
                 Text("No crops defined. Use “New Crop” to add one.")
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 TabView(selection: $vm.selectedCropID) {
                     ForEach(vm.metadata.virtualCrops) { crop in
                         DMPPCropPreview(nsImage: vm.nsImage, crop: crop)
                             .tag(crop.id)
-                            .tabItem { Text(crop.label) }
+                            .padding(.vertical, 4)
                     }
                 }
-                .tabViewStyle(.automatic)
+                .tabViewStyle(.automatic)   // macOS-safe
+                .frame(height: 180)         // keep it from expanding forever
             }
 
-            // [DMPP-SI-CROP-BUTTONS] Crop control buttons (wired to VM)
+
+            // -------------------------------------------------
+            // [DMPP-SI-CROP-BUTTONS]
+            // -------------------------------------------------
             HStack(spacing: 8) {
 
                 Menu("Select Crop") {
-                    Button("Landscape 16:9") {
-                        vm.addPresetCropLandscape()
-                    }
-                    Button("Portrait 8x10") {
-                        vm.addPresetCropPortrait()
-                    }
-                    Button("Square 1:1") {
-                        vm.addPresetCropSquare()
-                    }
+                    Button("Landscape 16:9") { vm.addPresetCropLandscape() }
+                    Button("Portrait 8x10") { vm.addPresetCropPortrait() }
+                    Button("Square 1:1") { vm.addPresetCropSquare() }
                 }
 
-                Button("New Crop") {
-                    vm.newCrop()
-                }
+                Button("New Crop") { vm.newCrop() }
 
                 Button("Duplicate") {
                     vm.duplicateSelectedCrop()
@@ -152,8 +196,11 @@ struct DMPPCropEditorPane: View {
                 Spacer()
             }
         }
+        .frame(maxHeight: .infinity)     // <-- IMPORTANT FIX
     }
 }
+
+
 
 
 // MARK: - Right Pane (Metadata)
@@ -345,7 +392,6 @@ extension DMPPImageEditorView {
         imageURL.appendingPathExtension("dmpms.json")
     }
 
-    /// [DMPP-SIDECAR-SAVE] Save current VM metadata to a sidecar file, if any.
     private func saveCurrentMetadata() {
         guard let vm else {
             print("dMPP: saveCurrentMetadata() — no VM, nothing to save")
@@ -360,7 +406,9 @@ extension DMPPImageEditorView {
 
         do {
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            // Pretty-printed, but DO NOT sort keys alphabetically.
+            encoder.outputFormatting = [.prettyPrinted]
+
             let data = try encoder.encode(metadata)
             try data.write(to: url, options: .atomic)
 
@@ -373,6 +421,7 @@ extension DMPPImageEditorView {
             print("      Desc:   \(nsError.localizedDescription)")
         }
     }
+
 
 
 

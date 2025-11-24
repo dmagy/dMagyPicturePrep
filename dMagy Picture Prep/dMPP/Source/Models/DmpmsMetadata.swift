@@ -1,31 +1,11 @@
+//
+//  DmpmsMetadata.swift
+//  dMagy Picture Prep
+//
+
 import Foundation
 
 // dMPMS-2025-11-20-M1 — Core metadata models (pre-I/O)
-
-/* [DMPMS-RECT] Normalized rectangle for virtual crops. */
-struct RectNormalized: Codable, Hashable {
-    var x: Double   // 0.0–1.0
-    var y: Double
-    var width: Double
-    var height: Double
-}
-
-/* [DMPMS-CROP] Virtual crop definition. */
-struct VirtualCrop: Identifiable, Codable, Hashable {
-    var id: String
-    var label: String
-    var aspectRatio: String   // e.g. "16:9", "8:10"
-    var rect: RectNormalized
-}
-
-/* [DMPMS-HISTORY] Simple history event. */
-struct HistoryEvent: Codable, Hashable {
-    var action: String
-    var timestamp: String
-    var oldName: String? = nil
-    var newName: String? = nil
-    var cropID: String? = nil
-}
 
 /* [DMPMS-META] Complete dMPMS metadata structure. */
 struct DmpmsMetadata: Codable, Hashable {
@@ -42,4 +22,27 @@ struct DmpmsMetadata: Codable, Hashable {
     // Crops + history
     var virtualCrops: [VirtualCrop] = []
     var history: [HistoryEvent] = []
+
+    // Explicit key order for encoding/decoding.
+    // JSONEncoder (without .sortedKeys) will follow this order.
+    enum CodingKeys: String, CodingKey {
+        case dmpmsVersion
+        case sourceFile
+        case title
+        case description
+        case dateTaken
+        case tags
+        case people
+        case virtualCrops
+        case history
+    }
+}
+
+/* [DMPMS-HISTORY] Simple history event. */
+struct HistoryEvent: Codable, Hashable {
+    var action: String
+    var timestamp: String
+    var oldName: String? = nil
+    var newName: String? = nil
+    var cropID: String? = nil
 }

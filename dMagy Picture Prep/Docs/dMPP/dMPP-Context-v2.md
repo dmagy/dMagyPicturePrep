@@ -295,11 +295,3 @@ Updating this document regularly ensures future development remains clear and in
 
 ## **End of dMPP-Context.md**
 
-If you'd like next steps, I can generate:
-
-* A matching **dMPS-Context.md** for v2 prep
-* A **Shared/dMPMS-Context.md**
-* Or restructure `/Docs/` into a clean hierarchy
-
-Just tell me what you want next.
-
