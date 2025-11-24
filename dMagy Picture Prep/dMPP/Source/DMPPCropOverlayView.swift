@@ -2,17 +2,17 @@
 //  DMPPCropOverlayView.swift
 //  dMagy Picture Prep
 //
-//  cp-2025-11-22-VC8 — Draggable crop overlay for selected VirtualCrop
+//  cp-2025-11-22-VC11 — Draggable crop overlay (no handles)
 //
 
 import SwiftUI
 import AppKit
 
-/// [VC8-OVERLAY] Draws a normalized crop rect over an image and
-/// lets the user drag the crop around. Aspect ratio is preserved;
-/// we only move the rect, not resize it (yet).
+/// [VC11-OVERLAY] Draws a normalized crop rect over an image
+/// and lets the user drag the crop around. Aspect ratio / size
+/// are now controlled by presets, +/- buttons, and the slider.
 struct DMPPCropOverlayView: View {
-    /// The NSImage being displayed (needed for aspect ratio).
+    /// The NSImage being displayed (needed for geometry).
     let image: NSImage?
 
     /// The current crop rectangle in normalized coordinates (0–1).
@@ -21,9 +21,8 @@ struct DMPPCropOverlayView: View {
     /// Callback when the rect changes (dragging).
     let onRectChange: (RectNormalized) -> Void
 
-    // [VC8-STATE] Keep track of container size + drag start rect.
     @State private var containerSize: CGSize = .zero
-    @State private var dragStartRect: RectNormalized?
+    @State private var moveDragStartRect: RectNormalized?
 
     var body: some View {
         GeometryReader { geo in
@@ -31,7 +30,6 @@ struct DMPPCropOverlayView: View {
 
             ZStack {
                 if let image {
-                    // Compute image and crop frames for current geometry.
                     let imageFrame = imageFrameIn(
                         containerSize: size,
                         imageSize: image.size
@@ -42,7 +40,7 @@ struct DMPPCropOverlayView: View {
                         normalizedRect: rect
                     )
 
-                    // Outer dimmed overlay with a "hole" where the crop is.
+                    // [VC11-DIM] Dimmed overlay with "hole" over crop.
                     Path { path in
                         path.addRect(CGRect(origin: .zero, size: size))
                         path.addRect(cropFrame)
@@ -52,7 +50,7 @@ struct DMPPCropOverlayView: View {
                         style: FillStyle(eoFill: true)
                     )
 
-                    // The actual crop border.
+                    // [VC11-BOX] Crop border.
                     Path { path in
                         path.addRect(cropFrame)
                     }
@@ -63,20 +61,22 @@ struct DMPPCropOverlayView: View {
                     .shadow(radius: 2)
                 }
             }
-            .contentShape(Rectangle()) // whole area is draggable
+            .contentShape(Rectangle()) // whole overlay accepts drag for moving
+            .gesture(moveDragGesture)
             .onAppear {
                 containerSize = size
             }
-            .onChange(of: size) { newSize in
+            .onChange(of: size) { _, newSize in
                 containerSize = newSize
             }
-            .gesture(dragGesture)
         }
     }
 
-    // MARK: - [VC8-GESTURE] Drag crop around
+    // ============================================================
+    // [VC11-MOVE] Drag gesture to move the entire crop
+    // ============================================================
 
-    private var dragGesture: some Gesture {
+    private var moveDragGesture: some Gesture {
         DragGesture()
             .onChanged { value in
                 guard let image,
@@ -84,9 +84,8 @@ struct DMPPCropOverlayView: View {
                       containerSize.height > 0
                 else { return }
 
-                // Remember where we started on the first event.
-                if dragStartRect == nil {
-                    dragStartRect = rect
+                if moveDragStartRect == nil {
+                    moveDragStartRect = rect
                 }
 
                 let imageFrame = imageFrameIn(
@@ -96,15 +95,15 @@ struct DMPPCropOverlayView: View {
 
                 guard imageFrame.width > 0, imageFrame.height > 0 else { return }
 
-                // Convert pixel translation → normalized delta in [0,1].
+                // Convert translation in pixels → normalized delta.
                 let dxNorm = value.translation.width / imageFrame.width
                 let dyNorm = value.translation.height / imageFrame.height
 
-                var base = dragStartRect ?? rect
+                var base = moveDragStartRect ?? rect
                 base.x += Double(dxNorm)
                 base.y += Double(dyNorm)
 
-                // Clamp so crop stays entirely within the image.
+                // Clamp so crop stays fully inside image.
                 let maxX = 1.0 - base.width
                 let maxY = 1.0 - base.height
 
@@ -114,11 +113,13 @@ struct DMPPCropOverlayView: View {
                 onRectChange(base)
             }
             .onEnded { _ in
-                dragStartRect = nil
+                moveDragStartRect = nil
             }
     }
 
-    // MARK: - [VC8-GEOM] Geometry helpers
+    // ============================================================
+    // [VC11-GEOM] Geometry helpers
+    // ============================================================
 
     /// Compute the frame where the image is actually drawn
     /// when using `.resizable().scaledToFit()` inside `containerSize`.

@@ -18,6 +18,16 @@ class DMPPImageEditorViewModel {
     // Selected crop ID for tabs
     var selectedCropID: String? = nil
 
+    // ============================================================
+    // [DMPP-VM-CROP-SLIDER-CONFIG] Bounds for crop size slider
+    // ============================================================
+
+    /// Smallest and largest crop size as a fraction of the max rect.
+    /// 0.1 = 10% of the image, 1.0 = full max crop for this aspect.
+    private let minCropScale: Double = 0.1
+    private let maxCropScale: Double = 1.0
+
+    
     // [DMPP-VM-ASPECT-LABEL] Human-readable aspect description for the selected crop.
     var selectedCropAspectDescription: String {
         guard let crop = selectedCrop else {
@@ -238,8 +248,8 @@ class DMPPImageEditorViewModel {
         let centerX = rect.x + rect.width / 2.0
         let centerY = rect.y + rect.height / 2.0
 
-        var newWidth = rect.width * clampedFactor
-        var newHeight = rect.height * clampedFactor
+        let newWidth = rect.width * clampedFactor
+        let newHeight = rect.height * clampedFactor
 
         // Recompute origin so the center stays the same.
         var newX = centerX - newWidth / 2.0
@@ -470,6 +480,95 @@ extension DMPPImageEditorViewModel {
         metadata.history.append(event)
 
         saveCurrentMetadata()
+    }
+    // ============================================================
+    // [DMPP-VM-CROP-SLIDER] UI binding for crop size slider
+    // ============================================================
+
+    /// Smallest and largest crop size as a fraction of the image.
+    /// 0.1 = 10% of the max possible crop, 1.0 = full max crop.
+  
+
+    /// Slider value in [0, 1] that controls the selected crop's size.
+    /// 0 → smallest crop (zoomed in), 1 → largest crop (zoomed out).
+    var selectedCropSizeSliderValue: Double {
+        get {
+            guard let crop = selectedCrop,
+                  let size = nsImage?.size else {
+                return 1.0
+            }
+
+            // Largest possible rect for this aspect in this image.
+            let maxRect = centeredRect(
+                forAspectRatio: crop.aspectRatio,
+                imageSize: size
+            )
+
+            guard maxRect.width > 0, maxRect.height > 0 else {
+                return 1.0
+            }
+
+            // Because we always scale uniformly, width ratio is enough.
+            let scale = crop.rect.width / maxRect.width
+            let clampedScale = min(max(scale, minCropScale), maxCropScale)
+
+            // Map [minCropScale, maxCropScale] → [0, 1]
+            return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
+        }
+        set {
+            guard let id = selectedCropID,
+                  let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }),
+                  let size = nsImage?.size else { return }
+
+            var crop = metadata.virtualCrops[index]
+
+            let maxRect = centeredRect(
+                forAspectRatio: crop.aspectRatio,
+                imageSize: size
+            )
+            guard maxRect.width > 0, maxRect.height > 0 else { return }
+
+            // Clamp slider to [0, 1], then map → [minCropScale, maxCropScale]
+            let slider = min(max(newValue, 0.0), 1.0)
+            let targetScale = minCropScale + (maxCropScale - minCropScale) * slider
+
+            // Keep current center, change size.
+            let centerX = crop.rect.x + crop.rect.width / 2.0
+            let centerY = crop.rect.y + crop.rect.height / 2.0
+
+            var newWidth = maxRect.width * targetScale
+            var newHeight = maxRect.height * targetScale
+
+            // Extra safety clamp in case of odd old data.
+            newWidth = min(max(newWidth, minCropScale), maxCropScale)
+            newHeight = min(max(newHeight, minCropScale), maxCropScale)
+
+            var newX = centerX - newWidth / 2.0
+            var newY = centerY - newHeight / 2.0
+
+            // Clamp inside [0, 1] × [0, 1]
+            newX = min(max(newX, 0.0), 1.0 - newWidth)
+            newY = min(max(newY, 0.0), 1.0 - newHeight)
+
+            crop.rect = RectNormalized(
+                x: newX,
+                y: newY,
+                width: newWidth,
+                height: newHeight
+            )
+            metadata.virtualCrops[index] = crop
+
+            let event = HistoryEvent(
+                action: "sliderScaleCrop",
+                timestamp: currentTimestampString(),
+                oldName: nil,
+                newName: crop.label,
+                cropID: crop.id
+            )
+            metadata.history.append(event)
+
+            saveCurrentMetadata()
+        }
     }
 
     // MARK: - [VC-UPDATE-RECT] Update the rectangle of a crop

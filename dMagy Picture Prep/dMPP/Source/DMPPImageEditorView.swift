@@ -108,48 +108,77 @@ struct DMPPCropEditorPane: View {
                 .font(.title3.bold())
 
             // -------------------------------------------------
-            // [VC7-MAIN-PREVIEW] Large image preview + overlay
+            // [DMPP-SI-PREVIEW-ROW] Main preview + vertical slider
             // -------------------------------------------------
-            if let nsImage = vm.nsImage, let selectedCrop = vm.selectedCrop {
-                ZStack {
-                    GeometryReader { geo in
-                        ZStack {
-                            // Base image
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: geo.size.width, height: geo.size.height)
+            HStack(alignment: .center, spacing: 12) {
 
-                            // Crop overlay for the selected crop
-                            DMPPCropOverlayView(
-                                image: nsImage,
-                                rect: selectedCrop.rect
-                            ){ newRect in
-                                vm.updateVirtualCropRect(
-                                    cropID: selectedCrop.id,
-                                    newRect: newRect
-                                )
+                // [DMPP-SI-MAIN-PREVIEW] Large image + overlay
+                if let nsImage = vm.nsImage, let selectedCrop = vm.selectedCrop {
+                    ZStack {
+                        GeometryReader { geo in
+                            ZStack {
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: geo.size.width, height: geo.size.height)
+
+                                DMPPCropOverlayView(
+                                    image: nsImage,
+                                    rect: selectedCrop.rect
+                                ) { newRect in
+                                    vm.updateVirtualCropRect(
+                                        cropID: selectedCrop.id,
+                                        newRect: newRect
+                                    )
+                                }
                             }
                         }
                     }
-                }
-            //    .frame(height: 320)   // <-- FIXED HEIGHT
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.secondary.opacity(0.3))
-                )
-
-            } else {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
-                        Text("No image or crop selected")
-                            .foregroundStyle(.secondary)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.secondary.opacity(0.3))
                     )
-             //       .frame(height: 320)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.secondary.opacity(0.1))
+                        .overlay(
+                            Text("No image or crop selected")
+                                .foregroundStyle(.secondary)
+                        )
+                }
+
+                // [DMPP-SI-CROP-SLIDER] Vertical crop size slider
+                if vm.selectedCrop != nil {
+                    VStack(spacing: 4) {
+                        Text("Crop Size")
+                            .font(.caption)
+
+                        Slider(
+                            value: Binding(
+                                get: { vm.selectedCropSizeSliderValue },
+                                set: { vm.selectedCropSizeSliderValue = $0 }
+                            ),
+                            in: 0...1
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(height: 160)
+
+                        Text("Zoom in")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
+                        Spacer(minLength: 4)
+
+                        Text("Zoom out")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 44)
+                }
             }
-            // [DMPP-SI-ASPECT-LABEL] Aspect label + zoom controls
+
+            // [DMPP-SI-ASPECT-LABEL] Aspect label + optional +/- zoom
             if vm.selectedCrop != nil {
                 HStack(spacing: 8) {
                     Text(vm.selectedCropAspectDescription)
@@ -176,41 +205,42 @@ struct DMPPCropEditorPane: View {
                 }
             }
 
-            // -------------------------------------------------
-            // [DMPP-SI-TABS] Tabs for each crop (compact previews)
-            // -------------------------------------------------
+            // [DMPP-SI-TABS] Tabs for each crop
             if vm.metadata.virtualCrops.isEmpty {
                 Text("No crops defined. Use “New Crop” to add one.")
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 TabView(selection: $vm.selectedCropID) {
                     ForEach(vm.metadata.virtualCrops) { crop in
                         DMPPCropPreview(nsImage: vm.nsImage, crop: crop)
                             .tag(crop.id)
-                            .padding(.vertical, 4)
-                            .tabItem {                      // <- tab label lives here
-                                                Text(crop.label)            // <- this is what you’re seeing
-                                            }
+                            .tabItem {
+                                Text(crop.label)
+                            }
                     }
                 }
-                .tabViewStyle(.automatic)   // macOS-safe
-                .frame(height: 180)         // keep it from expanding forever
+                .tabViewStyle(.automatic)
             }
 
-
-            // -------------------------------------------------
-            // [DMPP-SI-CROP-BUTTONS]
-            // -------------------------------------------------
+            // [DMPP-SI-CROP-BUTTONS] Crop control buttons (wired to VM)
             HStack(spacing: 8) {
 
                 Menu("Select Crop") {
-                    Button("Landscape 16:9") { vm.addPresetCropLandscape() }
-                    Button("Portrait 8x10") { vm.addPresetCropPortrait() }
-                    Button("Square 1:1") { vm.addPresetCropSquare() }
+                    Button("Landscape 16:9") {
+                        vm.addPresetCropLandscape()
+                    }
+                    Button("Portrait 8x10") {
+                        vm.addPresetCropPortrait()
+                    }
+                    Button("Square 1:1") {
+                        vm.addPresetCropSquare()
+                    }
                 }
 
-                Button("New Crop") { vm.newCrop() }
+                Button("New Crop") {
+                    vm.newCrop()
+                }
 
                 Button("Duplicate") {
                     vm.duplicateSelectedCrop()
@@ -225,9 +255,9 @@ struct DMPPCropEditorPane: View {
                 Spacer()
             }
         }
-     //   .frame(maxHeight: .infinity)     // <-- IMPORTANT FIX
     }
 }
+
 
 
 
