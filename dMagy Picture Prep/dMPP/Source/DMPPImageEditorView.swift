@@ -96,7 +96,7 @@ struct DMPPImageEditorView: View {
 
 // MARK: - Left Pane
 
-/// [DMPP-SI-LEFT] Crops + image preview + crop controls.
+/// [DMPP-SI-LEFT] Crops + image preview + crop controls (tabs but no thumbnails).
 struct DMPPCropEditorPane: View {
 
     @Bindable var vm: DMPPImageEditorViewModel
@@ -205,25 +205,36 @@ struct DMPPCropEditorPane: View {
                 }
             }
 
-            // [DMPP-SI-TABS] Tabs for each crop
-            if vm.metadata.virtualCrops.isEmpty {
-                Text("No crops defined. Use “New Crop” to add one.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else {
-                TabView(selection: $vm.selectedCropID) {
+            // -------------------------------------------------
+            // [DMPP-SI-CROP-TABS] Segmented control for crop selection
+            // -------------------------------------------------
+            if !vm.metadata.virtualCrops.isEmpty {
+                Picker(
+                    "Crop",
+                    selection: Binding(
+                        get: {
+                            vm.selectedCropID
+                            ?? vm.metadata.virtualCrops.first?.id
+                            ?? ""
+                        },
+                        set: { newID in
+                            vm.selectedCropID = newID
+                        }
+                    )
+                ) {
                     ForEach(vm.metadata.virtualCrops) { crop in
-                        DMPPCropPreview(nsImage: vm.nsImage, crop: crop)
-                            .tag(crop.id)
-                            .tabItem {
-                                Text(crop.label)
-                            }
+                        Text(crop.label).tag(crop.id)
                     }
                 }
-                .tabViewStyle(.automatic)
+                .pickerStyle(.segmented)
+            } else {
+                Text("No crops defined. Use “New Crop” to add one.")
+                    .foregroundStyle(.secondary)
             }
 
-            // [DMPP-SI-CROP-BUTTONS] Crop control buttons (wired to VM)
+            // -------------------------------------------------
+            // [DMPP-SI-CROP-BUTTONS] Crop control buttons
+            // -------------------------------------------------
             HStack(spacing: 8) {
 
                 Menu("Select Crop") {
@@ -257,6 +268,7 @@ struct DMPPCropEditorPane: View {
         }
     }
 }
+
 
 
 
