@@ -149,6 +149,32 @@ struct DMPPCropEditorPane: View {
                     )
              //       .frame(height: 320)
             }
+            // [DMPP-SI-ASPECT-LABEL] Aspect label + zoom controls
+            if vm.selectedCrop != nil {
+                HStack(spacing: 8) {
+                    Text(vm.selectedCropAspectDescription)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        vm.scaleSelectedCrop(by: 0.9)   // smaller crop, zoom in
+                    } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Crop smaller (zoom in)")
+
+                    Button {
+                        vm.scaleSelectedCrop(by: 1.1)   // larger crop, zoom out
+                    } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Crop larger (zoom out)")
+                }
+            }
 
             // -------------------------------------------------
             // [DMPP-SI-TABS] Tabs for each crop (compact previews)
@@ -163,6 +189,9 @@ struct DMPPCropEditorPane: View {
                         DMPPCropPreview(nsImage: vm.nsImage, crop: crop)
                             .tag(crop.id)
                             .padding(.vertical, 4)
+                            .tabItem {                      // <- tab label lives here
+                                                Text(crop.label)            // <- this is what you’re seeing
+                                            }
                     }
                 }
                 .tabViewStyle(.automatic)   // macOS-safe
@@ -196,7 +225,7 @@ struct DMPPCropEditorPane: View {
                 Spacer()
             }
         }
-        .frame(maxHeight: .infinity)     // <-- IMPORTANT FIX
+     //   .frame(maxHeight: .infinity)     // <-- IMPORTANT FIX
     }
 }
 
@@ -294,6 +323,7 @@ struct DMPPCropPreview: View {
         .padding()
     }
 }
+
 
 
 // MARK: - Navigation + Sidecar Helpers
@@ -451,6 +481,10 @@ extension DMPPImageEditorView {
     private func makeDefaultMetadata(for url: URL) -> DmpmsMetadata {
         let filename = url.lastPathComponent
 
+        // Load the image so we know its pixel size for aspect-aware defaults.
+        let nsImage = NSImage(contentsOf: url)
+        let crops = defaultVirtualCrops(for: nsImage?.size)
+
         return DmpmsMetadata(
             dmpmsVersion: "1.0",
             sourceFile: filename,
@@ -459,28 +493,81 @@ extension DMPPImageEditorView {
             dateTaken: "",
             tags: [],
             people: [],
-            virtualCrops: defaultVirtualCrops(),
+            virtualCrops: crops,
             history: []
         )
     }
 
-    // [DMPP-NAV-DEFAULT-CROPS] Default 16:9 + 8x10 crops
-    private func defaultVirtualCrops() -> [VirtualCrop] {
-        [
+
+    // [DMPP-NAV-DEFAULT-CROPS] Default crops that respect each image's aspect ratio
+    private func defaultVirtualCrops(for imageSize: CGSize?) -> [VirtualCrop] {
+        let size = imageSize ?? CGSize(width: 1, height: 1)
+
+        let rect16x9 = centeredRectForAspect(
+            "16:9",
+            imageSize: size
+        )
+        let rect8x10 = centeredRectForAspect(
+            "8:10",
+            imageSize: size
+        )
+
+        return [
             VirtualCrop(
                 id: "crop-16x9-default",
                 label: "Landscape 16:9",
                 aspectRatio: "16:9",
-                rect: RectNormalized(x: 0.0, y: 0.1, width: 1.0, height: 0.8)
+                rect: rect16x9
             ),
             VirtualCrop(
                 id: "crop-8x10-default",
                 label: "Portrait 8x10",
                 aspectRatio: "8:10",
-                rect: RectNormalized(x: 0.15, y: 0.0, width: 0.7, height: 1.0)
+                rect: rect8x10
             )
         ]
     }
+
+    // [DMPP-NAV-ASPECT-RECT] Build a centered RectNormalized for a given aspect ratio.
+    private func centeredRectForAspect(
+        _ aspectString: String,
+        imageSize: CGSize
+    ) -> RectNormalized {
+        let parts = aspectString.split(separator: ":")
+        guard parts.count == 2,
+              let w = Double(parts[0]),
+              let h = Double(parts[1]),
+              w > 0, h > 0
+        else {
+            return RectNormalized(x: 0, y: 0, width: 1, height: 1)
+        }
+
+        let targetAR = w / h
+        let imageAR = Double(imageSize.width / max(imageSize.height, 1))
+
+        // ratio of target AR to image AR
+        let k = targetAR / imageAR
+
+        let widthNorm: Double
+        let heightNorm: Double
+
+        if k >= 1 {
+            // Target is "wider" than image: full width, reduce height.
+            widthNorm = 1.0
+            heightNorm = 1.0 / k
+        } else {
+            // Target is "taller" than image: full height, reduce width.
+            widthNorm = k
+            heightNorm = 1.0
+        }
+
+        let x = (1.0 - widthNorm) / 2.0
+        let y = (1.0 - heightNorm) / 2.0
+
+        return RectNormalized(x: x, y: y, width: widthNorm, height: heightNorm)
+    }
+
+
 }
 
 

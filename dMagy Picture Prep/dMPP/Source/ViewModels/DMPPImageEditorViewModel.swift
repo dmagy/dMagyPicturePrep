@@ -18,6 +18,29 @@ class DMPPImageEditorViewModel {
     // Selected crop ID for tabs
     var selectedCropID: String? = nil
 
+    // [DMPP-VM-ASPECT-LABEL] Human-readable aspect description for the selected crop.
+    var selectedCropAspectDescription: String {
+        guard let crop = selectedCrop else {
+            return "No crop selected"
+        }
+
+        let declared = crop.aspectRatio
+
+        let w = crop.rect.width
+        let h = crop.rect.height
+
+        guard h > 0 else {
+            return declared
+        }
+
+        // Normalized rect already encodes the ratio; we just display it.
+        let actual = w / h
+        let rounded = (actual * 100).rounded() / 100  // 2 decimal places
+
+        return "\(declared) (\(rounded):1)"
+    }
+
+    
     init(imageURL: URL, metadata: DmpmsMetadata) {
         self.imageURL = imageURL
         self.metadata = metadata
@@ -83,48 +106,55 @@ class DMPPImageEditorViewModel {
 
     /// Add a preset 16:9 landscape crop.
     func addPresetCropLandscape() {
-        let rect = RectNormalized(
-            x: 0.0,
-            y: 0.1,
-            width: 1.0,
-            height: 0.8
-        )
+        let aspect = "16:9"
+
+        let rect: RectNormalized
+        if let size = nsImage?.size {
+            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
+        } else {
+            // Fallback if we somehow don't have an image yet.
+            rect = RectNormalized(x: 0.0, y: 0.1, width: 1.0, height: 0.8)
+        }
 
         createVirtualCrop(
             label: "Landscape 16:9",
-            aspectRatio: "16:9",
+            aspectRatio: aspect,
             rect: rect
         )
     }
 
     /// Add a preset 8x10 portrait crop.
     func addPresetCropPortrait() {
-        let rect = RectNormalized(
-            x: 0.15,
-            y: 0.0,
-            width: 0.7,
-            height: 1.0
-        )
+        let aspect = "8:10"
+
+        let rect: RectNormalized
+        if let size = nsImage?.size {
+            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
+        } else {
+            rect = RectNormalized(x: 0.15, y: 0.0, width: 0.70, height: 1.0)
+        }
 
         createVirtualCrop(
             label: "Portrait 8x10",
-            aspectRatio: "8:10",
+            aspectRatio: aspect,
             rect: rect
         )
     }
 
     /// Add a preset 1:1 square crop.
     func addPresetCropSquare() {
-        let rect = RectNormalized(
-            x: 0.15,
-            y: 0.1,
-            width: 0.7,
-            height: 0.7
-        )
+        let aspect = "1:1"
+
+        let rect: RectNormalized
+        if let size = nsImage?.size {
+            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
+        } else {
+            rect = RectNormalized(x: 0.15, y: 0.1, width: 0.7, height: 0.7)
+        }
 
         createVirtualCrop(
             label: "Square 1:1",
-            aspectRatio: "1:1",
+            aspectRatio: aspect,
             rect: rect
         )
     }
@@ -134,6 +164,7 @@ class DMPPImageEditorViewModel {
     func newCrop() {
         addPresetCropLandscape()
     }
+
 
 
     /// [DMPP-VM-DUP-CROP] Duplicate the currently selected crop (if any).
@@ -172,6 +203,68 @@ class DMPPImageEditorViewModel {
             selectedCropID = nil
         }
     }
+    // ============================================================
+    // [DMPP-VM-CROP-SCALE] Scale selected crop around its center
+    // ============================================================
+
+    /// Uniformly scale the currently selected crop around its center.
+    /// `factor` > 1.0 makes the crop larger (shows more image).
+    /// `factor` < 1.0 makes the crop smaller (zooms in).
+    func scaleSelectedCrop(by factor: Double) {
+        guard let id = selectedCropID,
+              let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }),
+              factor > 0
+        else { return }
+
+        var crop = metadata.virtualCrops[index]
+        var rect = crop.rect
+
+        // Minimum and maximum size as a fraction of the image.
+        let minSize: Double = 0.05   // don't let the crop get smaller than 5%
+        let maxSize: Double = 1.0    // never larger than the full image
+
+        // Clamp factor so we don't exceed bounds or go below min size.
+        let maxFactorWidth = maxSize / rect.width
+        let maxFactorHeight = maxSize / rect.height
+
+        let minFactorWidth = minSize / rect.width
+        let minFactorHeight = minSize / rect.height
+
+        var clampedFactor = factor
+        clampedFactor = min(clampedFactor, maxFactorWidth, maxFactorHeight)
+        clampedFactor = max(clampedFactor, max(minFactorWidth, minFactorHeight))
+
+        // Preserve the crop's center point.
+        let centerX = rect.x + rect.width / 2.0
+        let centerY = rect.y + rect.height / 2.0
+
+        var newWidth = rect.width * clampedFactor
+        var newHeight = rect.height * clampedFactor
+
+        // Recompute origin so the center stays the same.
+        var newX = centerX - newWidth / 2.0
+        var newY = centerY - newHeight / 2.0
+
+        // Clamp so the crop stays entirely within [0, 1].
+        newX = min(max(newX, 0.0), 1.0 - newWidth)
+        newY = min(max(newY, 0.0), 1.0 - newHeight)
+
+        rect = RectNormalized(x: newX, y: newY, width: newWidth, height: newHeight)
+        crop.rect = rect
+        metadata.virtualCrops[index] = crop
+
+        // Record a simple history event.
+        let event = HistoryEvent(
+            action: "scaleCrop",
+            timestamp: currentTimestampString(),
+            oldName: nil,
+            newName: crop.label,
+            cropID: crop.id
+        )
+        metadata.history.append(event)
+
+        saveCurrentMetadata()
+    }
 
 
     // MARK: - Private crop helpers
@@ -192,6 +285,51 @@ class DMPPImageEditorViewModel {
         selectedCropID = crop.id
     }
 
+    // MARK: - [DMPP-VM-ASPECT] Build a centered rect for a given aspect ratio
+
+    /// Creates a centered RectNormalized that fits entirely within the image
+    /// while preserving the target aspect ratio (e.g. "16:9", "8:10", "1:1").
+    private func centeredRect(
+        forAspectRatio aspectString: String,
+        imageSize: CGSize
+    ) -> RectNormalized {
+        // Parse "W:H" into numbers.
+        let parts = aspectString.split(separator: ":")
+        guard parts.count == 2,
+              let w = Double(parts[0]),
+              let h = Double(parts[1]),
+              w > 0, h > 0
+        else {
+            // Fallback: full image if parsing fails
+            return RectNormalized(x: 0, y: 0, width: 1, height: 1)
+        }
+
+        let targetAR = w / h
+        let imageAR = Double(imageSize.width / max(imageSize.height, 1))
+
+        // ratio of target AR to image AR
+        let k = targetAR / imageAR
+
+        let widthNorm: Double
+        let heightNorm: Double
+
+        if k >= 1 {
+            // Target is "wider" than image: full width, reduce height.
+            widthNorm = 1.0
+            heightNorm = 1.0 / k
+        } else {
+            // Target is "taller" than image: full height, reduce width.
+            widthNorm = k
+            heightNorm = 1.0
+        }
+
+        let x = (1.0 - widthNorm) / 2.0
+        let y = (1.0 - heightNorm) / 2.0
+
+        return RectNormalized(x: x, y: y, width: widthNorm, height: heightNorm)
+    }
+
+    
     /// Ensure crop IDs are unique within this image.
     private func makeUniqueCropID(prefix: String) -> String {
         let existing = Set(metadata.virtualCrops.map { $0.id })
