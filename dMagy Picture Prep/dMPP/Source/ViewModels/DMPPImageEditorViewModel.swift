@@ -227,6 +227,45 @@ class DMPPImageEditorViewModel {
         }
     }
 
+    // ============================================================
+    // [DMPP-VM-CROP-NAV] Previous / Next crop selection helpers
+    // ============================================================
+
+    /// Select the previous crop in metadata.virtualCrops (wraps around).
+    func selectPreviousCrop() {
+        guard !metadata.virtualCrops.isEmpty else { return }
+
+        let crops = metadata.virtualCrops
+
+        // If nothing is selected yet, pick the last one.
+        guard let currentID = selectedCropID,
+              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
+            selectedCropID = crops.last?.id
+            return
+        }
+
+        let prevIndex = (currentIndex - 1 + crops.count) % crops.count
+        selectedCropID = crops[prevIndex].id
+    }
+
+    /// Select the next crop in metadata.virtualCrops (wraps around).
+    func selectNextCrop() {
+        guard !metadata.virtualCrops.isEmpty else { return }
+
+        let crops = metadata.virtualCrops
+
+        // If nothing is selected yet, pick the first one.
+        guard let currentID = selectedCropID,
+              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
+            selectedCropID = crops.first?.id
+            return
+        }
+
+        let nextIndex = (currentIndex + 1) % crops.count
+        selectedCropID = crops[nextIndex].id
+    }
+
+    
     /// [DMPP-VM-DEL-CROP] Delete the currently selected crop (if any).
     func deleteSelectedCrop() {
         guard let id = selectedCropID,

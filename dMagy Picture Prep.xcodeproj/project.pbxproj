@@ -29,9 +29,33 @@
 		9968B9A42ED1092B001B37FA /* dMagy Picture PrepUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "dMagy Picture PrepUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Docs/dMPP/dMPP-Context-v3.md",
+			);
+			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		99A85AA22ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "Compile Sources" phase from "dMagy Picture Prep" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = 9968B9892ED1092A001B37FA /* Sources */;
+			membershipExceptions = (
+				"Docs/dMPP/dMPP-Context-v3.md",
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9968B98F2ED1092A001B37FA /* dMagy Picture Prep */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */,
+				99A85AA22ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "Compile Sources" phase from "dMagy Picture Prep" target */,
+			);
 			path = "dMagy Picture Prep";
 			sourceTree = "<group>";
 		};

@@ -23,18 +23,40 @@ struct DMPPImageEditorView: View {
             // -----------------------------------------------------
             HStack(spacing: 12) {
 
-                Button("Choose Folder…") {
-                    chooseFolder()
-                }
-
                 if let folderURL {
-                    Text(folderURL.lastPathComponent)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    // [DMPP-TB-FOLDER-SELECTED]
+                    Button {
+                        chooseFolder()
+                    } label: {
+                        Label {
+                            Text(folderURL.lastPathComponent)
+                                .font(.title2.bold())   // was .largeTitle, slightly smaller but still “important”
+                        } icon: {
+                            Image(systemName: "folder")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Change folder…")
+                } else {
+                    // [DMPP-TB-FOLDER-NONE]
+                    Button {
+                        chooseFolder()
+                    } label: {
+                        Label("Choose Folder…", systemImage: "folder.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Choose a folder to begin")
                 }
 
                 Spacer()
-                // Previous/Next and filename have moved elsewhere.
+                // [DMPP-TB-FULL-PATH] Right-justified full path (if we have a folder)
+                if let folderURL {
+                    Text(folderURL.path)
+                        .font(.default)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head) // keep the tail (most specific part) visible
+                }
             }
             .padding()
             .background(.thinMaterial)
@@ -66,20 +88,34 @@ struct DMPPImageEditorView: View {
 
                     Divider()
 
-                    // [DMPP-SI-BOTTOM-NAV] Bottom bar with Previous/Next aligned right
-                    HStack {
+                    // -----------------------------------------------------
+                    // [DMPP-SI-BOTTOM-NAV] Picture + crop navigation
+                    // -----------------------------------------------------
+                    HStack(spacing: 8) {
                         Spacer()
 
-                        Button("Previous") {
+                        Button("Previous Picture") {
                             goToPreviousImage()
                         }
                         .disabled(!canGoToPrevious)
 
-                        Button("Next") {
+                        Button("Previous Crop") {
+                            vm.selectPreviousCrop()
+                        }
+                        .disabled(vm.metadata.virtualCrops.isEmpty)
+
+                        Button("Next Crop") {
+                            vm.selectNextCrop()
+                        }
+                        .disabled(vm.metadata.virtualCrops.isEmpty)
+
+                        Button("Next Image") {
                             goToNextImage()
                         }
                         .disabled(!canGoToNext)
                     }
+                   // .padding([.horizontal, .bottom])
+
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                     .background(.thinMaterial)
@@ -117,7 +153,7 @@ struct DMPPCropEditorPane: View {
             // -------------------------------------------------
             if !vm.metadata.virtualCrops.isEmpty {
                 Picker(
-                    "Crop",
+                    "Crops",
                     selection: Binding(
                         get: {
                             vm.selectedCropID
@@ -141,7 +177,7 @@ struct DMPPCropEditorPane: View {
             }
 
             // -------------------------------------------------
-            // [DMPP-SI-PREVIEW-ROW] Main preview + vertical slider
+            // [DMPP-SI-PREVIEW-ROW] Main preview + vertical controls
             // -------------------------------------------------
             HStack(alignment: .center, spacing: 12) {
 
@@ -181,37 +217,65 @@ struct DMPPCropEditorPane: View {
                         )
                 }
 
-                // [DMPP-SI-CROP-SLIDER] Vertical crop size slider
+                // [DMPP-SI-CROP-CONTROLS] Crop column: title, +, slider, -
                 if vm.selectedCrop != nil {
-                    VStack(spacing: 4) {
-                        Text("Crop Size")
+                    VStack(spacing: 8) {
+                        Text("Crop")
                             .font(.caption)
 
-                        Slider(
-                            value: Binding(
-                                get: { vm.selectedCropSizeSliderValue },
-                                set: { vm.selectedCropSizeSliderValue = $0 }
-                            ),
-                            in: 0...1
-                        )
-                        .rotationEffect(.degrees(-90))
-                        .frame(height: 160)
+                        // Top: Zoom in → larger crop
+                        Button {
+                            vm.scaleSelectedCrop(by: 1.1)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Larger crop")
 
-                        Text("Zoom in")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
 
-                        Spacer(minLength: 4)
+                        // Tall vertical slider whose *length* matches column height
+                                           GeometryReader { sliderGeo in
+                                               Slider(
+                                                   value: Binding(
+                                                       get: { vm.selectedCropSizeSliderValue },
+                                                       set: { vm.selectedCropSizeSliderValue = $0 }
+                                                   ),
+                                                   in: 0...1
+                                               )
+                                               // IMPORTANT:
+                                               // - We set the width BEFORE rotation so that
+                                               //   after a -90° rotation, that width becomes
+                                               //   the vertical length of the slider.
+                                               .frame(width: max(sliderGeo.size.height - 40, 120))
+                                               .rotationEffect(.degrees(-90))
+                                               // Center the rotated slider inside the column
+                                               .position(
+                                                   x: sliderGeo.size.width / 2,
+                                                   y: sliderGeo.size.height / 2
+                                               )
+                                           }
+                                           .frame(maxHeight: .infinity)
 
-                        Text("Zoom out")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+
+                        // Bottom: Zoom out → smaller crop
+                        Button {
+                            vm.scaleSelectedCrop(by: 0.9)
+                        } label: {
+                            Image(systemName: "minus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Smaller crop")
                     }
-                    .frame(width: 44)
+                    .frame(width: 60)
+                    .frame(maxHeight: .infinity)
+
                 }
+
             }
 
-            // [DMPP-SI-ASPECT-LABEL] Aspect label + optional +/- zoom
+            // [DMPP-SI-ASPECT-LABEL] Aspect label only (buttons moved to control column)
             if vm.selectedCrop != nil {
                 HStack(spacing: 8) {
                     Text(vm.selectedCropAspectDescription)
@@ -219,22 +283,6 @@ struct DMPPCropEditorPane: View {
                         .foregroundStyle(.secondary)
 
                     Spacer()
-
-                    Button {
-                        vm.scaleSelectedCrop(by: 0.9)   // smaller crop, zoom in
-                    } label: {
-                        Image(systemName: "minus.magnifyingglass")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Crop smaller (zoom in)")
-
-                    Button {
-                        vm.scaleSelectedCrop(by: 1.1)   // larger crop, zoom out
-                    } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Crop larger (zoom out)")
                 }
             }
 
@@ -274,6 +322,7 @@ struct DMPPCropEditorPane: View {
         }
     }
 }
+
 
 
 
