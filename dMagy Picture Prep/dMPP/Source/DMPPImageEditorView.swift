@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Observation
 
-// dMPP-2025-11-21-NAV2 — Folder navigation + crops + dMPMS sidecar read/write
+// dMPP-2025-11-21-NAV3 — Folder navigation + crops + bottom nav bar + dMPMS sidecar read/write
 
 struct DMPPImageEditorView: View {
 
@@ -19,7 +19,7 @@ struct DMPPImageEditorView: View {
         VStack(spacing: 0) {
 
             // -----------------------------------------------------
-            // [DMPP-SI-TOOLBAR] Top toolbar: folder + navigation + filename
+            // [DMPP-SI-TOOLBAR] Top toolbar: folder only
             // -----------------------------------------------------
             HStack(spacing: 12) {
 
@@ -34,48 +34,56 @@ struct DMPPImageEditorView: View {
                 }
 
                 Spacer()
-
-                Button("Previous") {
-                    goToPreviousImage()
-                }
-                .disabled(!canGoToPrevious)
-
-                Button("Next") {
-                    goToNextImage()
-                }
-                .disabled(!canGoToNext)
-
-                Divider()
-
-                Text(vm?.metadata.sourceFile ?? "No image selected")
-                    .font(.headline.monospaced())
+                // Previous/Next and filename have moved elsewhere.
             }
             .padding()
             .background(.thinMaterial)
-            .frame(maxWidth: .infinity, maxHeight: 60)
-            
+
             Divider()
 
             // -----------------------------------------------------
-            // [DMPP-SI-CONTENT] Main content: either placeholder or editor split view
+            // [DMPP-SI-CONTENT] Main content + bottom nav
             // -----------------------------------------------------
             if let vm {
-                HStack(spacing: 0) {
+                VStack(spacing: 0) {
 
-                    // LEFT — Crops + Preview
-                    DMPPCropEditorPane(vm: vm)
-                        .frame(minWidth: 400)
-                        .padding()
-                        .background(Color(nsColor: .windowBackgroundColor))
+                    HStack(spacing: 0) {
+
+                        // LEFT — Crops + Preview
+                        DMPPCropEditorPane(vm: vm)
+                            .frame(minWidth: 400)
+                            .padding()
+                            .background(Color(nsColor: .windowBackgroundColor))
+
+                        Divider()
+
+                        // RIGHT — Metadata Form
+                        DMPPMetadataFormPane(vm: vm)
+                            .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
+                            .padding()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     Divider()
 
-                    // RIGHT — Metadata Form
-                    DMPPMetadataFormPane(vm: vm)
-                        .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
-                        .padding()
+                    // [DMPP-SI-BOTTOM-NAV] Bottom bar with Previous/Next aligned right
+                    HStack {
+                        Spacer()
+
+                        Button("Previous") {
+                            goToPreviousImage()
+                        }
+                        .disabled(!canGoToPrevious)
+
+                        Button("Next") {
+                            goToNextImage()
+                        }
+                        .disabled(!canGoToNext)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(.thinMaterial)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // [DMPP-SI-EMPTY] Placeholder when no folder / image is selected
                 VStack(spacing: 12) {
@@ -87,16 +95,16 @@ struct DMPPImageEditorView: View {
                         .frame(maxWidth: 420)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-    
             }
         }
     }
 }
 
 
+
 // MARK: - Left Pane
 
-/// [DMPP-SI-LEFT] Crops + image preview + crop controls (tabs but no thumbnails).
+/// [DMPP-SI-LEFT] Crops + image preview + crop controls (segmented tabs above preview).
 struct DMPPCropEditorPane: View {
 
     @Bindable var vm: DMPPImageEditorViewModel
@@ -104,8 +112,33 @@ struct DMPPCropEditorPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            Text("Crops")
-                .font(.title3.bold())
+            // -------------------------------------------------
+            // [DMPP-SI-CROP-TABS] Segmented control for crop selection
+            // -------------------------------------------------
+            if !vm.metadata.virtualCrops.isEmpty {
+                Picker(
+                    "Crop",
+                    selection: Binding(
+                        get: {
+                            vm.selectedCropID
+                            ?? vm.metadata.virtualCrops.first?.id
+                            ?? ""
+                        },
+                        set: { newID in
+                            vm.selectedCropID = newID
+                        }
+                    )
+                ) {
+                    ForEach(vm.metadata.virtualCrops) { crop in
+                        Text(crop.label).tag(crop.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } else {
+                Text("No crops defined. Use “New Crop” to add one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             // -------------------------------------------------
             // [DMPP-SI-PREVIEW-ROW] Main preview + vertical slider
@@ -206,33 +239,6 @@ struct DMPPCropEditorPane: View {
             }
 
             // -------------------------------------------------
-            // [DMPP-SI-CROP-TABS] Segmented control for crop selection
-            // -------------------------------------------------
-            if !vm.metadata.virtualCrops.isEmpty {
-                Picker(
-                    "Crop",
-                    selection: Binding(
-                        get: {
-                            vm.selectedCropID
-                            ?? vm.metadata.virtualCrops.first?.id
-                            ?? ""
-                        },
-                        set: { newID in
-                            vm.selectedCropID = newID
-                        }
-                    )
-                ) {
-                    ForEach(vm.metadata.virtualCrops) { crop in
-                        Text(crop.label).tag(crop.id)
-                    }
-                }
-                .pickerStyle(.segmented)
-            } else {
-                Text("No crops defined. Use “New Crop” to add one.")
-                    .foregroundStyle(.secondary)
-            }
-
-            // -------------------------------------------------
             // [DMPP-SI-CROP-BUTTONS] Crop control buttons
             // -------------------------------------------------
             HStack(spacing: 8) {
@@ -274,6 +280,7 @@ struct DMPPCropEditorPane: View {
 
 
 
+
 // MARK: - Right Pane (Metadata)
 
 struct DMPPMetadataFormPane: View {
@@ -289,19 +296,20 @@ struct DMPPMetadataFormPane: View {
             }
 
             Section("Description") {
-                TextField("Title", text: $vm.metadata.title)
-                TextField("Description", text: $vm.metadata.description, axis: .vertical)
+                TextField("Title: ", text: $vm.metadata.title)
+                TextField("Description: ", text: $vm.metadata.description, axis: .vertical)
                     .lineLimit(2...6)
             }
 
             Section("Date Taken") {
-                TextField("YYYY, YYYY-MM, YYYY-MM-DD, or YYYYs",
+            //    TextField("YYYY, YYYY-MM, YYYY-MM-DD, or YYYYs",
+                TextField("YYYY-MM-DD, YYYY-MM, YYYY, or YYYYs",
                           text: $vm.metadata.dateTaken)
             }
 
             Section("Tags & People") {
                 TextField(
-                    "Tags",
+                    "Tags: ",
                     text: Binding(
                         get: { vm.tagsText },
                         set: { vm.updateTags($0) }
@@ -309,7 +317,7 @@ struct DMPPMetadataFormPane: View {
                 )
 
                 TextField(
-                    "People",
+                    "People: ",
                     text: Binding(
                         get: { vm.peopleText },
                         set: { vm.updatePeople($0) }
@@ -320,6 +328,8 @@ struct DMPPMetadataFormPane: View {
         .formStyle(.grouped)
     }
 }
+
+
 
 
 // MARK: - Image + Crop Preview
@@ -520,55 +530,30 @@ extension DMPPImageEditorView {
     }
 
     // [DMPP-NAV-DEFAULT-META] Default dMPMS metadata for a new image
+    // NOTE: We no longer set default crops here; the ViewModel
+    // will add aspect-correct crops once it knows the image size.
     private func makeDefaultMetadata(for url: URL) -> DmpmsMetadata {
         let filename = url.lastPathComponent
-
-        // Load the image so we know its pixel size for aspect-aware defaults.
-        let nsImage = NSImage(contentsOf: url)
-        let crops = defaultVirtualCrops(for: nsImage?.size)
+        let baseTitle = url.deletingPathExtension().lastPathComponent
 
         return DmpmsMetadata(
             dmpmsVersion: "1.0",
             sourceFile: filename,
-            title: "",
+            title: baseTitle,
             description: "",
             dateTaken: "",
             tags: [],
             people: [],
-            virtualCrops: crops,
+            virtualCrops: [],   // let VM fill these in
             history: []
         )
     }
 
 
-    // [DMPP-NAV-DEFAULT-CROPS] Default crops that respect each image's aspect ratio
-    private func defaultVirtualCrops(for imageSize: CGSize?) -> [VirtualCrop] {
-        let size = imageSize ?? CGSize(width: 1, height: 1)
 
-        let rect16x9 = centeredRectForAspect(
-            "16:9",
-            imageSize: size
-        )
-        let rect8x10 = centeredRectForAspect(
-            "8:10",
-            imageSize: size
-        )
 
-        return [
-            VirtualCrop(
-                id: "crop-16x9-default",
-                label: "Landscape 16:9",
-                aspectRatio: "16:9",
-                rect: rect16x9
-            ),
-            VirtualCrop(
-                id: "crop-8x10-default",
-                label: "Portrait 8x10",
-                aspectRatio: "8:10",
-                rect: rect8x10
-            )
-        ]
-    }
+
+
 
     // [DMPP-NAV-ASPECT-RECT] Build a centered RectNormalized for a given aspect ratio.
     private func centeredRectForAspect(

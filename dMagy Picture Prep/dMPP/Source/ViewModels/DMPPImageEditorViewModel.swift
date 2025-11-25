@@ -55,11 +55,44 @@ class DMPPImageEditorViewModel {
         self.imageURL = imageURL
         self.metadata = metadata
 
+        // If no crops exist (i.e., no sidecar or empty virtualCrops),
+        // create sensible aspect-correct defaults based on the image size.
+        if self.metadata.virtualCrops.isEmpty,
+           let image = NSImage(contentsOf: imageURL) {
+            let imageSize = image.size
+
+            let landscapeRect = centeredRect(
+                forAspectRatio: "16:9",
+                imageSize: imageSize
+            )
+
+            let portraitRect = centeredRect(
+                forAspectRatio: "8:10",
+                imageSize: imageSize
+            )
+
+            self.metadata.virtualCrops = [
+                VirtualCrop(
+                    id: "crop-16x9-default",
+                    label: "Landscape 16:9",
+                    aspectRatio: "16:9",
+                    rect: landscapeRect
+                ),
+                VirtualCrop(
+                    id: "crop-8x10-default",
+                    label: "Portrait 8x10",
+                    aspectRatio: "8:10",
+                    rect: portraitRect
+                )
+            ]
+        }
+
         // Auto-select first crop if available
-        if let first = metadata.virtualCrops.first?.id {
+        if let first = self.metadata.virtualCrops.first?.id {
             self.selectedCropID = first
         }
     }
+
 
     // [DMPP-VM-NSIMAGE] Convenience for SwiftUI Image(nsImage:)
     var nsImage: NSImage? {
