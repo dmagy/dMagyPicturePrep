@@ -89,36 +89,75 @@ struct DMPPImageEditorView: View {
                     Divider()
 
                     // -----------------------------------------------------
-                    // [DMPP-SI-BOTTOM-NAV] Picture + crop navigation
+                    // [DMPP-SI-BOTTOM-NAV] Delete tab inside bar + Save & navigation
                     // -----------------------------------------------------
-                    HStack(spacing: 8) {
-                        Spacer()
+                    ZStack(alignment: .topLeading) {
 
-                        Button("Previous Picture") {
-                            goToPreviousImage()
-                        }
-                        .disabled(!canGoToPrevious)
+                        // Main bottom bar (Save + navigation)
+                        HStack(spacing: 8) {
+                            Spacer()
 
-                        Button("Previous Crop") {
-                            vm.selectPreviousCrop()
-                        }
-                        .disabled(vm.metadata.virtualCrops.isEmpty)
+                            Button("Save") {
+                                saveCurrentMetadata()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut("s", modifiers: [.command])
+                            .help("Save notes and crop for this picture (original photo is never changed).")
 
-                        Button("Next Crop") {
-                            vm.selectNextCrop()
-                        }
-                        .disabled(vm.metadata.virtualCrops.isEmpty)
+                            Button("Previous Picture") {
+                                goToPreviousImage()
+                            }
+                            .disabled(!canGoToPrevious)
 
-                        Button("Next Image") {
-                            goToNextImage()
+                            Button("Previous Crop") {
+                                vm.selectPreviousCrop()
+                            }
+                            .disabled(vm.metadata.virtualCrops.isEmpty)
+
+                            Button("Next Crop") {
+                                vm.selectNextCrop()
+                            }
+                            .disabled(vm.metadata.virtualCrops.isEmpty)
+
+                            Button("Next Image") {
+                                goToNextImage()
+                            }
+                            .disabled(!canGoToNext)
                         }
-                        .disabled(!canGoToNext)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(.thinMaterial)
+
+                        // Delete Crop button in a white rounded box, inset into the bar
+                        if vm.selectedCrop != nil {
+                            Button(action: {
+                                vm.deleteSelectedCrop()
+                            }) {
+                                Text("Delete Crop")
+                                    .font(.caption)
+                                     .fontWeight(.semibold)
+                                     .foregroundColor(.white)              // white letters
+                                     .padding(.horizontal, 16)
+                                     .padding(.vertical, 6)
+                                     .background(
+                                         RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                             .fill(Color.red)
+                                         )
+                            }
+                            .buttonStyle(.plain)           // regular text button
+                            .padding(10)                   // padding *inside* the white box
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.white)     // white round box
+                            )
+                            .padding(.leading, 32)         // horizontal position inside bar
+                            .padding(.top, -16)            // pull it upward into the bar
+                        }
                     }
-                   // .padding([.horizontal, .bottom])
 
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(.thinMaterial)
+
+
+
                 }
             } else {
                 // [DMPP-SI-EMPTY] Placeholder when no folder / image is selected
@@ -149,32 +188,90 @@ struct DMPPCropEditorPane: View {
         VStack(alignment: .leading, spacing: 12) {
 
             // -------------------------------------------------
-            // [DMPP-SI-CROP-TABS] Segmented control for crop selection
+            // [DMPP-SI-CROP-ROW] Segmented crops + New Crop menu on one row
             // -------------------------------------------------
-            if !vm.metadata.virtualCrops.isEmpty {
-                Picker(
-                    "Crops",
-                    selection: Binding(
-                        get: {
-                            vm.selectedCropID
-                            ?? vm.metadata.virtualCrops.first?.id
-                            ?? ""
-                        },
-                        set: { newID in
-                            vm.selectedCropID = newID
+            HStack(alignment: .center, spacing: 12) {
+
+                // Segmented control for existing crops (left)
+                if !vm.metadata.virtualCrops.isEmpty {
+                    Picker(
+                        "Crops",
+                        selection: Binding(
+                            get: {
+                                vm.selectedCropID
+                                ?? vm.metadata.virtualCrops.first?.id
+                                ?? ""
+                            },
+                            set: { newID in
+                                vm.selectedCropID = newID
+                            }
+                        )
+                    ) {
+                        ForEach(vm.metadata.virtualCrops) { crop in
+                            Text(crop.label).tag(crop.id)
                         }
-                    )
-                ) {
-                    ForEach(vm.metadata.virtualCrops) { crop in
-                        Text(crop.label).tag(crop.id)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("No crops defined. Use “New Crop” to add one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // New Crop menu (right)
+                Menu("New Crop") {
+
+                    // Screen
+                    Text("Screen")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Original (full image)") {
+                        vm.addPresetOriginalCrop()
+                    }
+                    Button("Landscape 16:9") {
+                        vm.addPresetLandscape16x9()
+                    }
+                    Button("Portrait 9:16") {
+                        vm.addPresetPortrait9x16()
+                    }
+                    Button("Landscape 4:3") {
+                        vm.addPresetLandscape4x3()
+                    }
+
+                    Divider()
+
+                    // Print & Frames
+                    Text("Print & Frames")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Portrait 8×10") {
+                        vm.addPresetPortrait8x10()
+                    }
+                    Button("Landscape 4×6") {
+                        vm.addPresetLandscape4x6()
+                    }
+
+                    Divider()
+
+                    // Other
+                    Text("Other")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Square 1:1") {
+                        vm.addPresetSquare1x1()
+                    }
+                    Button("Custom…") {
+                        vm.addCustomCrop()
                     }
                 }
-                .pickerStyle(.segmented)
-            } else {
-                Text("No crops defined. Use “New Crop” to add one.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .padding(.trailing, 73)
             }
+
 
             // -------------------------------------------------
             // [DMPP-SI-PREVIEW-ROW] Main preview + vertical controls
@@ -219,109 +316,57 @@ struct DMPPCropEditorPane: View {
 
                 // [DMPP-SI-CROP-CONTROLS] Crop column: title, +, slider, -
                 if vm.selectedCrop != nil {
-                    VStack(spacing: 8) {
-                        Text("Crop")
-                            .font(.caption)
+                    GeometryReader { sliderGeo in
+                        VStack(spacing: 8) {
+                            Text("Crop")
+                                .font(.caption)
 
-                        // Top: Zoom in → larger crop
-                        Button {
-                            vm.scaleSelectedCrop(by: 1.1)
-                        } label: {
-                            Image(systemName: "plus")
+                            // Zoom in → smaller crop
+                            Button {
+                                vm.scaleSelectedCrop(by: 0.9)
+                            } label: {
+                                Image(systemName: "plus")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .help("Larger crop")
+
+                            Spacer(minLength: 8)
+
+                            Slider(
+                                value: Binding(
+                                    get: { vm.selectedCropSizeSliderValue },
+                                    set: { vm.selectedCropSizeSliderValue = $0 }
+                                ),
+                                in: 0...1
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .frame(height: max(sliderGeo.size.height - 80, 100))
+
+                            Spacer(minLength: 8)
+
+                            // Zoom out → larger crop
+                            Button {
+                                vm.scaleSelectedCrop(by: 1.1)
+                            } label: {
+                                Image(systemName: "minus")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .help("Smaller crop")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .help("Larger crop")
-
-                        Spacer(minLength: 8)
-
-                        // Tall vertical slider whose *length* matches column height
-                                           GeometryReader { sliderGeo in
-                                               Slider(
-                                                   value: Binding(
-                                                       get: { vm.selectedCropSizeSliderValue },
-                                                       set: { vm.selectedCropSizeSliderValue = $0 }
-                                                   ),
-                                                   in: 0...1
-                                               )
-                                               // IMPORTANT:
-                                               // - We set the width BEFORE rotation so that
-                                               //   after a -90° rotation, that width becomes
-                                               //   the vertical length of the slider.
-                                               .frame(width: max(sliderGeo.size.height - 40, 120))
-                                               .rotationEffect(.degrees(-90))
-                                               // Center the rotated slider inside the column
-                                               .position(
-                                                   x: sliderGeo.size.width / 2,
-                                                   y: sliderGeo.size.height / 2
-                                               )
-                                           }
-                                           .frame(maxHeight: .infinity)
-
-                        Spacer(minLength: 8)
-
-                        // Bottom: Zoom out → smaller crop
-                        Button {
-                            vm.scaleSelectedCrop(by: 0.9)
-                        } label: {
-                            Image(systemName: "minus")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .help("Smaller crop")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(width: 60)
-                    .frame(maxHeight: .infinity)
-
-                }
-
-            }
-
-            // [DMPP-SI-ASPECT-LABEL] Aspect label only (buttons moved to control column)
-            if vm.selectedCrop != nil {
-                HStack(spacing: 8) {
-                    Text(vm.selectedCropAspectDescription)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
                 }
             }
 
-            // -------------------------------------------------
-            // [DMPP-SI-CROP-BUTTONS] Crop control buttons
-            // -------------------------------------------------
-            HStack(spacing: 8) {
+            // [DMPP-SI-ASPECT-LABEL] (hidden for now)
+            // We used to show the computed aspect ratio here,
+            // but that's more technical than most users need.
 
-                Menu("Select Crop") {
-                    Button("Landscape 16:9") {
-                        vm.addPresetCropLandscape()
-                    }
-                    Button("Portrait 8x10") {
-                        vm.addPresetCropPortrait()
-                    }
-                    Button("Square 1:1") {
-                        vm.addPresetCropSquare()
-                    }
-                }
-
-                Button("New Crop") {
-                    vm.newCrop()
-                }
-
-                Button("Duplicate") {
-                    vm.duplicateSelectedCrop()
-                }
-                .disabled(vm.selectedCrop == nil)
-
-                Button("Delete") {
-                    vm.deleteSelectedCrop()
-                }
-                .disabled(vm.selectedCrop == nil)
-
-                Spacer()
-            }
         }
     }
 }
+
 
 
 

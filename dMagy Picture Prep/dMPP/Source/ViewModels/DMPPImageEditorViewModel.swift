@@ -147,66 +147,188 @@ class DMPPImageEditorViewModel {
     // [DMPP-VM-CROPS] Crop management: add / duplicate / delete
     // ============================================================
 
-    /// Add a preset 16:9 landscape crop.
-    func addPresetCropLandscape() {
-        let aspect = "16:9"
+    /// [DMPP-VM-GCD] Helper to compute integer aspect ratio from image size.
+    private func gcd(_ a: Int, _ b: Int) -> Int {
+        var x = abs(a)
+        var y = abs(b)
+        if x == 0 { return max(y, 1) }
+        if y == 0 { return max(x, 1) }
+        while y != 0 {
+            let r = x % y
+            x = y
+            y = r
+        }
+        return max(x, 1)
+    }
 
-        let rect: RectNormalized
-        if let size = nsImage?.size {
-            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
+    /// [DMPP-VM-CENTERED-RECT] Compute a centered RectNormalized for a desired aspect.
+    private func defaultRect(forAspectWidth aw: Int, aspectHeight ah: Int) -> RectNormalized {
+        // If we have a real image size, use the centeredRect helper.
+        if let nsImage, nsImage.size.width > 0, nsImage.size.height > 0 {
+            let aspectString = "\(aw):\(ah)"
+            return centeredRect(forAspectRatio: aspectString, imageSize: nsImage.size)
         } else {
-            // Fallback if we somehow don't have an image yet.
-            rect = RectNormalized(x: 0.0, y: 0.1, width: 1.0, height: 0.8)
+            // Fallback: full frame.
+            return RectNormalized(x: 0, y: 0, width: 1, height: 1)
+        }
+    }
+
+    /// Core helper to append a crop and select it.
+    private func addCrop(
+        label: String,
+        aspectWidth: Int,
+        aspectHeight: Int,
+        rect: RectNormalized
+    ) {
+        // Build an id prefix from the numeric aspect when available.
+        let idPrefix: String
+        if aspectWidth > 0 && aspectHeight > 0 {
+            idPrefix = "crop-\(aspectWidth)x\(aspectHeight)"
+        } else {
+            idPrefix = "crop-custom"
         }
 
-        createVirtualCrop(
+        let id = makeUniqueCropID(prefix: idPrefix)
+
+        // Turn numeric aspect into a string like "16:9" or mark it as "custom".
+        let aspectString: String
+        if aspectWidth > 0 && aspectHeight > 0 {
+            aspectString = "\(aspectWidth):\(aspectHeight)"
+        } else {
+            aspectString = "custom"
+        }
+
+        let crop = VirtualCrop(
+            id: id,
+            label: label,
+            aspectRatio: aspectString,
+            rect: rect
+        )
+
+        metadata.virtualCrops.append(crop)
+        selectedCropID = crop.id
+    }
+
+
+    // MARK: - Screen presets
+
+    /// [CR-PRESET-ORIGINAL] Original (full image) — aspect from actual pixels.
+    func addPresetOriginalCrop() {
+        // Full-frame rect
+        let rect = RectNormalized(x: 0, y: 0, width: 1, height: 1)
+
+        // Derive integer aspect ratio from the image size if possible.
+        let aw: Int
+        let ah: Int
+        if let nsImage, nsImage.size.width > 0, nsImage.size.height > 0 {
+            let w = Int(nsImage.size.width.rounded())
+            let h = Int(nsImage.size.height.rounded())
+            let g = gcd(w, h)
+            aw = max(w / g, 1)
+            ah = max(h / g, 1)
+        } else {
+            // Fallback: unknown aspect, treat as "freeform"
+            aw = 0
+            ah = 0
+        }
+
+        addCrop(
+            label: "Original (full image)",
+            aspectWidth: aw,
+            aspectHeight: ah,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-16x9] Landscape 16:9 (screen)
+    func addPresetLandscape16x9() {
+        let rect = defaultRect(forAspectWidth: 16, aspectHeight: 9)
+        addCrop(
             label: "Landscape 16:9",
-            aspectRatio: aspect,
+            aspectWidth: 16,
+            aspectHeight: 9,
             rect: rect
         )
     }
 
-    /// Add a preset 8x10 portrait crop.
-    func addPresetCropPortrait() {
-        let aspect = "8:10"
-
-        let rect: RectNormalized
-        if let size = nsImage?.size {
-            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
-        } else {
-            rect = RectNormalized(x: 0.15, y: 0.0, width: 0.70, height: 1.0)
-        }
-
-        createVirtualCrop(
-            label: "Portrait 8x10",
-            aspectRatio: aspect,
+    /// [CR-PRESET-9x16] Portrait 9:16 (vertical screen)
+    func addPresetPortrait9x16() {
+        let rect = defaultRect(forAspectWidth: 9, aspectHeight: 16)
+        addCrop(
+            label: "Portrait 9:16",
+            aspectWidth: 9,
+            aspectHeight: 16,
             rect: rect
         )
     }
 
-    /// Add a preset 1:1 square crop.
-    func addPresetCropSquare() {
-        let aspect = "1:1"
+    /// [CR-PRESET-4x3] Landscape 4:3 (classic screen/tablet)
+    func addPresetLandscape4x3() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 3)
+        addCrop(
+            label: "Landscape 4:3",
+            aspectWidth: 4,
+            aspectHeight: 3,
+            rect: rect
+        )
+    }
 
-        let rect: RectNormalized
-        if let size = nsImage?.size {
-            rect = centeredRect(forAspectRatio: aspect, imageSize: size)
-        } else {
-            rect = RectNormalized(x: 0.15, y: 0.1, width: 0.7, height: 0.7)
-        }
+    // MARK: - Print & frames
 
-        createVirtualCrop(
+    /// [CR-PRESET-8x10] Portrait 8×10 (4:5)
+    func addPresetPortrait8x10() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+        addCrop(
+            label: "Portrait 8×10",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-4x6] Landscape 4×6 (3:2)
+    func addPresetLandscape4x6() {
+        let rect = defaultRect(forAspectWidth: 3, aspectHeight: 2)
+        addCrop(
+            label: "Landscape 4×6",
+            aspectWidth: 3,
+            aspectHeight: 2,
+            rect: rect
+        )
+    }
+
+    // MARK: - Other
+
+    /// [CR-PRESET-1x1] Square 1:1
+    func addPresetSquare1x1() {
+        let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
+        addCrop(
             label: "Square 1:1",
-            aspectRatio: aspect,
+            aspectWidth: 1,
+            aspectHeight: 1,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-CUSTOM] Custom crop — currently a freeform centered square.
+    /// (aspectWidth/aspectHeight = 0 → treated as "custom/freeform" in UI).
+    func addCustomCrop() {
+        // Start from a centered square-ish rect.
+        let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
+        addCrop(
+            label: "Custom",
+            aspectWidth: 0,
+            aspectHeight: 0,
             rect: rect
         )
     }
 
     /// [DMPP-VM-NEW-CROP] Generic "New Crop" action used by the button.
-    /// Currently defaults to a new landscape crop.
+    /// For now, this creates another Landscape 16:9 crop.
     func newCrop() {
-        addPresetCropLandscape()
+        addPresetLandscape16x9()
     }
+
 
 
 
