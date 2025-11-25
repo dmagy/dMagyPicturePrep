@@ -332,15 +332,28 @@ struct DMPPCropEditorPane: View {
 
                             Spacer(minLength: 8)
 
-                            Slider(
-                                value: Binding(
-                                    get: { vm.selectedCropSizeSliderValue },
-                                    set: { vm.selectedCropSizeSliderValue = $0 }
-                                ),
-                                in: 0...1
-                            )
-                            .rotationEffect(.degrees(-90))
-                            .frame(height: max(sliderGeo.size.height - 80, 100))
+                            // Tall vertical slider whose *length* matches column height
+                                                   GeometryReader { sliderGeo in
+                                                       Slider(
+                                                           value: Binding(
+                                                               get: { vm.selectedCropSizeSliderValue },
+                                                               set: { vm.selectedCropSizeSliderValue = $0 }
+                                                           ),
+                                                           in: 0...1
+                                                       )
+                                                       // IMPORTANT:
+                                                       // - We set the width BEFORE rotation so that
+                                                       //   after a -90° rotation, that width becomes
+                                                       //   the vertical length of the slider.
+                                                       .frame(width: max(sliderGeo.size.height - 40, 120))
+                                                       .rotationEffect(.degrees(-90))
+                                                       // Center the rotated slider inside the column
+                                                       .position(
+                                                           x: sliderGeo.size.width / 2,
+                                                           y: sliderGeo.size.height / 2
+                                                       )
+                                                   }
+                                                   .frame(maxHeight: .infinity)
 
                             Spacer(minLength: 8)
 
