@@ -309,6 +309,19 @@ class DMPPImageEditorViewModel {
             rect: rect
         )
     }
+    
+    /// [CR-PRESET-HEADSHOT-8x10] Headshot 8×10 (4:5) – same aspect as Portrait 8×10,
+    /// but labeled separately so we can show special headshot guides in the UI.
+    func addPresetHeadshot8x10() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+        addCrop(
+            label: "Headshot 8×10",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            rect: rect
+        )
+    }
+
 
     /// [CR-PRESET-CUSTOM] Custom crop — currently a freeform centered square.
     /// (aspectWidth/aspectHeight = 0 → treated as "custom/freeform" in UI).

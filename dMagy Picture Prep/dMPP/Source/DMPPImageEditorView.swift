@@ -263,6 +263,9 @@ struct DMPPImageEditorView: View {
                         Button("Portrait 8×10") {
                             vm.addPresetPortrait8x10()
                         }
+                        Button("Headshot 8×10") {
+                            vm.addPresetHeadshot8x10()
+                        }
                         Button("Landscape 4×6") {
                             vm.addPresetLandscape4x6()
                         }
@@ -302,13 +305,15 @@ struct DMPPImageEditorView: View {
                                     
                                     DMPPCropOverlayView(
                                         image: nsImage,
-                                        rect: selectedCrop.rect
+                                        rect: selectedCrop.rect,
+                                        isHeadshot: selectedCrop.label.contains("Headshot")
                                     ) { newRect in
                                         vm.updateVirtualCropRect(
                                             cropID: selectedCrop.id,
                                             newRect: newRect
                                         )
                                     }
+
                                 }
                             }
                         }
