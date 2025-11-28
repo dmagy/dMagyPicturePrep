@@ -2,7 +2,7 @@
 //  DMPPCropOverlayView.swift
 //  dMagy Picture Prep
 //
-//  cp-2025-11-22-VC11 — Draggable crop overlay (no handles)
+//  cp-2025-11-22-VC11+TINT — Draggable crop overlay with outside tint + optional headshot guides
 //
 
 import SwiftUI
@@ -10,96 +10,171 @@ import AppKit
 
 // MARK: - Image + Crop Overlay
 
-/// [DMPP-SI-PREVIEW] Real image preview with a crop overlay (non-interactive for now).
+
+/// Draws the crop overlay on top of the image:
+/// - darkens outside the crop
+/// - shows a dashed border
+/// - draws headshot guides when needed
+/// - supports drag-to-move for all crops
+/// - supports a bottom-right resize handle for freeform crops.
 struct DMPPCropOverlayView: View {
 
     let image: NSImage
     let rect: RectNormalized
     let isHeadshot: Bool
+    let isFreeform: Bool
     let onRectChange: (RectNormalized) -> Void
+    
+    @Environment(\.colorScheme) private var colorScheme
+
+     // Tuning knobs
+     private var overlayColor: Color {
+         // Recommended: always dark tint
+         .black
+     }
+
+     private var overlayOpacity: Double {
+         switch colorScheme {
+         case .light:
+             return 0.45   // medium dim
+         case .dark:
+             return 0.6    // a bit stronger so the crop really pops
+         @unknown default:
+             return 0.5
+         }
+     }
 
     @State private var dragStartRect: RectNormalized?
+    @State private var resizeStartRect: RectNormalized?
+    @State private var resizeStartLocation: CGPoint?
 
     var body: some View {
         GeometryReader { geo in
+            let container = geo.frame(in: .local)
+            let imageRect = fitImageRect(imageSize: image.size, in: container)
+
+            let cropFrame = CGRect(
+                x: imageRect.minX + CGFloat(rect.x) * imageRect.width,
+                y: imageRect.minY + CGFloat(rect.y) * imageRect.height,
+                width: CGFloat(rect.width) * imageRect.width,
+                height: CGFloat(rect.height) * imageRect.height
+            )
+
             ZStack {
-                // [OVL-IMG] The image is already drawn by the parent ZStack in DMPPCropEditorPane.
-                // This overlay just draws crop + extras and handles gestures.
-
-                // --- Compute image & crop frames in view space ---
-                let imageSize = image.size
-                let container = geo.frame(in: .local)
-
-                // Fit the image into the container, preserving aspect ratio
-                let imageRect = fitImageRect(imageSize: imageSize, in: container)
-
-                // Convert normalized crop rect (0–1) into image-space rect
-                let cropFrame = CGRect(
-                    x: imageRect.minX + CGFloat(rect.x) * imageRect.width,
-                    y: imageRect.minY + CGFloat(rect.y) * imageRect.height,
-                    width: CGFloat(rect.width) * imageRect.width,
-                    height: CGFloat(rect.height) * imageRect.height
+                // 1) Dim everything *inside the image* except the crop.
+                Path { path in
+                    path.addRect(imageRect)
+                    path.addRect(cropFrame)
+                }
+                .fill(
+                   Color.black.opacity(0.65),
+                    style: FillStyle(eoFill: true) // even-odd: "hole" where crop is
                 )
 
-                // --- Main dashed crop border ---
+                // 2) Dashed crop border.
                 Path { path in
                     path.addRect(cropFrame)
                 }
-                .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                .foregroundStyle(Color.white)
+                .stroke(
+                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                )
+                .foregroundStyle(.white)
 
-                // --- Headshot crosshairs (only for headshot crops) ---
+                // 3) Headshot guides (8×10 grid: X at 2 & 6, Y at 1 & 7)
                 if isHeadshot {
-                    Path { path in
-                        // Treat crop as an 8×10 grid.
-                        // Vertical crosshairs at X = 2 and 6 (of 8 width)
-                        // Horizontal crosshairs at Y = 1 and 7 (of 10 height)
+                    let dashStyle = StrokeStyle(lineWidth: 1, dash: [4, 3])
 
-                        let colWidth  = cropFrame.width / 8.0
-                        let rowHeight = cropFrame.height / 10.0
+                    let v1 = cropFrame.minX + cropFrame.width  * (2.0 / 8.0)
+                    let v2 = cropFrame.minX + cropFrame.width  * (6.0 / 8.0)
+                    let h1 = cropFrame.minY + cropFrame.height * (1.0 / 10.0)
+                    let h2 = cropFrame.minY + cropFrame.height * (7.0 / 10.0)
 
-                        // Vertical line at 2/8
-                        let v2x = cropFrame.minX + 2.0 * colWidth
-                        path.move(to: CGPoint(x: v2x, y: cropFrame.minY))
-                        path.addLine(to: CGPoint(x: v2x, y: cropFrame.maxY))
-
-                        // Vertical line at 6/8
-                        let v6x = cropFrame.minX + 6.0 * colWidth
-                        path.move(to: CGPoint(x: v6x, y: cropFrame.minY))
-                        path.addLine(to: CGPoint(x: v6x, y: cropFrame.maxY))
-
-                        // Horizontal line at 1/10
-                        let h1y = cropFrame.minY + 1.0 * rowHeight
-                        path.move(to: CGPoint(x: cropFrame.minX, y: h1y))
-                        path.addLine(to: CGPoint(x: cropFrame.maxX, y: h1y))
-
-                        // Horizontal line at 7/10
-                        let h7y = cropFrame.minY + 7.0 * rowHeight
-                        path.move(to: CGPoint(x: cropFrame.minX, y: h7y))
-                        path.addLine(to: CGPoint(x: cropFrame.maxX, y: h7y))
+                    // Vertical at 2/8
+                    Path { p in
+                        p.move(to: CGPoint(x: v1, y: cropFrame.minY))
+                        p.addLine(to: CGPoint(x: v1, y: cropFrame.maxY))
                     }
-                    .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .foregroundStyle(Color.white.opacity(0.9))
+                    .stroke(Color.white.opacity(0.9), style: dashStyle)
+
+                    // Vertical at 6/8
+                    Path { p in
+                        p.move(to: CGPoint(x: v2, y: cropFrame.minY))
+                        p.addLine(to: CGPoint(x: v2, y: cropFrame.maxY))
+                    }
+                    .stroke(Color.white.opacity(0.9), style: dashStyle)
+
+                    // Horizontal at 1/10
+                    Path { p in
+                        p.move(to: CGPoint(x: cropFrame.minX, y: h1))
+                        p.addLine(to: CGPoint(x: cropFrame.maxX, y: h1))
+                    }
+                    .stroke(Color.white.opacity(0.9), style: dashStyle)
+
+                    // Horizontal at 7/10
+                    Path { p in
+                        p.move(to: CGPoint(x: cropFrame.minX, y: h2))
+                        p.addLine(to: CGPoint(x: cropFrame.maxX, y: h2))
+                    }
+                    .stroke(Color.white.opacity(0.9), style: dashStyle)
                 }
 
+                // 4) Freeform resize handle in the bottom-right corner.
+                if isFreeform {
+                    let handleSize: CGFloat = 14
+                    let handleRect = CGRect(
+                        x: cropFrame.maxX - handleSize,
+                        y: cropFrame.maxY - handleSize,
+                        width: handleSize,
+                        height: handleSize
+                    )
 
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .strokeBorder(Color.white, lineWidth: 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(Color.black.opacity(0.6))
+                        )
+                        .frame(width: handleRect.width, height: handleRect.height)
+                        .position(x: handleRect.midX, y: handleRect.midY)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { value in
+                                    if resizeStartRect == nil || resizeStartLocation == nil {
+                                        resizeStartRect = rect
+                                        resizeStartLocation = value.startLocation
+                                    }
+                                    guard let startRect = resizeStartRect,
+                                          let startLocation = resizeStartLocation
+                                    else { return }
+
+                                    // Convert drag delta from points → normalized
+                                    let dxNorm = Double((value.location.x - startLocation.x) / imageRect.width)
+                                    let dyNorm = Double((value.location.y - startLocation.y) / imageRect.height)
+
+                                    var newRect = startRect
+                                    newRect.width = max(0.01, min(1.0 - newRect.x, startRect.width + dxNorm))
+                                    newRect.height = max(0.01, min(1.0 - newRect.y, startRect.height + dyNorm))
+
+                                    onRectChange(newRect)
+                                }
+                                .onEnded { _ in
+                                    resizeStartRect = nil
+                                    resizeStartLocation = nil
+                                }
+                        )
+                }
             }
-            // You still have drag / gesture handling here; preserving it:
+            // 5) Dragging the whole crop.
             .contentShape(Rectangle())
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        let imageSize = image.size
-                        let container = geo.frame(in: .local)
-                        let imageRect = fitImageRect(imageSize: imageSize, in: container)
-
                         if dragStartRect == nil {
                             dragStartRect = rect
                         }
-
                         guard let startRect = dragStartRect else { return }
 
-                        let dx = Double(value.translation.width / imageRect.width)
+                        let dx = Double(value.translation.width  / imageRect.width)
                         let dy = Double(value.translation.height / imageRect.height)
 
                         var newRect = startRect
@@ -140,5 +215,3 @@ struct DMPPCropOverlayView: View {
         }
     }
 }
-
-

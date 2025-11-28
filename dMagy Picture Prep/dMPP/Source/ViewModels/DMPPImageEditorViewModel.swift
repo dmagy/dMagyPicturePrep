@@ -321,7 +321,21 @@ class DMPPImageEditorViewModel {
             rect: rect
         )
     }
+    /// [CR-PRESET-FREEFORM] Freeform crop (per-image, no fixed aspect).
+     ///
+     /// Uses aspectWidth = 0, aspectHeight = 0 in dMPMS to indicate a freeform crop.
+     /// Starts as a centered 1:1 rect; users can then reshape it with the freeform tools.
+     func addFreeformCrop() {
+         // Start from a centered square-ish rect based on the actual image size.
+         let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
 
+         addCrop(
+             label: "Freeform",
+             aspectWidth: 0,
+             aspectHeight: 0,
+             rect: rect
+         )
+     }
 
     /// [CR-PRESET-CUSTOM] Custom crop — currently a freeform centered square.
     /// (aspectWidth/aspectHeight = 0 → treated as "custom/freeform" in UI).
@@ -696,8 +710,11 @@ extension DMPPImageEditorViewModel {
     /// 0.1 = 10% of the max possible crop, 1.0 = full max crop.
   
 
-    /// Slider value in [0, 1] that controls the selected crop's size.
-    /// 0 → smallest crop (zoomed in), 1 → largest crop (zoomed out).
+    // ============================================================
+    // [DMPP-VM-CROP-SLIDER] UI binding for crop size slider
+    //  - Fixed-aspect crops: behave as before (scale against maxRect)
+    //  - Freeform ("custom") crops: keep current aspect ratio
+    // ============================================================
     var selectedCropSizeSliderValue: Double {
         get {
             guard let crop = selectedCrop,
@@ -705,22 +722,35 @@ extension DMPPImageEditorViewModel {
                 return 1.0
             }
 
-            // Largest possible rect for this aspect in this image.
-            let maxRect = centeredRect(
-                forAspectRatio: crop.aspectRatio,
-                imageSize: size
-            )
+            let isFreeform = (crop.aspectRatio == "custom")
 
-            guard maxRect.width > 0, maxRect.height > 0 else {
-                return 1.0
+            if isFreeform {
+                // For freeform, use the larger dimension as our "scale"
+                let w = crop.rect.width
+                let h = crop.rect.height
+                guard w > 0, h > 0 else { return 1.0 }
+
+                let rawScale = max(w, h)
+                let clampedScale = min(max(rawScale, minCropScale), maxCropScale)
+
+                // Map [minCropScale, maxCropScale] → [0, 1]
+                return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
+            } else {
+                // Existing behavior for fixed-aspect crops
+                let maxRect = centeredRect(
+                    forAspectRatio: crop.aspectRatio,
+                    imageSize: size
+                )
+
+                guard maxRect.width > 0, maxRect.height > 0 else {
+                    return 1.0
+                }
+
+                let scale = crop.rect.width / maxRect.width
+                let clampedScale = min(max(scale, minCropScale), maxCropScale)
+
+                return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
             }
-
-            // Because we always scale uniformly, width ratio is enough.
-            let scale = crop.rect.width / maxRect.width
-            let clampedScale = min(max(scale, minCropScale), maxCropScale)
-
-            // Map [minCropScale, maxCropScale] → [0, 1]
-            return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
         }
         set {
             guard let id = selectedCropID,
@@ -728,41 +758,81 @@ extension DMPPImageEditorViewModel {
                   let size = nsImage?.size else { return }
 
             var crop = metadata.virtualCrops[index]
-
-            let maxRect = centeredRect(
-                forAspectRatio: crop.aspectRatio,
-                imageSize: size
-            )
-            guard maxRect.width > 0, maxRect.height > 0 else { return }
+            let isFreeform = (crop.aspectRatio == "custom")
 
             // Clamp slider to [0, 1], then map → [minCropScale, maxCropScale]
             let slider = min(max(newValue, 0.0), 1.0)
             let targetScale = minCropScale + (maxCropScale - minCropScale) * slider
 
-            // Keep current center, change size.
-            let centerX = crop.rect.x + crop.rect.width / 2.0
-            let centerY = crop.rect.y + crop.rect.height / 2.0
+            if isFreeform {
+                // Freeform: preserve current aspect ratio, scale uniformly
+                let aspect = crop.rect.height > 0
+                    ? crop.rect.width / crop.rect.height
+                    : 1.0
 
-            var newWidth = maxRect.width * targetScale
-            var newHeight = maxRect.height * targetScale
+                var newWidth: Double
+                var newHeight: Double
 
-            // Extra safety clamp in case of odd old data.
-            newWidth = min(max(newWidth, minCropScale), maxCropScale)
-            newHeight = min(max(newHeight, minCropScale), maxCropScale)
+                if aspect >= 1.0 {
+                    // Wider than tall; width drives scale (up to full width = 1.0)
+                    newWidth = targetScale
+                    newHeight = targetScale / max(aspect, 0.0001)
+                } else {
+                    // Taller than wide; height drives scale
+                    newHeight = targetScale
+                    newWidth = targetScale * aspect
+                }
 
-            var newX = centerX - newWidth / 2.0
-            var newY = centerY - newHeight / 2.0
+                // Keep the crop center fixed
+                let centerX = crop.rect.x + crop.rect.width / 2.0
+                let centerY = crop.rect.y + crop.rect.height / 2.0
 
-            // Clamp inside [0, 1] × [0, 1]
-            newX = min(max(newX, 0.0), 1.0 - newWidth)
-            newY = min(max(newY, 0.0), 1.0 - newHeight)
+                var newX = centerX - newWidth / 2.0
+                var newY = centerY - newHeight / 2.0
 
-            crop.rect = RectNormalized(
-                x: newX,
-                y: newY,
-                width: newWidth,
-                height: newHeight
-            )
+                // Clamp inside [0, 1] × [0, 1]
+                newX = min(max(newX, 0.0), 1.0 - newWidth)
+                newY = min(max(newY, 0.0), 1.0 - newHeight)
+
+                crop.rect = RectNormalized(
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight
+                )
+            } else {
+                // Existing behavior for fixed-aspect crops
+                let maxRect = centeredRect(
+                    forAspectRatio: crop.aspectRatio,
+                    imageSize: size
+                )
+                guard maxRect.width > 0, maxRect.height > 0 else { return }
+
+                let centerX = crop.rect.x + crop.rect.width / 2.0
+                let centerY = crop.rect.y + crop.rect.height / 2.0
+
+                var newWidth = maxRect.width * targetScale
+                var newHeight = maxRect.height * targetScale
+
+                // Extra safety clamp
+                newWidth = min(max(newWidth, minCropScale), maxCropScale)
+                newHeight = min(max(newHeight, minCropScale), maxCropScale)
+
+                var newX = centerX - newWidth / 2.0
+                var newY = centerY - newHeight / 2.0
+
+                // Clamp inside [0, 1] × [0, 1]
+                newX = min(max(newX, 0.0), 1.0 - newWidth)
+                newY = min(max(newY, 0.0), 1.0 - newHeight)
+
+                crop.rect = RectNormalized(
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight
+                )
+            }
+
             metadata.virtualCrops[index] = crop
 
             let event = HistoryEvent(
@@ -777,6 +847,7 @@ extension DMPPImageEditorViewModel {
             saveCurrentMetadata()
         }
     }
+
 
     // MARK: - [VC-UPDATE-RECT] Update the rectangle of a crop
 
