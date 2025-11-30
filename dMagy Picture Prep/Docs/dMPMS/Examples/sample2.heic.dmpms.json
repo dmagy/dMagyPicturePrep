@@ -14,8 +14,8 @@
 
   "virtual_crops": [
     {
-      "id": "crop-8x10-01",
-      "label": "Portrait 8x10",
+      "id": "crop-8×10-01",
+      "label": "Portrait 8×10",
       "aspect_ratio": "8:10",
       "rect": { "x": 0.15, "y": 0.05, "width": 0.70, "height": 0.90 }
     },
@@ -36,7 +36,7 @@
     },
     {
       "action": "added_crop",
-      "crop_id": "crop-8x10-01",
+      "crop_id": "crop-8×10-01",
       "timestamp": "2024-04-13T09:15:00-06:00"
     },
     {

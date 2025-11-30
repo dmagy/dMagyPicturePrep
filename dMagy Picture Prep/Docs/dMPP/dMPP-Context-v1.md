@@ -82,7 +82,7 @@ Each image loads with:
 * **Two default crops:**
 
   * `Landscape 16:9`
-  * `Portrait 8x10`
+  * `Portrait 8×10`
 
 User can:
 

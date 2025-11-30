@@ -87,7 +87,7 @@ All editing is live-bound to the ViewModel.
 Every image loads with two default crops:
 
 * **Landscape 16:9**
-* **Portrait 8x10**
+* **Portrait 8×10**
 
 Users can:
 

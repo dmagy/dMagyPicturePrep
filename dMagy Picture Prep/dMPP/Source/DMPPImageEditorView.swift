@@ -620,6 +620,7 @@ extension DMPPImageEditorView {
 
         return DmpmsMetadata(
             dmpmsVersion: "1.0",
+            dmpmsNotice: "Created by dMagy Picture Prep. Stores metadata and crop settings for this photo. Deleting it erases edits (not the original image).",
             sourceFile: filename,
             title: baseTitle,
             description: "",

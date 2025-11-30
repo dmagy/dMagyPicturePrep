@@ -80,7 +80,7 @@ class DMPPImageEditorViewModel {
                     rect: landscapeRect
                 ),
                 VirtualCrop(
-                    id: "crop-8x10-default",
+                    id: "crop-8×10-default",
                     label: "Portrait 8×10",
                     aspectRatio: "4:5",
                     rect: portraitRect
@@ -276,7 +276,7 @@ class DMPPImageEditorViewModel {
 
     // MARK: - Print & frames
 
-    /// [CR-PRESET-8x10] Portrait 8×10 (4:5)
+    /// [CR-PRESET-8×10] Portrait 8×10 (4:5)
     func addPresetPortrait8x10() {
         let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
         addCrop(
@@ -311,7 +311,7 @@ class DMPPImageEditorViewModel {
         )
     }
     
-    /// [CR-PRESET-HEADSHOT-8x10] Headshot 8×10 (4:5) – same aspect as Portrait 8×10,
+    /// [CR-PRESET-HEADSHOT-8×10] Headshot 8×10 (4:5) – same aspect as Portrait 8×10,
     /// but labeled separately so we can show special headshot guides in the UI.
     func addPresetHeadshot8x10() {
         let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
@@ -844,9 +844,21 @@ extension DMPPImageEditorViewModel {
                 newName: crop.label,
                 cropID: crop.id
             )
-            metadata.history.append(event)
+
+            if let lastIndex = metadata.history.indices.last {
+                let last = metadata.history[lastIndex]
+                if last.action == event.action,
+                   last.cropID == event.cropID {
+                    metadata.history[lastIndex] = event
+                } else {
+                    metadata.history.append(event)
+                }
+            } else {
+                metadata.history.append(event)
+            }
 
             saveCurrentMetadata()
+
         }
     }
 
@@ -855,6 +867,10 @@ extension DMPPImageEditorViewModel {
 
     /// [VC-UPDATE-RECT] Update the crop's normalized rectangle
     /// when the user drags/resizes in the UI.
+    ///
+    /// To avoid history spam, we *coalesce* consecutive `updateCropRect`
+    /// events for the same crop into a single entry (we just overwrite
+    /// the most recent one instead of appending a new row every time).
     func updateVirtualCropRect(
         cropID: String,
         newRect: RectNormalized
@@ -883,10 +899,23 @@ extension DMPPImageEditorViewModel {
             newName: metadata.virtualCrops[index].label,
             cropID: cropID
         )
-        metadata.history.append(event)
+
+        // Coalesce with last event if it's also an updateCropRect
+        if let lastIndex = metadata.history.indices.last {
+            let last = metadata.history[lastIndex]
+            if last.action == event.action,
+               last.cropID == event.cropID {
+                metadata.history[lastIndex] = event
+            } else {
+                metadata.history.append(event)
+            }
+        } else {
+            metadata.history.append(event)
+        }
 
         saveCurrentMetadata()
     }
+
 }
 extension DMPPImageEditorViewModel {
     /// Returns true if this image already has a crop with the given label.

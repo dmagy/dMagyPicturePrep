@@ -242,7 +242,7 @@ Bind metadata to ViewModel
            ↓
 If virtualCrops is empty:
     compute aspect-correct default crops
-    based on image size (16:9 + 8x10)
+    based on image size (16:9 + 8×10)
            ↓
 User edits metadata + crops in UI
  (drag crop, zoom via slider/buttons,
