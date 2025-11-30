@@ -28,6 +28,7 @@ class DMPPImageEditorViewModel {
     private let maxCropScale: Double = 1.0
 
     
+    
     // [DMPP-VM-ASPECT-LABEL] Human-readable aspect description for the selected crop.
     var selectedCropAspectDescription: String {
         guard let crop = selectedCrop else {
@@ -67,7 +68,7 @@ class DMPPImageEditorViewModel {
             )
 
             let portraitRect = centeredRect(
-                forAspectRatio: "8:10",
+                forAspectRatio: "4:5",
                 imageSize: imageSize
             )
 
@@ -80,8 +81,8 @@ class DMPPImageEditorViewModel {
                 ),
                 VirtualCrop(
                     id: "crop-8x10-default",
-                    label: "Portrait 8x10",
-                    aspectRatio: "8:10",
+                    label: "Portrait 8×10",
+                    aspectRatio: "4:5",
                     rect: portraitRect
                 )
             ]
@@ -645,6 +646,7 @@ extension DMPPImageEditorViewModel {
         saveCurrentMetadata()
     }
 
+    
     // MARK: - [VC-DUP] Duplicate an existing crop
 
     /// [VC-DUP] Duplicate an existing crop by id (e.g., for "Duplicate" button).
@@ -884,5 +886,11 @@ extension DMPPImageEditorViewModel {
         metadata.history.append(event)
 
         saveCurrentMetadata()
+    }
+}
+extension DMPPImageEditorViewModel {
+    /// Returns true if this image already has a crop with the given label.
+    func hasCrop(withLabel label: String) -> Bool {
+        metadata.virtualCrops.contains { $0.label == label }
     }
 }

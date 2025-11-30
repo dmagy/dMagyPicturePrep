@@ -229,7 +229,6 @@ struct DMPPCropEditorPane: View {
 
                 // New Crop menu (right)
                 Menu("New Crop") {
-
                     // Screen
                     Text("Screen")
                         .font(.caption)
@@ -238,15 +237,22 @@ struct DMPPCropEditorPane: View {
                     Button("Original (full image)") {
                         vm.addPresetOriginalCrop()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Original (full image)"))
+
                     Button("Landscape 16:9") {
                         vm.addPresetLandscape16x9()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Landscape 16:9"))
+
                     Button("Portrait 9:16") {
                         vm.addPresetPortrait9x16()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Portrait 9:16"))
+
                     Button("Landscape 4:3") {
                         vm.addPresetLandscape4x3()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Landscape 4:3"))
 
                     Divider()
 
@@ -258,12 +264,17 @@ struct DMPPCropEditorPane: View {
                     Button("Portrait 8×10") {
                         vm.addPresetPortrait8x10()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Portrait 8×10"))
+
                     Button("Headshot 8×10") {
                         vm.addPresetHeadshot8x10()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Headshot 8×10"))
+
                     Button("Landscape 4×6") {
                         vm.addPresetLandscape4x6()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Landscape 4×6"))
 
                     Divider()
 
@@ -275,13 +286,19 @@ struct DMPPCropEditorPane: View {
                     Button("Square 1:1") {
                         vm.addPresetSquare1x1()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Square 1:1"))
+
                     Button("Freeform") {
                         vm.addFreeformCrop()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Freeform"))
+
                     Button("Custom…") {
                         vm.addCustomCrop()
                     }
+                    .disabled(vm.hasCrop(withLabel: "Custom"))
                 }
+
                 .padding(.trailing, 73)
             }
 
