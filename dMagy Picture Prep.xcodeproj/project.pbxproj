@@ -33,6 +33,7 @@
 		99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				dMPP/Untitled.swift,
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",

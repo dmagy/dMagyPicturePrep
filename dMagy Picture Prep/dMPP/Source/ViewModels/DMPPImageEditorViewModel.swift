@@ -57,35 +57,35 @@ class DMPPImageEditorViewModel {
         self.metadata = metadata
 
         // If no crops exist (i.e., no sidecar or empty virtualCrops),
-        // create sensible aspect-correct defaults based on the image size.
-        if self.metadata.virtualCrops.isEmpty,
-           let image = NSImage(contentsOf: imageURL) {
-            let imageSize = image.size
+        // create defaults based on user preferences.
+        if self.metadata.virtualCrops.isEmpty {
 
-            let landscapeRect = centeredRect(
-                forAspectRatio: "16:9",
-                imageSize: imageSize
-            )
+            // Load user preferences (or defaults).
+            let prefs = DMPPUserPreferences.load()
+            let presets = prefs.effectiveDefaultCropPresets
 
-            let portraitRect = centeredRect(
-                forAspectRatio: "4:5",
-                imageSize: imageSize
-            )
+            // For each preset the user has chosen, create the matching crop.
+            for preset in presets {
+                switch preset {
+                case .original:
+                    addPresetOriginalCrop()
 
-            self.metadata.virtualCrops = [
-                VirtualCrop(
-                    id: "crop-16x9-default",
-                    label: "Landscape 16:9",
-                    aspectRatio: "16:9",
-                    rect: landscapeRect
-                ),
-                VirtualCrop(
-                    id: "crop-8×10-default",
-                    label: "Portrait 8×10",
-                    aspectRatio: "4:5",
-                    rect: portraitRect
-                )
-            ]
+                case .landscape16x9:
+                    addPresetLandscape16x9()
+
+                case .portrait8x10:
+                    addPresetPortrait8x10()
+
+                case .headshot8x10:
+                    addPresetHeadshot8x10()
+
+                case .landscape4x6:
+                    addPresetLandscape4x6()
+
+                case .square1x1:
+                    addPresetSquare1x1()
+                }
+            }
         }
 
         // Auto-select first crop if available
@@ -93,6 +93,8 @@ class DMPPImageEditorViewModel {
             self.selectedCropID = first
         }
     }
+
+
 
 
     // [DMPP-VM-NSIMAGE] Convenience for SwiftUI Image(nsImage:)
