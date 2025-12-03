@@ -13,8 +13,13 @@ struct dMagy_Picture_PrepApp: App {
         // Standard macOS Settings / Preferences window (⌘,)
         Settings {
             DMPPCropPreferencesView()
-                .frame(minWidth: 420, idealWidth: 480, maxWidth: 520,
-                       minHeight: 320, idealHeight: 360, maxHeight: 480)
-        }
+                .frame(minWidth: 420,
+                                      idealWidth: 440,
+                       maxWidth: 480,
+                                     minHeight: 700,
+                                      idealHeight: 740)
+                               .padding()
+                       }
+                       .windowResizability(.contentSize)
     }
 }

@@ -62,9 +62,9 @@ class DMPPImageEditorViewModel {
 
             // Load user preferences (or defaults).
             let prefs = DMPPUserPreferences.load()
-            let presets = prefs.effectiveDefaultCropPresets
 
-            // For each preset the user has chosen, create the matching crop.
+            // 1) Built-in defaults (Original, 16:9, 8×10, etc.)
+            let presets = prefs.effectiveDefaultCropPresets
             for preset in presets {
                 switch preset {
                 case .original:
@@ -86,6 +86,11 @@ class DMPPImageEditorViewModel {
                     addPresetSquare1x1()
                 }
             }
+
+            // 2) User-defined custom presets that are "default for new images"
+            for def in prefs.customCropPresets where def.isDefaultForNewImages {
+                addCrop(fromUserPreset: def)
+            }
         }
 
         // Auto-select first crop if available
@@ -93,6 +98,11 @@ class DMPPImageEditorViewModel {
             self.selectedCropID = first
         }
     }
+
+
+
+
+
 
 
 
@@ -211,6 +221,52 @@ class DMPPImageEditorViewModel {
         metadata.virtualCrops.append(crop)
         selectedCropID = crop.id
     }
+
+    /// Create a crop from a user-defined preset definition.
+    /// This uses the same aspect/centering logic as the built-in presets.
+    // MARK: - Custom preset → crop
+
+    /// Create a crop from a user-defined custom preset, unless this image
+    /// already has an identical preset (same label + aspect ratio).
+    func addCrop(fromUserPreset preset: DMPPUserPreferences.CustomCropPreset) {
+        let aspectString = "\(preset.aspectWidth):\(preset.aspectHeight)"
+
+        // Don’t create duplicate custom crops for a single image.
+        if hasCrop(label: preset.label, aspectRatio: aspectString) {
+            return
+        }
+
+        let rect = defaultRect(
+            forAspectWidth: preset.aspectWidth,
+            aspectHeight: preset.aspectHeight
+        )
+
+        addCrop(
+            label: preset.label,
+            aspectWidth: preset.aspectWidth,
+            aspectHeight: preset.aspectHeight,
+            rect: rect
+        )
+    }
+
+
+
+
+    /// [CR-PRESET-CUSTOM-NAMED] Custom preset crop (from user preferences)
+    private func addPresetCustomCrop(
+        label: String,
+        aspectWidth: Int,
+        aspectHeight: Int
+    ) {
+        let rect = defaultRect(forAspectWidth: aspectWidth, aspectHeight: aspectHeight)
+        addCrop(
+            label: label,
+            aspectWidth: aspectWidth,
+            aspectHeight: aspectHeight,
+            rect: rect
+        )
+    }
+
 
 
     // MARK: - Screen presets
@@ -340,18 +396,7 @@ class DMPPImageEditorViewModel {
          )
      }
 
-    /// [CR-PRESET-CUSTOM] Custom crop — currently a freeform centered square.
-    /// (aspectWidth/aspectHeight = 0 → treated as "custom/freeform" in UI).
-    func addCustomCrop() {
-        // Start from a centered square-ish rect.
-        let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
-        addCrop(
-            label: "Custom",
-            aspectWidth: 0,
-            aspectHeight: 0,
-            rect: rect
-        )
-    }
+  
 
     /// [DMPP-VM-NEW-CROP] Generic "New Crop" action used by the button.
     /// For now, this creates another Landscape 16:9 crop.
@@ -518,6 +563,15 @@ class DMPPImageEditorViewModel {
         metadata.virtualCrops.append(crop)
         selectedCropID = crop.id
     }
+    // MARK: - Helpers: detect existing crops for disabling presets
+
+    /// Returns true if this image already has a crop with the same
+    /// user-facing label *and* aspect ratio string (e.g. "21:9").
+    func hasCrop(label: String, aspectRatio: String) -> Bool {
+        metadata.virtualCrops.contains { crop in
+            crop.label == label && crop.aspectRatio == aspectRatio
+        }
+    }
 
     // MARK: - [DMPP-VM-ASPECT] Build a centered rect for a given aspect ratio
 
@@ -588,17 +642,17 @@ import Foundation
 import CoreGraphics
 
 extension DMPPImageEditorViewModel {
-
+    
     // MARK: - [VC-TS] Timestamp helper
-
+    
     /// [VC-TS] Return an ISO8601 timestamp string for HistoryEvent.
     private func currentTimestampString() -> String {
         let formatter = ISO8601DateFormatter()
         return formatter.string(from: Date())
     }
-
+    
     // MARK: - [VC-CREATE] Create a new virtual crop
-
+    
     /// [VC-CREATE] Create a brand-new virtual crop and save metadata.
     ///
     /// - Parameters:
@@ -620,9 +674,9 @@ extension DMPPImageEditorViewModel {
             print("[VC-CREATE] Invalid RectNormalized: \(rect)")
             return
         }
-
+        
         let cropID = UUID().uuidString
-
+        
         // Build the new crop.
         let crop = VirtualCrop(
             id: cropID,
@@ -630,10 +684,10 @@ extension DMPPImageEditorViewModel {
             aspectRatio: aspectRatio,
             rect: rect
         )
-
+        
         // Append to metadata.
         metadata.virtualCrops.append(crop)
-
+        
         // Record history.
         let event = HistoryEvent(
             action: "createCrop",
@@ -643,35 +697,35 @@ extension DMPPImageEditorViewModel {
             cropID: cropID
         )
         metadata.history.append(event)
-
+        
         // Persist to sidecar.
         saveCurrentMetadata()
     }
-
+    
     
     // MARK: - [VC-DUP] Duplicate an existing crop
-
+    
     /// [VC-DUP] Duplicate an existing crop by id (e.g., for "Duplicate" button).
     func duplicateVirtualCrop(cropID: String) {
         guard let index = metadata.virtualCrops.firstIndex(where: { $0.id == cropID }) else {
             print("[VC-DUP] No crop found with id \(cropID)")
             return
         }
-
+        
         let existing = metadata.virtualCrops[index]
-
+        
         let newID = UUID().uuidString
         let newLabel = existing.label + " Copy"
-
+        
         let duplicate = VirtualCrop(
             id: newID,
             label: newLabel,
             aspectRatio: existing.aspectRatio,
             rect: existing.rect
         )
-
+        
         metadata.virtualCrops.append(duplicate)
-
+        
         let event = HistoryEvent(
             action: "duplicateCrop",
             timestamp: currentTimestampString(),
@@ -680,21 +734,21 @@ extension DMPPImageEditorViewModel {
             cropID: newID
         )
         metadata.history.append(event)
-
+        
         saveCurrentMetadata()
     }
-
+    
     // MARK: - [VC-DELETE] Delete a crop
-
+    
     /// [VC-DELETE] Remove a crop by id.
     func deleteVirtualCrop(cropID: String) {
         guard let index = metadata.virtualCrops.firstIndex(where: { $0.id == cropID }) else {
             print("[VC-DELETE] No crop found with id \(cropID)")
             return
         }
-
+        
         let removed = metadata.virtualCrops.remove(at: index)
-
+        
         let event = HistoryEvent(
             action: "deleteCrop",
             timestamp: currentTimestampString(),
@@ -703,17 +757,17 @@ extension DMPPImageEditorViewModel {
             cropID: removed.id
         )
         metadata.history.append(event)
-
+        
         saveCurrentMetadata()
     }
     // ============================================================
     // [DMPP-VM-CROP-SLIDER] UI binding for crop size slider
     // ============================================================
-
+    
     /// Smallest and largest crop size as a fraction of the image.
     /// 0.1 = 10% of the max possible crop, 1.0 = full max crop.
-  
-
+    
+    
     // ============================================================
     // [DMPP-VM-CROP-SLIDER] UI binding for crop size slider
     //  - Fixed-aspect crops: behave as before (scale against maxRect)
@@ -725,18 +779,18 @@ extension DMPPImageEditorViewModel {
                   let size = nsImage?.size else {
                 return 1.0
             }
-
+            
             let isFreeform = (crop.aspectRatio == "custom")
-
+            
             if isFreeform {
                 // For freeform, use the larger dimension as our "scale"
                 let w = crop.rect.width
                 let h = crop.rect.height
                 guard w > 0, h > 0 else { return 1.0 }
-
+                
                 let rawScale = max(w, h)
                 let clampedScale = min(max(rawScale, minCropScale), maxCropScale)
-
+                
                 // Map [minCropScale, maxCropScale] → [0, 1]
                 return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
             } else {
@@ -745,14 +799,14 @@ extension DMPPImageEditorViewModel {
                     forAspectRatio: crop.aspectRatio,
                     imageSize: size
                 )
-
+                
                 guard maxRect.width > 0, maxRect.height > 0 else {
                     return 1.0
                 }
-
+                
                 let scale = crop.rect.width / maxRect.width
                 let clampedScale = min(max(scale, minCropScale), maxCropScale)
-
+                
                 return (clampedScale - minCropScale) / (maxCropScale - minCropScale)
             }
         }
@@ -760,23 +814,23 @@ extension DMPPImageEditorViewModel {
             guard let id = selectedCropID,
                   let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }),
                   let size = nsImage?.size else { return }
-
+            
             var crop = metadata.virtualCrops[index]
             let isFreeform = (crop.aspectRatio == "custom")
-
+            
             // Clamp slider to [0, 1], then map → [minCropScale, maxCropScale]
             let slider = min(max(newValue, 0.0), 1.0)
             let targetScale = minCropScale + (maxCropScale - minCropScale) * slider
-
+            
             if isFreeform {
                 // Freeform: preserve current aspect ratio, scale uniformly
                 let aspect = crop.rect.height > 0
-                    ? crop.rect.width / crop.rect.height
-                    : 1.0
-
+                ? crop.rect.width / crop.rect.height
+                : 1.0
+                
                 var newWidth: Double
                 var newHeight: Double
-
+                
                 if aspect >= 1.0 {
                     // Wider than tall; width drives scale (up to full width = 1.0)
                     newWidth = targetScale
@@ -786,18 +840,18 @@ extension DMPPImageEditorViewModel {
                     newHeight = targetScale
                     newWidth = targetScale * aspect
                 }
-
+                
                 // Keep the crop center fixed
                 let centerX = crop.rect.x + crop.rect.width / 2.0
                 let centerY = crop.rect.y + crop.rect.height / 2.0
-
+                
                 var newX = centerX - newWidth / 2.0
                 var newY = centerY - newHeight / 2.0
-
+                
                 // Clamp inside [0, 1] × [0, 1]
                 newX = min(max(newX, 0.0), 1.0 - newWidth)
                 newY = min(max(newY, 0.0), 1.0 - newHeight)
-
+                
                 crop.rect = RectNormalized(
                     x: newX,
                     y: newY,
@@ -811,24 +865,24 @@ extension DMPPImageEditorViewModel {
                     imageSize: size
                 )
                 guard maxRect.width > 0, maxRect.height > 0 else { return }
-
+                
                 let centerX = crop.rect.x + crop.rect.width / 2.0
                 let centerY = crop.rect.y + crop.rect.height / 2.0
-
+                
                 var newWidth = maxRect.width * targetScale
                 var newHeight = maxRect.height * targetScale
-
+                
                 // Extra safety clamp
                 newWidth = min(max(newWidth, minCropScale), maxCropScale)
                 newHeight = min(max(newHeight, minCropScale), maxCropScale)
-
+                
                 var newX = centerX - newWidth / 2.0
                 var newY = centerY - newHeight / 2.0
-
+                
                 // Clamp inside [0, 1] × [0, 1]
                 newX = min(max(newX, 0.0), 1.0 - newWidth)
                 newY = min(max(newY, 0.0), 1.0 - newHeight)
-
+                
                 crop.rect = RectNormalized(
                     x: newX,
                     y: newY,
@@ -836,9 +890,9 @@ extension DMPPImageEditorViewModel {
                     height: newHeight
                 )
             }
-
+            
             metadata.virtualCrops[index] = crop
-
+            
             let event = HistoryEvent(
                 action: "sliderScaleCrop",
                 timestamp: currentTimestampString(),
@@ -846,7 +900,7 @@ extension DMPPImageEditorViewModel {
                 newName: crop.label,
                 cropID: crop.id
             )
-
+            
             if let lastIndex = metadata.history.indices.last {
                 let last = metadata.history[lastIndex]
                 if last.action == event.action,
@@ -858,15 +912,15 @@ extension DMPPImageEditorViewModel {
             } else {
                 metadata.history.append(event)
             }
-
+            
             saveCurrentMetadata()
-
+            
         }
     }
-
-
+    
+    
     // MARK: - [VC-UPDATE-RECT] Update the rectangle of a crop
-
+    
     /// [VC-UPDATE-RECT] Update the crop's normalized rectangle
     /// when the user drags/resizes in the UI.
     ///
@@ -881,7 +935,7 @@ extension DMPPImageEditorViewModel {
             print("[VC-UPDATE-RECT] No crop found with id \(cropID)")
             return
         }
-
+        
         guard newRect.width > 0,
               newRect.height > 0,
               newRect.x >= 0,
@@ -891,9 +945,9 @@ extension DMPPImageEditorViewModel {
             print("[VC-UPDATE-RECT] Invalid RectNormalized: \(newRect)")
             return
         }
-
+        
         metadata.virtualCrops[index].rect = newRect
-
+        
         let event = HistoryEvent(
             action: "updateCropRect",
             timestamp: currentTimestampString(),
@@ -901,7 +955,7 @@ extension DMPPImageEditorViewModel {
             newName: metadata.virtualCrops[index].label,
             cropID: cropID
         )
-
+        
         // Coalesce with last event if it's also an updateCropRect
         if let lastIndex = metadata.history.indices.last {
             let last = metadata.history[lastIndex]
@@ -914,14 +968,80 @@ extension DMPPImageEditorViewModel {
         } else {
             metadata.history.append(event)
         }
-
+        
         saveCurrentMetadata()
     }
+    
+    }
 
-}
+// MARK: - Built-in preset presence helpers
+
 extension DMPPImageEditorViewModel {
-    /// Returns true if this image already has a crop with the given label.
+
+    /// Original (full image) — keyed by label.
+    var hasPresetOriginal: Bool {
+        metadata.virtualCrops.contains { $0.label == "Original (full image)" }
+    }
+
+    /// Landscape 16:9
+    var hasPresetLandscape16x9: Bool {
+        metadata.virtualCrops.contains { $0.aspectRatio == "16:9" }
+    }
+
+    /// Portrait 9:16
+    var hasPresetPortrait9x16: Bool {
+        metadata.virtualCrops.contains { $0.aspectRatio == "9:16" }
+    }
+
+    /// Landscape 4:3
+    var hasPresetLandscape4x3: Bool {
+        metadata.virtualCrops.contains { $0.aspectRatio == "4:3" }
+    }
+
+    /// Portrait 8×10 (4:5)
+    var hasPresetPortrait8x10: Bool {
+        metadata.virtualCrops.contains {
+            $0.aspectRatio == "4:5" && $0.label.contains("Portrait 8×10")
+        }
+    }
+
+    /// Headshot 8×10 (4:5)
+    var hasPresetHeadshot8x10: Bool {
+        metadata.virtualCrops.contains {
+            $0.aspectRatio == "4:5" && $0.label.contains("Headshot 8×10")
+        }
+    }
+
+    /// Landscape 4×6 (3:2)
+    var hasPresetLandscape4x6: Bool {
+        metadata.virtualCrops.contains { $0.aspectRatio == "3:2" }
+    }
+
+    /// Square 1:1
+    var hasPresetSquare1x1: Bool {
+        metadata.virtualCrops.contains { $0.aspectRatio == "1:1" }
+    }
+}
+
+extension DMPPImageEditorViewModel {
+
+    /// True if a crop with the given label already exists.
     func hasCrop(withLabel label: String) -> Bool {
         metadata.virtualCrops.contains { $0.label == label }
+    }
+
+    /// Create a crop from a saved custom preset.
+    func addCrop(fromCustomPreset preset: DMPPUserPreferences.CustomCropPreset) {
+        let rect = defaultRect(
+            forAspectWidth: preset.aspectWidth,
+            aspectHeight: preset.aspectHeight
+        )
+
+        addCrop(
+            label: preset.label,
+            aspectWidth: preset.aspectWidth,
+            aspectHeight: preset.aspectHeight,
+            rect: rect
+        )
     }
 }

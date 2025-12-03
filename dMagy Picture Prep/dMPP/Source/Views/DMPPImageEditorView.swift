@@ -183,13 +183,22 @@ struct DMPPImageEditorView: View {
         }
     }
 }
-
 // MARK: - Left Pane
 
 /// [DMPP-SI-LEFT] Crops + image preview + crop controls (segmented tabs above preview).
 struct DMPPCropEditorPane: View {
 
-    @Bindable var vm: DMPPImageEditorViewModel
+    @Environment(\.openSettings) private var openSettings
+
+    /// For the crop editor we only need read access to the view model.
+    /// This is a plain value, not @Bindable.
+    var vm: DMPPImageEditorViewModel
+
+    /// Convenience accessor: current saved custom presets.
+    /// Reloads from UserDefaults each time the menu is shown.
+    private var customPresets: [DMPPUserPreferences.CustomCropPreset] {
+        DMPPUserPreferences.load().customCropPresets
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -229,75 +238,92 @@ struct DMPPCropEditorPane: View {
 
                 // New Crop menu (right)
                 Menu("New Crop") {
+
+                    // -------------------------------------------------
                     // Screen
-                    Text("Screen")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // -------------------------------------------------
+                    Menu("Screen") {
+                        Button("Original (full image)") {
+                            vm.addPresetOriginalCrop()
+                        }
+                        .disabled(vm.hasPresetOriginal)
 
-                    Button("Original (full image)") {
-                        vm.addPresetOriginalCrop()
+                        Button("Landscape 16:9") {
+                            vm.addPresetLandscape16x9()
+                        }
+                        .disabled(vm.hasPresetLandscape16x9)
+
+                        Button("Portrait 9:16") {
+                            vm.addPresetPortrait9x16()
+                        }
+                        .disabled(vm.hasPresetPortrait9x16)
+
+                        Button("Landscape 4:3") {
+                            vm.addPresetLandscape4x3()
+                        }
+                        .disabled(vm.hasPresetLandscape4x3)
                     }
-                    .disabled(vm.hasCrop(withLabel: "Original (full image)"))
 
-                    Button("Landscape 16:9") {
-                        vm.addPresetLandscape16x9()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Landscape 16:9"))
-
-                    Button("Portrait 9:16") {
-                        vm.addPresetPortrait9x16()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Portrait 9:16"))
-
-                    Button("Landscape 4:3") {
-                        vm.addPresetLandscape4x3()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Landscape 4:3"))
-
-                    Divider()
-
+                    // -------------------------------------------------
                     // Print & Frames
-                    Text("Print & Frames")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // -------------------------------------------------
+                    Menu("Print & Frames") {
+                        Button("Portrait 8×10") {
+                            vm.addPresetPortrait8x10()
+                        }
+                        .disabled(vm.hasPresetPortrait8x10)
 
-                    Button("Portrait 8×10") {
-                        vm.addPresetPortrait8x10()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Portrait 8×10"))
+                        Button("Headshot 8×10") {
+                            vm.addPresetHeadshot8x10()
+                        }
+                        .disabled(vm.hasPresetHeadshot8x10)
 
-                    Button("Headshot 8×10") {
-                        vm.addPresetHeadshot8x10()
+                        Button("Landscape 4×6") {
+                            vm.addPresetLandscape4x6()
+                        }
+                        .disabled(vm.hasPresetLandscape4x6)
                     }
-                    .disabled(vm.hasCrop(withLabel: "Headshot 8×10"))
 
-                    Button("Landscape 4×6") {
-                        vm.addPresetLandscape4x6()
+                    // -------------------------------------------------
+                    // Creative & Custom
+                    // -------------------------------------------------
+                    Menu("Creative & Custom") {
+                        Button("Square 1:1") {
+                            vm.addPresetSquare1x1()
+                        }
+                        .disabled(vm.hasPresetSquare1x1)
+
+                        Button("Freeform") {
+                            vm.addFreeformCrop()
+                        }
+
+                        // Custom presets from Settings
+                        if !customPresets.isEmpty {
+                            Divider()
+
+                            ForEach(customPresets) { preset in
+                                // Don’t allow duplicate label+aspect for this image
+                                let alreadyExists = vm.metadata.virtualCrops.contains { crop in
+                                    crop.label == preset.label &&
+                                    crop.aspectRatio == "\(preset.aspectWidth):\(preset.aspectHeight)"
+                                }
+
+                                Button(preset.label) {
+                                    vm.addCrop(fromCustomPreset: preset)
+                                }
+                                .disabled(alreadyExists)
+                            }
+                        }
                     }
-                    .disabled(vm.hasCrop(withLabel: "Landscape 4×6"))
 
                     Divider()
 
-                    // Other
-                    Text("Other")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button("Square 1:1") {
-                        vm.addPresetSquare1x1()
+                    Button("Manage Custom Presets…") {
+                        openSettings()
                     }
-                    .disabled(vm.hasCrop(withLabel: "Square 1:1"))
-
-                    Button("Freeform") {
-                        vm.addFreeformCrop()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Freeform"))
-
-                    Button("Custom…") {
-                        vm.addCustomCrop()
-                    }
-                    .disabled(vm.hasCrop(withLabel: "Custom"))
                 }
+
+
 
                 .padding(.trailing, 73)
             }
@@ -356,14 +382,14 @@ struct DMPPCropEditorPane: View {
                             Text("Crop")
                                 .font(.caption)
 
-                            // Zoom in → larger crop (shows more image)
+                            // Zoom in → smaller crop (more zoom)
                             Button {
-                                vm.scaleSelectedCrop(by: 1.1)
+                                vm.scaleSelectedCrop(by: 0.9)
                             } label: {
                                 Image(systemName: "plus")
                             }
                             .buttonStyle(.borderedProminent)
-                            .help("Larger crop")
+                            .help("Zoom in (smaller crop)")
 
                             Spacer(minLength: 8)
 
@@ -376,10 +402,7 @@ struct DMPPCropEditorPane: View {
                                     ),
                                     in: 0...1
                                 )
-                                // IMPORTANT:
-                                // - We set the width BEFORE rotation so that
-                                //   after a -90° rotation, that width becomes
-                                //   the vertical length of the slider.
+                                // The width BEFORE rotation becomes the vertical length after -90°
                                 .frame(width: max(innerGeo.size.height - 40, 120))
                                 .rotationEffect(.degrees(-90))
                                 // Center the rotated slider inside the column
@@ -392,14 +415,14 @@ struct DMPPCropEditorPane: View {
 
                             Spacer(minLength: 8)
 
-                            // Zoom out → smaller crop (zooms in on subject)
+                            // Zoom out → larger crop (less zoom)
                             Button {
-                                vm.scaleSelectedCrop(by: 0.9)
+                                vm.scaleSelectedCrop(by: 1.1)
                             } label: {
                                 Image(systemName: "minus")
                             }
                             .buttonStyle(.borderedProminent)
-                            .help("Smaller crop")
+                            .help("Zoom out (larger crop)")
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -413,6 +436,10 @@ struct DMPPCropEditorPane: View {
         }
     }
 }
+
+
+
+
 
 // MARK: - Right Pane (Metadata)
 

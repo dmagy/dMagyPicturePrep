@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		992082002EDD3B8F00014875 /* dMagyPrepIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 992081FF2EDD3B8F00014875 /* dMagyPrepIcon.icon */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		9968B99B2ED1092B001B37FA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		992081FF2EDD3B8F00014875 /* dMagyPrepIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = dMagyPrepIcon.icon; sourceTree = "<group>"; };
 		9968B98D2ED1092A001B37FA /* dMagy Picture Prep.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "dMagy Picture Prep.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9968B99A2ED1092B001B37FA /* dMagy Picture PrepTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "dMagy Picture PrepTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9968B9A42ED1092B001B37FA /* dMagy Picture PrepUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "dMagy Picture PrepUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -33,10 +38,10 @@
 		99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				dMPP/Untitled.swift,
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",
+				"Docs/dMPP/dMPP-Context-v5.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};
@@ -95,6 +100,7 @@
 				9968B99D2ED1092B001B37FA /* dMagy Picture PrepTests */,
 				9968B9A72ED1092B001B37FA /* dMagy Picture PrepUITests */,
 				9968B98E2ED1092A001B37FA /* Products */,
+				992081FF2EDD3B8F00014875 /* dMagyPrepIcon.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -228,6 +234,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				992082002EDD3B8F00014875 /* dMagyPrepIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -408,7 +415,7 @@
 		9968B9AF2ED1092B001B37FA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = dMagyPrepIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -430,6 +437,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Prep";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -451,7 +460,7 @@
 		9968B9B02ED1092B001B37FA /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = dMagyPrepIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -473,6 +482,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Prep";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
