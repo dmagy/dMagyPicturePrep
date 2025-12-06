@@ -11,10 +11,18 @@ import Foundation
 /// Designed to be extendable (metadata defaults, UI options, etc.).
 struct DMPPUserPreferences: Codable, Equatable {
 
+    // MARK: - Constants
+
+    /// Canonical reserved tag used by dMagy apps to hide photos from slideshows.
+    /// This tag is:
+    /// - Always present in `availableTags`
+    /// - Not renamable or deletable in Settings
+    static let reservedDoNotDisplayTag = "Do Not Display"
+
     // MARK: - Crop presets
 
     /// Known built-in crop presets that can be used as defaults for new images.
-    enum CropPresetID: String, Codable, CaseIterable, Equatable {
+    enum CropPresetID: String, Codable, CaseIterable {
         case original          // Original (full image)
         case landscape16x9     // Landscape 16:9
         case portrait8x10      // Portrait 8×10 (4:5)
@@ -26,49 +34,13 @@ struct DMPPUserPreferences: Codable, Equatable {
         // we do not auto-create it as a default preset.
     }
 
-    /// Custom crop preset definition.
-    struct CustomCropPreset: Codable, Identifiable, Hashable, Equatable {
+    /// User-defined custom crop preset.
+    struct CustomCropPreset: Codable, Identifiable, Equatable {
         var id: UUID
         var label: String
         var aspectWidth: Int
         var aspectHeight: Int
         var isDefaultForNewImages: Bool
-
-        init(
-            id: UUID = UUID(),
-            label: String,
-            aspectWidth: Int,
-            aspectHeight: Int,
-            isDefaultForNewImages: Bool = false
-        ) {
-            self.id = id
-            self.label = label
-            self.aspectWidth = max(aspectWidth, 1)
-            self.aspectHeight = max(aspectHeight, 1)
-            self.isDefaultForNewImages = isDefaultForNewImages
-        }
-    }
-
-    /// Built-in crop preset definition for internal use (e.g., menus).
-    /// This matches what your ViewModel is expecting as
-    /// `DMPPUserPreferences.CropPresetDefinition`.
-    struct CropPresetDefinition: Codable, Hashable, Equatable {
-        var id: CropPresetID
-        var label: String
-        var aspectWidth: Int
-        var aspectHeight: Int
-
-        init(
-            id: CropPresetID,
-            label: String,
-            aspectWidth: Int,
-            aspectHeight: Int
-        ) {
-            self.id = id
-            self.label = label
-            self.aspectWidth = aspectWidth
-            self.aspectHeight = aspectHeight
-        }
     }
 
     /// Which built-in presets should be auto-created when an image has no crops.
@@ -78,9 +50,18 @@ struct DMPPUserPreferences: Codable, Equatable {
         .portrait8x10
     ]
 
-    /// User-defined custom presets.
-    /// These can also be marked as defaults for new images.
+    /// User-defined custom crop presets.
     var customCropPresets: [CustomCropPreset] = []
+
+    // MARK: - Tag preferences
+
+    /// Tags offered as checkboxes in the editor.
+    /// - "Do Not Display" is mandatory and enforced via `ensureReservedTag()`.
+    var availableTags: [String] = [
+        "Halloween",
+        "NSFW",
+        DMPPUserPreferences.reservedDoNotDisplayTag
+    ]
 
     // MARK: - Future metadata defaults
 
@@ -101,37 +82,62 @@ struct DMPPUserPreferences: Codable, Equatable {
     static func load() -> DMPPUserPreferences {
         let defaults = UserDefaults.standard
         guard let data = defaults.data(forKey: storageKey) else {
-            return DMPPUserPreferences()   // default initializer
+            // Fresh defaults
+            var prefs = DMPPUserPreferences()
+            prefs.ensureReservedTag()
+            return prefs
         }
 
         do {
-            return try JSONDecoder().decode(DMPPUserPreferences.self, from: data)
+            var prefs = try JSONDecoder().decode(DMPPUserPreferences.self, from: data)
+            prefs.ensureReservedTag()
+            return prefs
         } catch {
             print("dMPP: Failed to decode DMPPUserPreferences, using defaults. Error: \(error)")
-            return DMPPUserPreferences()
+            var prefs = DMPPUserPreferences()
+            prefs.ensureReservedTag()
+            return prefs
         }
     }
 
-    /// Save preferences to UserDefaults.
+    /// Save preferences to UserDefaults and broadcast a change notification.
     func save() {
         do {
             let data = try JSONEncoder().encode(self)
             UserDefaults.standard.set(data, forKey: Self.storageKey)
+            NotificationCenter.default.post(name: .dmppPreferencesChanged, object: nil)
         } catch {
             print("dMPP: Failed to encode DMPPUserPreferences: \(error)")
         }
     }
+
+    // MARK: - Enforcement helpers
+
+    /// Ensure that the reserved "Do Not Display" tag:
+    /// - Exists exactly once
+    /// - Is in canonical form and appears at the top of `availableTags`.
+    mutating func ensureReservedTag() {
+        let lowerReserved = Self.reservedDoNotDisplayTag.lowercased()
+
+        // Remove any variants (case-insensitive) of the reserved tag.
+        availableTags.removeAll { $0.lowercased() == lowerReserved }
+
+        // Insert the canonical version at the front.
+        availableTags.insert(Self.reservedDoNotDisplayTag, at: 0)
+    }
 }
 
-// MARK: - Derived / effective values
+// MARK: - Effective defaults
 
 extension DMPPUserPreferences {
-
-    /// Returns the active default built-in crop presets, with safety rules:
+    static let mandatoryTagName = "Do Not Display";
+    /// Returns the active default crop presets, with safety rules:
     /// - If the user disables all presets, we fall back to `.original` only
     ///   so they can still use dMPP just for metadata.
     /// - Duplicates are removed while preserving order.
     var effectiveDefaultCropPresets: [CropPresetID] {
+        // If the user turned everything off, treat this as "metadata only",
+        // but still create an Original (full image) crop.
         let base: [CropPresetID] =
             defaultCropPresets.isEmpty ? [.original] : defaultCropPresets
 
@@ -146,9 +152,11 @@ extension DMPPUserPreferences {
         }
         return result
     }
+}
 
-    /// Custom presets that should be created automatically for new images.
-    var defaultCustomCropPresets: [CustomCropPreset] {
-        customCropPresets.filter { $0.isDefaultForNewImages }
-    }
+// MARK: - Notification name
+
+extension Notification.Name {
+    /// Posted whenever DMPPUserPreferences.save() is called.
+    static let dmppPreferencesChanged = Notification.Name("dmppPreferencesChanged")
 }

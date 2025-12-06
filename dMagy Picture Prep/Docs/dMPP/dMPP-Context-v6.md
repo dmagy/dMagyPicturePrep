@@ -469,6 +469,7 @@ These remain feature opportunities, not blockers.
 
 ---
 
+```markdown
 ## 6. Roadmap (Short-Term)
 
 ### 6.1 High Priority
@@ -494,6 +495,32 @@ These remain feature opportunities, not blockers.
 - Rich keyboard shortcut workflow (“Editor Mode”).
 - Swift Package for shared metadata models between dMPS and dMPP.
 - Image quality checks (noise, sharpness detection) and visual flags.
+
+### 6.4 Post-v1 Review & Refactor Targets
+
+- **Sidecar history coalescing**
+  - Reduce redundant `updateCropRect`/scale entries by:
+    - Logging only at the end of drag/slider gestures, and/or
+    - Coalescing multiple crop updates into a single history event per interaction.
+
+- **Preset semantics hardening**
+  - Replace string-based checks (`"Headshot 8×10"`, `"Landscape 16:9"`) with enums or stable identifiers so presets can be renamed or localized safely.
+
+- **Separation of concerns**
+  - Move folder navigation and sidecar I/O out of the main editor view into a small controller/manager type, so:
+    - `DMPPImageEditorView` focuses on layout and interaction.
+    - The controller handles loading/saving, folder changes, and error handling.
+
+- **Layout & Geometry simplification**
+  - Revisit `GeometryReader` usage in the crop and slider layouts to:
+    - Reduce nesting,
+    - Improve readability and testability,
+    - Make behavior more predictable on extreme window sizes.
+
+- **Error & diagnostics polish**
+  - Replace `print()`-style diagnostics with a small logging utility and user-facing error surface (e.g., non-modal banner) for save/load failures and sandbox issues.
+```
+
 
 ---
 

@@ -2,7 +2,7 @@
 //  DMPPCropPreferencesView.swift
 //  dMagy Picture Prep
 //
-//  dMPP-2025-12-02-PREF-UI3 — Crop preset preferences UI (no explicit Close button)
+//  dMPP-2025-12-02-PREF-UI4 — Crop + Tag preferences in tabbed Settings
 //
 
 import SwiftUI
@@ -13,55 +13,90 @@ struct DMPPCropPreferencesView: View {
     @State private var prefs: DMPPUserPreferences = .load()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        TabView {
 
-            // -------------------------------------------------
-            // Header
-            // -------------------------------------------------
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Crop Presets")
-                    .font(.title2.bold())
-                Text("Choose which crops are created by default and define your own presets.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, 4)
+            // =====================================================
+            // CROPS TAB
+            // =====================================================
+            VStack(alignment: .leading, spacing: 16) {
 
-            Divider()
-
-            // -------------------------------------------------
-            // Main content
-            // -------------------------------------------------
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-
-                    // -----------------------------------------
-                    // Built-in default presets
-                    // -----------------------------------------
-                    builtInPresetsSection
-
-                    Divider()
-
-                    // -----------------------------------------
-                    // Custom presets
-                    // -----------------------------------------
-                    customPresetsSection
+                // Header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Crop Presets")
+                        .font(.title2.bold())
+                    Text("Choose which crops are created by default and define your own presets.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 4)
+                .padding(.bottom, 4)
+
+                Divider()
+
+                // Main content
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+
+                        // Built-in default presets
+                        builtInPresetsSection
+
+                        Divider()
+
+                        // Custom presets
+                        customPresetsSection
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: .topLeading)
+            .tabItem {
+                Label("Crops", systemImage: "crop")
             }
 
-            Spacer(minLength: 0)
+            // =====================================================
+            // TAGS TAB
+            // =====================================================
+            VStack(alignment: .leading, spacing: 16) {
+
+                // Header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tags")
+                        .font(.title2.bold())
+                    Text("Manage the tags that appear as checkboxes in the editor.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
+
+                Divider()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        tagsSection
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: .topLeading)
+            .tabItem {
+                Label("Tags", systemImage: "tag")
+            }
         }
-        .padding()
-        .frame(maxWidth: .infinity,
-               maxHeight: .infinity,
-               alignment: .topLeading)
-        .onChange(of: prefs) { oldValue, newValue in
+        .onChange(of: prefs) { _, newValue in
             newValue.save()
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Sections (Crops tab)
 
     /// Section for the known built-in presets (Original, 16:9, 8×10, etc.).
     private var builtInPresetsSection: some View {
@@ -230,6 +265,63 @@ struct DMPPCropPreferencesView: View {
             .padding(.top, 6)
         }
     }
+
+    // MARK: - Tags section (for Tags tab)
+
+    private var tagsSection: some View {
+        Section("Tags") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Tags shown as checkboxes in the editor.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(Array(prefs.availableTags.enumerated()), id: \.offset) { index, tag in
+                    // Special styling + behavior for the mandatory tag.
+                    if tag == DMPPUserPreferences.mandatoryTagName {
+                        HStack {
+                            Text(tag)
+                                .padding(.leading, 6)          // matches the left inset feel
+                                .font(.body)                   // make sure it matches the TextField font
+
+                            Spacer()
+
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.secondary)   // softer than full black
+                                .help("This tag is required and cannot be deleted.")
+                        }
+                    }
+ else {
+                        HStack {
+                            TextField(
+                                "Tag",
+                                text: Binding(
+                                    get: { prefs.availableTags[index] },
+                                    set: { prefs.availableTags[index] = $0 }
+                                )
+                            )
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                prefs.availableTags.remove(at: index)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .help("Remove tag")
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                Button {
+                    prefs.availableTags.append("New Tag")
+                } label: {
+                    Label("Add Tag", systemImage: "plus")
+                }
+            }
+        }
+    }
+
 
     // MARK: - Helpers
 
