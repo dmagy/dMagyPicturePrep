@@ -2,6 +2,8 @@ import Foundation
 import SwiftUI
 import AppKit
 import Observation
+import ImageIO
+
 
 // dMPP-2025-11-20-VM1 — ViewModel for Single Image Editor
 
@@ -56,15 +58,32 @@ class DMPPImageEditorViewModel {
         self.imageURL = imageURL
         self.metadata = metadata
 
+        // ---------------------------------------------------------
+        // [DMPP-META-AUTODATE] Auto-fill Date/Era for camera images
+        // ---------------------------------------------------------
+        // If the sidecar didn't specify a dateTaken, try to infer one
+        // from EXIF (camera) metadata. This fills YYYY-MM-DD for
+        // real camera photos but leaves true unknowns/scans blank.
+        if self.metadata.dateTaken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty,
+           let inferred = Self.inferCaptureDateString(from: imageURL)
+        {
+            self.metadata.dateTaken = inferred
+        }
+
+        // ---------------------------------------------------------
+        // [DMPP-CROPS-DEFAULTS] Create default crops if needed
+        // ---------------------------------------------------------
         // If no crops exist (i.e., no sidecar or empty virtualCrops),
         // create defaults based on user preferences.
         if self.metadata.virtualCrops.isEmpty {
 
             // Load user preferences (or defaults).
             let prefs = DMPPUserPreferences.load()
-
-            // 1) Built-in defaults (Original, 16:9, 8×10, etc.)
             let presets = prefs.effectiveDefaultCropPresets
+
+            // For each preset the user has chosen, create the matching crop.
             for preset in presets {
                 switch preset {
                 case .original:
@@ -86,11 +105,6 @@ class DMPPImageEditorViewModel {
                     addPresetSquare1x1()
                 }
             }
-
-            // 2) User-defined custom presets that are "default for new images"
-            for def in prefs.customCropPresets where def.isDefaultForNewImages {
-                addCrop(fromUserPreset: def)
-            }
         }
 
         // Auto-select first crop if available
@@ -98,6 +112,7 @@ class DMPPImageEditorViewModel {
             self.selectedCropID = first
         }
     }
+
 
 
 
@@ -1043,5 +1058,63 @@ extension DMPPImageEditorViewModel {
             aspectHeight: preset.aspectHeight,
             rect: rect
         )
+    }
+}
+// MARK: - EXIF Date Inference
+
+extension DMPPImageEditorViewModel {
+
+    /// Try to infer a camera capture date from EXIF and return it as
+    /// a dMPMS-style "YYYY-MM-DD" string. Returns nil if we can't.
+    ///
+    /// Design choice:
+    /// - We only trust EXIF DateTimeOriginal.
+    ///   This tends to be present for *camera* images but is often
+    ///   missing or reused for scanned images, so scans stay blank.
+    ///
+    /// - If parsing fails, we simply return nil and leave dateTaken empty.
+    static func inferCaptureDateString(from imageURL: URL) -> String? {
+        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        else {
+            return nil
+        }
+
+        // EXIF standard format: "yyyy:MM:dd HH:mm:ss"
+        guard let rawDateTime = exif[kCGImagePropertyExifDateTimeOriginal]
+                as? String
+        else {
+            // No trusted camera capture date → treat as "unknown"
+            return nil
+        }
+
+        let exifFormatter = DateFormatter()
+        exifFormatter.locale = Locale(identifier: "en_US_POSIX")
+        exifFormatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        // Time zone is not critical since we only keep the date part.
+        exifFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        guard let date = exifFormatter.date(from: rawDateTime) else {
+            return nil
+        }
+
+        let outFormatter = DateFormatter()
+        outFormatter.locale = Locale(identifier: "en_US_POSIX")
+        outFormatter.dateFormat = "yyyy-MM-dd"
+
+        return outFormatter.string(from: date)
+    }
+}
+// MARK: - Date/Era helpers
+
+extension DMPPImageEditorViewModel {
+
+    /// Update the human-entered date string and keep `dateRange` in sync.
+    func updateDateTaken(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        metadata.dateTaken = trimmed
+        metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
     }
 }

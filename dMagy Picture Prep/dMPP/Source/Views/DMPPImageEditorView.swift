@@ -445,171 +445,254 @@ struct DMPPCropEditorPane: View {
 
 struct DMPPMetadataFormPane: View {
 
-    @Environment(\.openSettings) private var openSettings
     @Bindable var vm: DMPPImageEditorViewModel
+    @Environment(\.openSettings) private var openSettings
 
-    // Bumps whenever preferences change, forcing a re-read of tags.
-    @State private var prefsGeneration: Int = 0
-
-    // Always read tags fresh from preferences, but depend on prefsGeneration
-    // so SwiftUI knows to re-evaluate when it changes.
-    private var availableTags: [String] {
-        _ = prefsGeneration
-        return DMPPUserPreferences.load().availableTags
-    }
+    // Tags from preferences, kept in sync via notification.
+    @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
+    
+    @State private var dateWarning: String? = nil
 
     var body: some View {
-        Form {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
 
-            // FILE
-            Section("File") {
-                Text(vm.metadata.sourceFile)
-                    .font(.callout.monospaced())
-            }
+                // FILE
+                GroupBox("File") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(vm.metadata.sourceFile)
+                            .font(.callout.monospaced())
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                       .padding(.vertical, 8)
+                }
+          
+                // DESCRIPTION
+                GroupBox("Description") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Title
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Title")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-            // DESCRIPTION
-            Section("Description") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Title")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                            TextField(
+                                "",
+                                text: $vm.metadata.title
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .padding(.horizontal, 8)
+                           .padding(.vertical, 8)
+                        // Description
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Description")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                    TextField(
-                        "",
-                        text: $vm.metadata.title
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
+                            TextField(
+                                "",
+                                text: $vm.metadata.description,
+                                axis: .vertical
+                            )
+                            .lineLimit(2...6)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .padding(.horizontal, 8)
+                           .padding(.vertical, 8)
+                    }
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Description")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField(
-                        "",
-                        text: $vm.metadata.description,
-                        axis: .vertical
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                    .lineLimit(2...6)
-                }
-            }
-
-            // DATE / ERA
-            Section("Date / Era") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Date Taken or Era")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField(
-                        "YYYY-MM-DD, YYYY-MM, YYYY, or 1970s",
-                        text: $vm.metadata.dateTaken
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-
-                    Text("Partial dates and eras are allowed.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // TAGS & PEOPLE
-            Section("Tags & People") {
-
-                // TAGS: checkbox grid
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Tags")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    // Compute "unknown" tags (present in metadata, not in availableTags)
-                    let currentTags = vm.metadata.tags
-                    let unknownTags = currentTags.filter { !availableTags.contains($0) }
-
-                    if availableTags.isEmpty {
-                        Text("No tags defined. Use Settings to add tags.")
-                            .font(.caption2)
+                // DATE / ERA
+                GroupBox("Date / Era") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Date Taken or Era")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
-                        let columns = [
-                            GridItem(.flexible(), alignment: .leading),
-                            GridItem(.flexible(), alignment: .leading)
-                        ]
 
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                            ForEach(availableTags, id: \.self) { tag in
-                                Toggle(
-                                    isOn: Binding(
-                                        get: {
-                                            vm.metadata.tags.contains(tag)
-                                        },
-                                        set: { isOn in
-                                            if isOn {
-                                                if !vm.metadata.tags.contains(tag) {
-                                                    vm.metadata.tags.append(tag)
-                                                }
-                                            } else {
-                                                vm.metadata.tags.removeAll { $0 == tag }
-                                            }
-                                        }
-                                    )
-                                ) {
-                                    Text(tag)
-                                }
-                                .toggleStyle(.checkbox)
-                            }
+                        TextField(
+                            "",
+                            text: $vm.metadata.dateTaken
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: .infinity)
+                        .onChange(of: vm.metadata.dateTaken) { oldValue, newValue in
+                            dateWarning = dateValidationMessage(for: newValue)
+                        }
+
+
+                        if let dateWarning, !dateWarning.isEmpty {
+                            Text(dateWarning)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        } else {
+                            Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                }
 
-                    // Show tags that exist in metadata but are not in the current suggestions
-                    if !unknownTags.isEmpty {
-                        Text("Other tags in this photo: \(unknownTags.joined(separator: ", "))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+
+
+                // TAGS & PEOPLE
+                GroupBox("Tags & People") {
+                    VStack(alignment: .leading, spacing: 16) {
+
+                        // TAGS: checkbox grid
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Tags")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            if availableTags.isEmpty {
+                                Text("No tags defined. Use Settings to add tags.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                let columns = [
+                                    GridItem(.flexible(), alignment: .leading),
+                                    GridItem(.flexible(), alignment: .leading)
+                                ]
+
+                                LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                                    ForEach(availableTags, id: \.self) { tag in
+                                        Toggle(
+                                            isOn: Binding(
+                                                get: {
+                                                    vm.metadata.tags.contains(tag)
+                                                },
+                                                set: { isOn in
+                                                    if isOn {
+                                                        if !vm.metadata.tags.contains(tag) {
+                                                            vm.metadata.tags.append(tag)
+                                                        }
+                                                    } else {
+                                                        vm.metadata.tags.removeAll { $0 == tag }
+                                                    }
+                                                }
+                                            )
+                                        ) {
+                                            Text(tag)
+                                        }
+                                        .toggleStyle(.checkbox)
+                                    }
+                                }
+                            }
+
+                            // Any tags that exist in metadata but are no longer in prefs
+                            let unknownTags = vm.metadata.tags.filter { !availableTags.contains($0) }
+                            if !unknownTags.isEmpty {
+                                Text("Other tags in this photo: \(unknownTags.joined(separator: ", "))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                            }
+
+                            Button("Add / Edit tags…") {
+                                openSettings()
+                            }
+                            .buttonStyle(.link)
+                            .font(.caption)
                             .padding(.top, 4)
+                        }
+                        .padding(.horizontal, 8)
+                           .padding(.vertical, 8)
+                        // PEOPLE
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("People")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            TextField(
+                                "Comma-separated names (e.g., Dan, Amy)",
+                                text: Binding(
+                                    get: { vm.peopleText },
+                                    set: { vm.updatePeople($0) }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .padding(.horizontal, 8)
+                           .padding(.vertical, 8)
                     }
-
-
-                    Button("Add / Edit tags…") {
-                        openSettings()
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .padding(.top, 4)
                 }
 
-                // PEOPLE
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("People")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField(
-                        "Comma-separated names (e.g., Dan, Amy)",
-                        text: Binding(
-                            get: { vm.peopleText },
-                            set: { vm.updatePeople($0) }
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                }
+                Spacer(minLength: 0)
             }
-
-
+            .padding()
         }
-        .formStyle(.grouped)
-                .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
-                    // Bump generation whenever prefs are saved.
-                    prefsGeneration &+= 1
-                }
+        .onAppear {
+            reloadAvailableTags()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .dmppPreferencesChanged)
+        ) { _ in
+            reloadAvailableTags()
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func reloadAvailableTags() {
+        availableTags = DMPPUserPreferences.load().availableTags
+    }
+}
+
+// MARK: - Date validation helper
+
+private func dateValidationMessage(for raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return nil    // no warning for blank
+    }
+
+    // Simple patterns
+    let fullDate     = #"^\d{4}-\d{2}-\d{2}$"#      // 1976-07-04
+    let yearMonth    = #"^\d{4}-\d{2}$"#            // 1976-07
+    let yearOnly     = #"^\d{4}$"#                  // 1976
+    let decade       = #"^\d{4}s$"#                 // 1970s
+    let yearRange    = #"^(\d{4})-(\d{4})$"#        // 1975-1977
+
+    func matches(_ pattern: String) -> NSTextCheckingResult? {
+        let regex = try? NSRegularExpression(pattern: pattern)
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex,
+                            in: trimmed)
+        return regex?.firstMatch(in: trimmed, options: [], range: range)
+    }
+
+    // 1) Exact matches for the simple forms
+    if matches(fullDate) != nil { return nil }
+    if matches(yearMonth) != nil { return nil }
+    if matches(yearOnly) != nil { return nil }
+    if matches(decade) != nil { return nil }
+
+    // 2) Year range handling
+    if let match = matches(yearRange) {
+        if match.numberOfRanges == 3,
+           let startRange = Range(match.range(at: 1), in: trimmed),
+           let endRange   = Range(match.range(at: 2), in: trimmed) {
+
+            let startYear = Int(trimmed[startRange]) ?? 0
+            let endYear   = Int(trimmed[endRange]) ?? 0
+
+            if endYear < startYear {
+                return "End year must not be earlier than start year."
+            } else {
+                return nil  // valid range like 1975-1977
             }
         }
+    }
+
+    // 3) Anything else → soft warning
+    return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977"
+}
 
 
 
@@ -777,7 +860,7 @@ extension DMPPImageEditorView {
         let baseTitle = url.deletingPathExtension().lastPathComponent
 
         return DmpmsMetadata(
-            dmpmsVersion: "1.0",
+            dmpmsVersion: "1.1",
             dmpmsNotice: "Created by dMagy Picture Prep. Stores metadata and crop settings for this photo. Deleting it erases edits (not the original image).",
             sourceFile: filename,
             title: baseTitle,
