@@ -5,7 +5,7 @@
 
 import Foundation
 
-// dMPMS-2025-12-XX-M3 — Core metadata models (+ human-facing notice + date ranges)
+// dMPMS-2025-12-XX-M3 — Core metadata models (+ human-facing notice + date ranges + peopleV2)
 
 /* [DMPMS-DATERANGE] Machine-friendly date range derived from `dateTaken`. */
 struct DmpmsDateRange: Codable, Hashable {
@@ -130,7 +130,15 @@ struct DmpmsMetadata: Codable, Hashable {
     var dateRange: DmpmsDateRange? = nil
 
     var tags: [String] = []
+
+    /// Legacy flat list of people names.
+    /// Retained for simple/older workflows.
     var people: [String] = []
+
+    /// v1.1+ rich people metadata.
+    /// Each entry represents a specific person in this photo
+    /// (identity ID, display name snapshot, age-at-photo, row/position, etc.).
+    var peopleV2: [DmpmsPersonInPhoto] = []
 
     // Crops + history
     var virtualCrops: [VirtualCrop] = []
@@ -148,6 +156,7 @@ struct DmpmsMetadata: Codable, Hashable {
         case dateRange
         case tags
         case people
+        case peopleV2
         case virtualCrops
         case history
     }
@@ -164,6 +173,7 @@ struct DmpmsMetadata: Codable, Hashable {
         dateRange: DmpmsDateRange? = nil,
         tags: [String] = [],
         people: [String] = [],
+        peopleV2: [DmpmsPersonInPhoto] = [],
         virtualCrops: [VirtualCrop] = [],
         history: [HistoryEvent] = []
     ) {
@@ -176,6 +186,7 @@ struct DmpmsMetadata: Codable, Hashable {
         self.dateRange = dateRange
         self.tags = tags
         self.people = people
+        self.peopleV2 = peopleV2
         self.virtualCrops = virtualCrops
         self.history = history
     }
@@ -202,11 +213,16 @@ struct DmpmsMetadata: Codable, Hashable {
 
         tags        = try container.decode([String].self, forKey: .tags)
         people      = try container.decode([String].self, forKey: .people)
+
+        // New in v1.1+: peopleV2 (optional for older sidecars)
+        peopleV2    = (try? container.decode([DmpmsPersonInPhoto].self, forKey: .peopleV2)) ?? []
+
         virtualCrops = try container.decode([VirtualCrop].self, forKey: .virtualCrops)
         history      = try container.decode([HistoryEvent].self, forKey: .history)
     }
 
-    // Encodable is synthesized; it will use CodingKeys order and include dateRange when non-nil.
+    // Encodable is synthesized; it will use CodingKeys order and include
+    // dateRange and peopleV2 when present.
 }
 
 /* [DMPMS-HISTORY] Simple history event. */

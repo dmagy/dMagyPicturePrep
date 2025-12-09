@@ -11,6 +11,10 @@ struct DMPPCropPreferencesView: View {
 
     /// User-level preferences (loaded from UserDefaults).
     @State private var prefs: DMPPUserPreferences = .load()
+    
+    /// Global identity store (people / names / birthdates).
+    @State private var identityStore: DMPPIdentityStore = .load()
+
 
     var body: some View {
         TabView {
@@ -90,6 +94,41 @@ struct DMPPCropPreferencesView: View {
             .tabItem {
                 Label("Tags", systemImage: "tag")
             }
+            
+            // =====================================================
+            // PEOPLE TAB
+            // =====================================================
+            VStack(alignment: .leading, spacing: 16) {
+
+                // Header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("People")
+                        .font(.title2.bold())
+                    Text("Manage the identities used in the People section and for age calculations.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
+
+                Divider()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        peopleSection
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: .topLeading)
+            .tabItem {
+                Label("People", systemImage: "person.2")
+            }
+
         }
         .onChange(of: prefs) { _, newValue in
             newValue.save()
@@ -321,9 +360,158 @@ struct DMPPCropPreferencesView: View {
             }
         }
     }
+    // MARK: - People section (for People tab)
 
+    private var peopleSection: some View {
+        Section("Identities") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Define people once here; they’ll be available as checkboxes and for age calculations in the editor.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if identityStore.people.isEmpty {
+                    Text("No people defined yet. Click “Add Person” to create one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                } else {
+
+                    // Column headers
+                    HStack {
+                        Text("Short name")
+                            .font(.caption.bold())
+                            .frame(width: 100, alignment: .leading)
+
+                        Text("Given / Middle / Surname")
+                            .font(.caption.bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("Birth date")
+                            .font(.caption.bold())
+                            .frame(width: 110, alignment: .leading)
+
+                        Spacer().frame(width: 24) // for delete icon
+                    }
+                    .padding(.bottom, 2)
+
+                    Divider()
+
+                    // Editable rows
+                    ForEach(Array(identityStore.people.enumerated()), id: \.element.id) { index, person in
+                        HStack(alignment: .center, spacing: 8) {
+
+                            // Short name (unique in your mental model; not strictly enforced yet)
+                            TextField(
+                                "Short name",
+                                text: Binding(
+                                    get: { identityStore.people[index].shortName },
+                                    set: {
+                                        identityStore.people[index].shortName = $0
+                                        identityStore.save()
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100, alignment: .leading)
+
+                            // Given / Middle / Surname
+                            HStack(spacing: 4) {
+                                TextField(
+                                    "Given",
+                                    text: Binding(
+                                        get: { identityStore.people[index].givenName },
+                                        set: {
+                                            identityStore.people[index].givenName = $0
+                                            identityStore.save()
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+
+                                TextField(
+                                    "Middle",
+                                    text: Binding(
+                                        get: { identityStore.people[index].middleName ?? "" },
+                                        set: {
+                                            identityStore.people[index].middleName = $0.isEmpty ? nil : $0
+                                            identityStore.save()
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+
+                                TextField(
+                                    "Surname",
+                                    text: Binding(
+                                        get: { identityStore.people[index].surname },
+                                        set: {
+                                            identityStore.people[index].surname = $0
+                                            identityStore.save()
+                                        }
+                                    )
+                                )
+                                .textFieldStyle(.roundedBorder)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            // Birth date (same free-form dMPMS grammar as other dates)
+                            TextField(
+                                "YYYY-MM-DD",
+                                text: Binding(
+                                    get: { identityStore.people[index].birthDate ?? "" },
+                                    set: {
+                                        let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        identityStore.people[index].birthDate = trimmed.isEmpty ? nil : trimmed
+                                        identityStore.save()
+                                    }
+                                )
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110, alignment: .leading)
+
+                            // Delete person
+                            Button(role: .destructive) {
+                                identityStore.people.removeAll { $0.id == person.id }
+                                identityStore.save()
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Remove this person from the identity list")
+                        }
+                    }
+                }
+
+                Button {
+                    addBlankPerson()
+                    identityStore.save()
+                } label: {
+                    Label("Add Person", systemImage: "plus")
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
 
     // MARK: - Helpers
+
+    /// Adds a new, blank person to the identity store.
+    private func addBlankPerson() {
+        let newPerson = DmpmsIdentity(
+            id: UUID().uuidString,
+            shortName: "New",
+            givenName: "",
+            middleName: nil,
+            surname: "",
+            birthDate: "",      // or "" if you made birthDate non-optional
+            idDate: "",
+            idReason: "",
+            isFavorite: false,
+            notes: nil
+        )
+        identityStore.people.append(newPerson)
+    }
 
     /// Adds a new, blank-ish custom preset row.
     private func addBlankCustomPreset() {
@@ -341,6 +529,7 @@ struct DMPPCropPreferencesView: View {
     private func deleteCustomPreset(_ preset: DMPPUserPreferences.CustomCropPreset) {
         prefs.customCropPresets.removeAll { $0.id == preset.id }
     }
+    
 }
 
 // MARK: - Preview
