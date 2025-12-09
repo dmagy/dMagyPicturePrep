@@ -2,7 +2,7 @@
 //  DmpmsPeopleModels.swift
 //  dMagy Picture Prep
 //
-//  dMPMS-2025-12-08-PPL1 — People / identity models for dMPMS 1.1
+//  dMPMS-2025-12-08-PPL2 — People / identity models for dMPMS 1.1
 //
 
 import Foundation
@@ -44,7 +44,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
     /// Example: marriage date when surname changes.
     var idDate: String
 
-    /// Human-facing reason for this identity (e.g. "Birth", "Marriage", "Divorce").
+    /// Reason for this identity version (e.g., "birth", "marriage", "divorce", "name change").
     var idReason: String
 
     /// Optional flag to mark this identity as a "favorite" in UI.
@@ -70,14 +70,14 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
     // MARK: - Designated init
 
     init(
-        id: String = UUID().uuidString,
+        id: String,
         shortName: String,
         givenName: String,
         middleName: String? = nil,
         surname: String,
         birthDate: String,
         idDate: String,
-        idReason: String = "Birth",
+        idReason: String,
         isFavorite: Bool = false,
         notes: String? = nil
     ) {
@@ -105,9 +105,13 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
     /// This is not the same as the identity ID.
     var id: String
 
-    /// Identity record this person refers to.
-    /// Must match some `DmpmsIdentity.id` in the identity store.
-    var identityID: String
+    /// Identity record this person refers to, if known.
+    /// For unknown placeholders, this will be `nil` and `isUnknown == true`.
+    var identityID: String?
+
+    /// True when this row represents an "unknown" person
+    /// (e.g., “Unknown woman holding baby in front row”).
+    var isUnknown: Bool
 
     /// Short name snapshot at time of tagging (for quick display and resilience).
     var shortNameSnapshot: String
@@ -137,7 +141,8 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
 
     init(
         id: String = UUID().uuidString,
-        identityID: String,
+        identityID: String? = nil,
+        isUnknown: Bool = false,
         shortNameSnapshot: String,
         displayNameSnapshot: String,
         ageAtPhoto: String? = nil,
@@ -148,6 +153,7 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
     ) {
         self.id = id
         self.identityID = identityID
+        self.isUnknown = isUnknown
         self.shortNameSnapshot = shortNameSnapshot
         self.displayNameSnapshot = displayNameSnapshot
         self.ageAtPhoto = ageAtPhoto
@@ -157,3 +163,4 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
         self.roleHint = roleHint
     }
 }
+

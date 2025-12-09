@@ -2,6 +2,8 @@ import SwiftUI
 import AppKit
 import Observation
 
+
+
 // dMPP-2025-11-21-NAV2+UI — Folder navigation + crops + dMPMS sidecar read/write
 
 struct DMPPImageEditorView: View {
@@ -13,6 +15,8 @@ struct DMPPImageEditorView: View {
     @State private var folderURL: URL? = nil
     @State private var imageURLs: [URL] = []
     @State private var currentIndex: Int = 0
+    
+   
 
     var body: some View {
         VStack(spacing: 0) {
@@ -182,6 +186,71 @@ struct DMPPImageEditorView: View {
             }
         }
     }
+    
+    /// Shared identity store for the editor.
+    private var identityStore: DMPPIdentityStore {
+        DMPPIdentityStore.shared
+    }
+
+    /// Binding that reflects whether a given identity is present in this photo.
+    /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
+    /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
+    private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
+        Binding<Bool>(
+            get: {
+                // If we don't have a view model yet, treat as "not present".
+                guard let vm = vm else { return false }
+
+                return vm.metadata.peopleV2.contains { $0.identityID == identity.id }
+            },
+            set: { isOn in
+                // If there's no view model, ignore changes.
+                guard let vm = vm else { return }
+
+                if isOn {
+                    // Already present? Just make sure legacy `people` is in sync.
+                    if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
+                        if !vm.metadata.people.contains(identity.shortName) {
+                            vm.metadata.people.append(identity.shortName)
+                        }
+                        return
+                    }
+
+                    // Compute next position in the front row (rowIndex 0).
+                    let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
+                    let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
+
+                    let person = DmpmsPersonInPhoto(
+                        identityID: identity.id,
+                        shortNameSnapshot: identity.shortName,
+                        displayNameSnapshot: identity.fullName,
+                        ageAtPhoto: nil,      // TODO: compute from birthDate + dateRange later
+                        rowIndex: 0,
+                        rowName: "front",
+                        positionIndex: nextPosition,
+                        roleHint: nil
+                    )
+
+                    vm.metadata.peopleV2.append(person)
+
+                    // Keep legacy `people` list in sync for v1 consumers.
+                    if !vm.metadata.people.contains(identity.shortName) {
+                        vm.metadata.people.append(identity.shortName)
+                    }
+
+                } else {
+                    // Remove from peopleV2
+                    vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
+
+                    // Remove from legacy `people` list.
+                    vm.metadata.people.removeAll { $0 == identity.shortName }
+                }
+            }
+        )
+    }
+
+
+    
 }
 // MARK: - Left Pane
 
@@ -189,6 +258,7 @@ struct DMPPImageEditorView: View {
 struct DMPPCropEditorPane: View {
 
     @Environment(\.openSettings) private var openSettings
+
 
     /// For the crop editor we only need read access to the view model.
     /// This is a plain value, not @Bindable.
@@ -447,6 +517,8 @@ struct DMPPMetadataFormPane: View {
 
     @Bindable var vm: DMPPImageEditorViewModel
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
+  
 
     // Tags from preferences, kept in sync via notification.
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
@@ -541,88 +613,153 @@ struct DMPPMetadataFormPane: View {
 
 
                 // TAGS & PEOPLE
-                GroupBox("Tags & People") {
-                    VStack(alignment: .leading, spacing: 16) {
+                // TAGS
+ 
+                GroupBox("Tags") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tags")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
-                        // TAGS: checkbox grid
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Tags")
+                        if availableTags.isEmpty {
+                            Text("No tags defined. Use Settings to add tags.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            let columns = [
+                                GridItem(.flexible(), alignment: .leading),
+                                GridItem(.flexible(), alignment: .leading)
+                            ]
+
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                                ForEach(availableTags, id: \.self) { tag in
+                                    Toggle(
+                                        isOn: Binding(
+                                            get: {
+                                                vm.metadata.tags.contains(tag)
+                                            },
+                                            set: { isOn in
+                                                if isOn {
+                                                    if !vm.metadata.tags.contains(tag) {
+                                                        vm.metadata.tags.append(tag)
+                                                    }
+                                                } else {
+                                                    vm.metadata.tags.removeAll { $0 == tag }
+                                                }
+                                            }
+                                        )
+                                    ) {
+                                        Text(tag)
+                                    }
+                                    .toggleStyle(.checkbox)
+                                }
+                            }
+                        }
+
+                        Button("Add / Edit tags…") {
+                            openSettings()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .tint(.accentColor)
+                        .padding(.top, 4)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                }
+
+
+                // PEOPLE
+                GroupBox("People") {
+                    VStack(alignment: .leading, spacing: 8) {
+
+                        // -------------------------------------------------
+                        // People in this photo (summary ABOVE the checklists)
+                        // -------------------------------------------------
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("People in this photo")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            if availableTags.isEmpty {
-                                Text("No tags defined. Use Settings to add tags.")
+                            let sortedPeople = vm.metadata.peopleV2
+                                .sorted { lhs, rhs in
+                                    if lhs.rowIndex == rhs.rowIndex {
+                                        return lhs.positionIndex < rhs.positionIndex
+                                    } else {
+                                        return lhs.rowIndex < rhs.rowIndex
+                                    }
+                                }
+
+                            if sortedPeople.isEmpty {
+                                Text("None yet.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else {
-                                let columns = [
-                                    GridItem(.flexible(), alignment: .leading),
-                                    GridItem(.flexible(), alignment: .leading)
-                                ]
+                                Text(sortedPeople.map { $0.shortNameSnapshot }.joined(separator: ", "))
+                                    .font(.caption)
+                            }
+                        }
 
-                                LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                                    ForEach(availableTags, id: \.self) { tag in
-                                        Toggle(
-                                            isOn: Binding(
-                                                get: {
-                                                    vm.metadata.tags.contains(tag)
-                                                },
-                                                set: { isOn in
-                                                    if isOn {
-                                                        if !vm.metadata.tags.contains(tag) {
-                                                            vm.metadata.tags.append(tag)
-                                                        }
-                                                    } else {
-                                                        vm.metadata.tags.removeAll { $0 == tag }
-                                                    }
-                                                }
-                                            )
-                                        ) {
-                                            Text(tag)
-                                        }
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        // -------------------------------------------------
+                        // Favorites column
+                        // -------------------------------------------------
+                        if !identityStore.favoriteIdentities.isEmpty {
+                            Text("Favorites")
+                                .font(.caption.bold())
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(identityStore.favoriteIdentities) { identity in
+                                    Toggle(identity.shortName, isOn: bindingForIdentity(identity))
                                         .toggleStyle(.checkbox)
-                                    }
                                 }
                             }
+                        }
 
-                            // Any tags that exist in metadata but are no longer in prefs
-                            let unknownTags = vm.metadata.tags.filter { !availableTags.contains($0) }
-                            if !unknownTags.isEmpty {
-                                Text("Other tags in this photo: \(unknownTags.joined(separator: ", "))")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, 4)
+                        // -------------------------------------------------
+                        // All others column
+                        // -------------------------------------------------
+                        if !identityStore.nonFavoriteIdentities.isEmpty {
+                            Text("All others")
+                                .font(.caption.bold())
+                                .padding(.top, 6)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(identityStore.nonFavoriteIdentities) { identity in
+                                    Toggle(identity.shortName, isOn: bindingForIdentity(identity))
+                                        .toggleStyle(.checkbox)
+                                }
                             }
-
-                            Button("Add / Edit tags…") {
-                                openSettings()
+                        }
+                        HStack(spacing: 8) {
+                            Button("Open People Manager…") {
+                                openWindow(id: "People-Manager")
                             }
                             .buttonStyle(.link)
                             .font(.caption)
-                            .padding(.top, 4)
-                        }
-                        .padding(.horizontal, 8)
-                           .padding(.vertical, 8)
-                        // PEOPLE
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("People")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            .tint(.accentColor) // use OS theme color for the link
 
-                            TextField(
-                                "Comma-separated names (e.g., Dan, Amy)",
-                                text: Binding(
-                                    get: { vm.peopleText },
-                                    set: { vm.updatePeople($0) }
-                                )
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: .infinity)
+                          //  Text("Manage identities, favorites, and details.")
+                           //     .font(.caption)
+                             ///   .foregroundStyle(.secondary)
+
+                            Spacer()
                         }
-                        .padding(.horizontal, 8)
-                           .padding(.vertical, 8)
+                        .padding(.top, 4)
+
+
+                        // Optional helper text
+                        Text("Check people who appear in this photo; they’ll be added left-to-right in the front row by default.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
                 }
+
 
                 Spacer(minLength: 0)
             }
@@ -643,6 +780,66 @@ struct DMPPMetadataFormPane: View {
     private func reloadAvailableTags() {
         availableTags = DMPPUserPreferences.load().availableTags
     }
+    
+    // MARK: - Identity helpers (People section)
+
+    /// Shared identity store for the editor.
+    private var identityStore: DMPPIdentityStore {
+        DMPPIdentityStore.shared
+    }
+
+    /// Binding that reflects whether a given identity is present in this photo.
+    /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
+    /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
+    private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
+        Binding<Bool>(
+            get: {
+                vm.metadata.peopleV2.contains { $0.identityID == identity.id }
+            },
+            set: { isOn in
+                if isOn {
+                    // Already present? Do nothing except keep legacy list in sync.
+                    if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
+                        if !vm.metadata.people.contains(identity.shortName) {
+                            vm.metadata.people.append(identity.shortName)
+                        }
+                        return
+                    }
+
+                    // Compute next position in the front row (rowIndex 0).
+                    let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
+                    let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
+
+                    let person = DmpmsPersonInPhoto(
+                        identityID: identity.id,
+                        shortNameSnapshot: identity.shortName,
+                        displayNameSnapshot: identity.fullName,
+                        ageAtPhoto: nil,      // TODO: compute from birthDate + dateRange later
+                        rowIndex: 0,
+                        rowName: "front",
+                        positionIndex: nextPosition,
+                        roleHint: nil
+                    )
+
+                    vm.metadata.peopleV2.append(person)
+
+                    // Keep legacy `people` list in sync for v1 consumers.
+                    if !vm.metadata.people.contains(identity.shortName) {
+                        vm.metadata.people.append(identity.shortName)
+                    }
+
+                } else {
+                    // Remove from peopleV2
+                    vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
+
+                    // Remove from legacy `people` list.
+                    vm.metadata.people.removeAll { $0 == identity.shortName }
+                }
+            }
+        )
+    }
+
+    
 }
 
 // MARK: - Date validation helper

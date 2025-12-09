@@ -640,11 +640,16 @@ These remain intentional v1 constraints.
 
 ### 6.1 High Priority
 
+- options around editing into folders, chackbox: include subfolders
+- show resolution when scaling
 - Per-image metadata status (New / Existing / Modified).
-- Auto-advance option after Save.
+- When clicking Add/Edit tags... in UI have settings go to the correct tab
+- Auto-advance option after Save. - option to go to next image or next image without existing dmpms.json
+- In Settings make some metadata optionally required or tested, for example if title still = file name give a warning before moving the next picture. This is to help people like me not miss a step.
+- add Location Section
+- Make portait resize center on face crop
 - Better visual affordances for crop limits (snap-to-edges, safe zones, warning when hitting bounds).
 - Additional preferences in `DMPPUserPreferences` for metadata defaults (e.g., date patterns, auto-tags from folder).
-- Optional “Preview mode” that hides UI chrome and shows just the cropped result.
 - First implementation pass of the **identity registry + `peopleInPhoto`**:
   - Two-column favorites/all-others checkbox UI.
   - Row/position capture for people in group photos.
@@ -652,11 +657,10 @@ These remain intentional v1 constraints.
 
 ### 6.2 Medium
 
+- investigate option of voice entry for description
+- add a button to open the current image in another  installed default  app on the computer for color correction, etc.
 - Batch skip existing metadata / sidecars.
-- Duplicate current settings (metadata + crops) to the next image.
-- Batch-create default crops for a folder, honoring user preferences.
 - Extend dMPMS `history[]` to include non-crop edits.
-- Optional thumbnail strip re-introduced as a secondary view.
 - Project-level or folder-level tag sets (in addition to the global list).
 
 ### 6.3 Longer-Term

@@ -2,6 +2,9 @@ import SwiftUI
 
 @main
 struct dMagy_Picture_PrepApp: App {
+    
+    @Environment(\.openWindow) private var openWindow
+
 
     var body: some Scene {
 
@@ -9,7 +12,12 @@ struct dMagy_Picture_PrepApp: App {
         WindowGroup {
             DMPPImageEditorView()
         }
-
+        
+        // New People Manager window
+          WindowGroup("People Manager", id: "People-Manager") {
+              DMPPPeopleManagerView()
+          }
+        
         // Standard macOS Settings / Preferences window (⌘,)
         Settings {
             DMPPCropPreferencesView()
@@ -21,5 +29,16 @@ struct dMagy_Picture_PrepApp: App {
                                .padding()
                        }
                        .windowResizability(.contentSize)
+        
+        // New commands
+           .commands {
+               CommandMenu("People") {
+                   Button("Open People Manager…") {
+                       openWindow(id: "PeopleManager")
+                   }
+                   .keyboardShortcut("P", modifiers: [.command, .option])
+               }
+           }
+        
     }
 }
