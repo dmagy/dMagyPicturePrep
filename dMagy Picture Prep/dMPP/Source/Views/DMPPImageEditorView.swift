@@ -187,67 +187,9 @@ struct DMPPImageEditorView: View {
         }
     }
     
-    /// Shared identity store for the editor.
-    private var identityStore: DMPPIdentityStore {
-        DMPPIdentityStore.shared
-    }
 
-    /// Binding that reflects whether a given identity is present in this photo.
-    /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
-    /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
-    private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
-        Binding<Bool>(
-            get: {
-                // If we don't have a view model yet, treat as "not present".
-                guard let vm = vm else { return false }
 
-                return vm.metadata.peopleV2.contains { $0.identityID == identity.id }
-            },
-            set: { isOn in
-                // If there's no view model, ignore changes.
-                guard let vm = vm else { return }
 
-                if isOn {
-                    // Already present? Just make sure legacy `people` is in sync.
-                    if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
-                        if !vm.metadata.people.contains(identity.shortName) {
-                            vm.metadata.people.append(identity.shortName)
-                        }
-                        return
-                    }
-
-                    // Compute next position in the front row (rowIndex 0).
-                    let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
-                    let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
-
-                    let person = DmpmsPersonInPhoto(
-                        identityID: identity.id,
-                        shortNameSnapshot: identity.shortName,
-                        displayNameSnapshot: identity.fullName,
-                        ageAtPhoto: nil,      // TODO: compute from birthDate + dateRange later
-                        rowIndex: 0,
-                        rowName: "front",
-                        positionIndex: nextPosition,
-                        roleHint: nil
-                    )
-
-                    vm.metadata.peopleV2.append(person)
-
-                    // Keep legacy `people` list in sync for v1 consumers.
-                    if !vm.metadata.people.contains(identity.shortName) {
-                        vm.metadata.people.append(identity.shortName)
-                    }
-
-                } else {
-                    // Remove from peopleV2
-                    vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
-
-                    // Remove from legacy `people` list.
-                    vm.metadata.people.removeAll { $0 == identity.shortName }
-                }
-            }
-        )
-    }
 
 
     
@@ -592,9 +534,17 @@ struct DMPPMetadataFormPane: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: .infinity)
                         .onChange(of: vm.metadata.dateTaken) { oldValue, newValue in
-                            dateWarning = dateValidationMessage(for: newValue)
-                        }
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
+                            // Keep the machine-friendly range in sync
+                            vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
+
+                            // Keep the warning text in sync
+                            dateWarning = dateValidationMessage(for: trimmed)
+
+                            // Recompute ages for all peopleV2 entries
+                            recomputeAgesForCurrentImage()
+                        }
 
                         if let dateWarning, !dateWarning.isEmpty {
                             Text(dateWarning)
@@ -609,6 +559,7 @@ struct DMPPMetadataFormPane: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
+
 
 
 
@@ -695,9 +646,23 @@ struct DMPPMetadataFormPane: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else {
-                                Text(sortedPeople.map { $0.shortNameSnapshot }.joined(separator: ", "))
-                                    .font(.caption)
+                                Text(
+                                    sortedPeople
+                                        .map { person in
+                                            if let age = person.ageAtPhoto,
+                                               !age.isEmpty {
+                                                // Show "Name (age)" or "Name (5-7)" depending on stored value
+                                                return "\(person.shortNameSnapshot) (\(age))"
+                                            } else {
+                                                // No age info → just the name
+                                                return person.shortNameSnapshot
+                                            }
+                                        }
+                                        .joined(separator: ", ")
+                                )
+                                .font(.caption)
                             }
+
                         }
 
                         Divider()
@@ -789,54 +754,113 @@ struct DMPPMetadataFormPane: View {
     }
 
     /// Binding that reflects whether a given identity is present in this photo.
-    /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
-    /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
-    private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
-        Binding<Bool>(
-            get: {
-                vm.metadata.peopleV2.contains { $0.identityID == identity.id }
-            },
-            set: { isOn in
-                if isOn {
-                    // Already present? Do nothing except keep legacy list in sync.
-                    if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
-                        if !vm.metadata.people.contains(identity.shortName) {
-                            vm.metadata.people.append(identity.shortName)
-                        }
-                        return
-                    }
+       /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
+       /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
+       private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
+           Binding<Bool>(
+               get: {
+                   vm.metadata.peopleV2.contains { $0.identityID == identity.id }
+               },
+               set: { isOn in
+                   if isOn {
+                       // Already present? Keep legacy list in sync, then bail.
+                       if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
+                           if !vm.metadata.people.contains(identity.shortName) {
+                               vm.metadata.people.append(identity.shortName)
+                           }
+                           return
+                       }
 
-                    // Compute next position in the front row (rowIndex 0).
-                    let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
-                    let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
+                       // Compute next position in the front row (rowIndex 0).
+                       let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
+                       let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
 
-                    let person = DmpmsPersonInPhoto(
-                        identityID: identity.id,
-                        shortNameSnapshot: identity.shortName,
-                        displayNameSnapshot: identity.fullName,
-                        ageAtPhoto: nil,      // TODO: compute from birthDate + dateRange later
-                        rowIndex: 0,
-                        rowName: "front",
-                        positionIndex: nextPosition,
-                        roleHint: nil
-                    )
+                       // New person-in-photo row; age will be filled by recomputeAgesForCurrentImage().
+                       let person = DmpmsPersonInPhoto(
+                           id: UUID().uuidString,
+                           identityID: identity.id,
+                           isUnknown: false,
+                           shortNameSnapshot: identity.shortName,
+                           displayNameSnapshot: identity.fullName,
+                           ageAtPhoto: nil,
+                           rowIndex: 0,
+                           rowName: "front",
+                           positionIndex: nextPosition,
+                           roleHint: nil
+                       )
 
-                    vm.metadata.peopleV2.append(person)
+                       vm.metadata.peopleV2.append(person)
 
-                    // Keep legacy `people` list in sync for v1 consumers.
-                    if !vm.metadata.people.contains(identity.shortName) {
-                        vm.metadata.people.append(identity.shortName)
-                    }
+                       // Keep legacy `people` list in sync for v1 consumers.
+                       if !vm.metadata.people.contains(identity.shortName) {
+                           vm.metadata.people.append(identity.shortName)
+                       }
 
-                } else {
-                    // Remove from peopleV2
-                    vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
+                       // Ensure ages respect current date.
+                       recomputeAgesForCurrentImage()
 
-                    // Remove from legacy `people` list.
-                    vm.metadata.people.removeAll { $0 == identity.shortName }
-                }
+                   } else {
+                       // Turn OFF: remove from v2 + legacy people.
+                       vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
+                       vm.metadata.people.removeAll { $0 == identity.shortName }
+
+                       // Recompute ages in case anything changed.
+                       recomputeAgesForCurrentImage()
+                   }
+               }
+           )
+       }
+
+    // MARK: - People / age helpers
+
+    /// Recomputes `ageAtPhoto` for every `peopleV2` entry based on
+    /// the current `metadata.dateRange` and the identity registry.
+    ///
+    /// Rules (v1):
+    /// - If no `dateRange` → clear all ages.
+    /// - If a person is marked `isUnknown` or has no identityID → age = nil.
+    /// - If identity has no `birthDate` → age = nil.
+    /// - Otherwise: compute integer years using earliest date in `dateRange`.
+    private func recomputeAgesForCurrentImage() {
+        // If there's no usable dateRange, clear all ages and bail.
+        guard let dateRange = vm.metadata.dateRange else {
+            for idx in vm.metadata.peopleV2.indices {
+                vm.metadata.peopleV2[idx].ageAtPhoto = nil
             }
-        )
+            return
+        }
+
+        // For now, we use the *earliest* date in the range as the reference.
+        let photoDateYMD = dateRange.earliest
+
+        // Walk all people in this photo.
+        for idx in vm.metadata.peopleV2.indices {
+            let person = vm.metadata.peopleV2[idx]
+
+            // Unknown placeholders never get ages.
+            if person.isUnknown {
+                vm.metadata.peopleV2[idx].ageAtPhoto = nil
+                continue
+            }
+
+            // Need a linked identity + birthDate.
+            guard let identityID = person.identityID,
+                  let identity = identityStore.identity(withID: identityID),
+                  let birthYMD = identity.birthDate
+            else {
+                vm.metadata.peopleV2[idx].ageAtPhoto = nil
+                continue
+            }
+
+            // Compute rough integer age in years.
+            guard let years = yearsBetween(birthYMD: birthYMD, and: photoDateYMD) else {
+                vm.metadata.peopleV2[idx].ageAtPhoto = nil
+                continue
+            }
+
+            // For v1: simple integer-as-string, e.g. "3", "42".
+            vm.metadata.peopleV2[idx].ageAtPhoto = String(years)
+        }
     }
 
     
@@ -1003,10 +1027,15 @@ extension DMPPImageEditorView {
             return
         }
 
-        let metadata = vm.metadata
+        // Work on a mutable copy so we can tweak before encoding.
+        var metadataToSave = vm.metadata
+
+        // Keep legacy `people` in sync with peopleV2, when present.
+        metadataToSave.syncLegacyPeopleFromPeopleV2IfNeeded()
+
         let url = sidecarURL(for: vm.imageURL)
 
-        print("dMPP: Attempting to save metadata for \(metadata.sourceFile) to:")
+        print("dMPP: Attempting to save metadata for \(metadataToSave.sourceFile) to:")
         print("      \(url.path)")
 
         do {
@@ -1014,18 +1043,19 @@ extension DMPPImageEditorView {
             // Pretty-printed, but DO NOT sort keys alphabetically.
             encoder.outputFormatting = [.prettyPrinted]
 
-            let data = try encoder.encode(metadata)
+            let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
 
             print("dMPP: ✅ Saved metadata successfully.")
         } catch {
             let nsError = error as NSError
-            print("dMPP: ❌ Failed to save metadata for \(metadata.sourceFile)")
+            print("dMPP: ❌ Failed to save metadata for \(metadataToSave.sourceFile)")
             print("      Domain: \(nsError.domain)")
             print("      Code:   \(nsError.code)")
             print("      Desc:   \(nsError.localizedDescription)")
         }
     }
+
 
     /// [DMPP-SIDECAR-LOAD] Load metadata from sidecar if present; else defaults.
     private func loadMetadata(for imageURL: URL) -> DmpmsMetadata {
@@ -1070,6 +1100,12 @@ extension DMPPImageEditorView {
         )
     }
 
+
+
+
+
+
+    
     // [DMPP-NAV-ASPECT-RECT] Build a centered RectNormalized for a given aspect ratio.
     private func centeredRectForAspect(
         _ aspectString: String,
@@ -1113,4 +1149,36 @@ extension DMPPImageEditorView {
 #Preview {
     DMPPImageEditorView()
         .frame(width: 1000, height: 650)
+}
+// MARK: - Small helpers for age calculation
+
+/// Parses simple "YYYY-MM-DD" strings and returns integer years difference.
+/// If parsing fails, returns nil.
+///
+/// We assume `DmpmsDateRange` has already normalized dates to this format.
+fileprivate func yearsBetween(birthYMD: String, and photoYMD: String) -> Int? {
+    func components(from ymd: String) -> (year: Int, month: Int, day: Int)? {
+        let parts = ymd.split(separator: "-")
+        guard parts.count == 3,
+              let y = Int(parts[0]),
+              let m = Int(parts[1]),
+              let d = Int(parts[2]) else {
+            return nil
+        }
+        return (y, m, d)
+    }
+
+    guard let b = components(from: birthYMD),
+          let p = components(from: photoYMD) else {
+        return nil
+    }
+
+    var years = p.year - b.year
+
+    // If the photo is before the birthday in that year, subtract 1.
+    if (p.month, p.day) < (b.month, b.day) {
+        years -= 1
+    }
+
+    return max(years, 0)
 }

@@ -233,3 +233,30 @@ struct HistoryEvent: Codable, Hashable {
     var newName: String? = nil
     var cropID: String? = nil
 }
+// MARK: - People sync helpers
+
+extension DmpmsMetadata {
+
+    /// Rebuilds the legacy `people: [String]` list from `peopleV2`
+    /// when `peopleV2` is non-empty.
+    ///
+    /// Sorting:
+    /// - Primary: rowIndex (0 = front row, 1 = second row, etc.)
+    /// - Secondary: positionIndex (0 = leftmost in that row)
+    ///
+    /// This lets newer UIs treat `peopleV2` as the source of truth,
+    /// while keeping older consumers that only read `people` working.
+    mutating func syncLegacyPeopleFromPeopleV2IfNeeded() {
+        // If there are no v2 records yet, leave legacy people alone.
+        guard !peopleV2.isEmpty else { return }
+
+        let sorted = peopleV2.sorted { lhs, rhs in
+            if lhs.rowIndex != rhs.rowIndex {
+                return lhs.rowIndex < rhs.rowIndex
+            }
+            return lhs.positionIndex < rhs.positionIndex
+        }
+
+        self.people = sorted.map { $0.shortNameSnapshot }
+    }
+}
