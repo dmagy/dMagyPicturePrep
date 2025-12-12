@@ -25,8 +25,25 @@ struct DmpmsDateRange: Codable, Hashable {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        // Split once; various formats reuse these parts.
-        let parts = trimmed.split(separator: "-")
+        // Normalize a human-friendly "YYYY-MM to YYYY-MM" into "YYYY-MM-YYYY-MM"
+        let normalized = trimmed.replacingOccurrences(of: " to ", with: "-")
+        let parts = normalized.split(separator: "-")
+
+        // 0) Month range: YYYY-MM-YYYY-MM
+        if parts.count == 4,
+           let startYear = Int(parts[0]),
+           let startMonth = Int(parts[1]),
+           let endYear = Int(parts[2]),
+           let endMonth = Int(parts[3]),
+           (1...12).contains(startMonth),
+           (1...12).contains(endMonth),
+           (startYear < endYear || (startYear == endYear && startMonth <= endMonth)) {
+
+            let earliest = String(format: "%04d-%02d-01", startYear, startMonth)
+            let lastDay  = lastDayOfMonth(year: endYear, month: endMonth)
+            let latest   = String(format: "%04d-%02d-%02d", endYear, endMonth, lastDay)
+            return DmpmsDateRange(earliest: earliest, latest: latest)
+        }
 
         // 1) Full date: YYYY-MM-DD
         if parts.count == 3,
@@ -63,16 +80,16 @@ struct DmpmsDateRange: Codable, Hashable {
         }
 
         // 4) Year only: YYYY
-        if trimmed.count == 4, let year = Int(trimmed) {
+        if normalized.count == 4, let year = Int(normalized) {
             let earliest = String(format: "%04d-01-01", year)
             let latest   = String(format: "%04d-12-31", year)
             return DmpmsDateRange(earliest: earliest, latest: latest)
         }
 
         // 5) Decade: "1930s" → 1930-01-01 .. 1939-12-31
-        if trimmed.count == 5,
-           trimmed.hasSuffix("s") {
-            let decadeString = trimmed.prefix(4)
+        if normalized.count == 5,
+           normalized.hasSuffix("s") {
+            let decadeString = normalized.prefix(4)
             if let startYear = Int(decadeString) {
                 let earliest = String(format: "%04d-01-01", startYear)
                 let latest   = String(format: "%04d-12-31", startYear + 9)
@@ -80,10 +97,10 @@ struct DmpmsDateRange: Codable, Hashable {
             }
         }
 
-        // Anything else (free-form text, "early 1900s", etc.) → we keep the raw dateTaken
-        // but do NOT generate a range.
+        // Anything else → we keep the raw dateTaken but do NOT generate a range.
         return nil
     }
+
 
     private static func lastDayOfMonth(year: Int, month: Int) -> Int {
         var comps = DateComponents()

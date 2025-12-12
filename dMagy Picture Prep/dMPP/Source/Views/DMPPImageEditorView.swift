@@ -551,7 +551,7 @@ struct DMPPMetadataFormPane: View {
                                 .font(.caption2)
                                 .foregroundStyle(.red)
                         } else {
-                            Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977")
+                            Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -811,7 +811,7 @@ struct DMPPMetadataFormPane: View {
            )
        }
 
-    // MARK: - People / age helpers
+    // MARK: - Age recomputation for peopleV2
 
     /// Recomputes `ageAtPhoto` for every `peopleV2` entry based on
     /// the current `metadata.dateRange` and the identity registry.
@@ -820,48 +820,41 @@ struct DMPPMetadataFormPane: View {
     /// - If no `dateRange` → clear all ages.
     /// - If a person is marked `isUnknown` or has no identityID → age = nil.
     /// - If identity has no `birthDate` → age = nil.
-    /// - Otherwise: compute integer years using earliest date in `dateRange`.
+    /// - Otherwise: use `ageDescription` (which can return ranges like "5-10").
     private func recomputeAgesForCurrentImage() {
-        // If there's no usable dateRange, clear all ages and bail.
-        guard let dateRange = vm.metadata.dateRange else {
+        // If there's no usable dateRange, clear ages and bail.
+        guard let range = vm.metadata.dateRange else {
             for idx in vm.metadata.peopleV2.indices {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
             }
             return
         }
 
-        // For now, we use the *earliest* date in the range as the reference.
-        let photoDateYMD = dateRange.earliest
-
         // Walk all people in this photo.
         for idx in vm.metadata.peopleV2.indices {
-            let person = vm.metadata.peopleV2[idx]
-
             // Unknown placeholders never get ages.
-            if person.isUnknown {
+            if vm.metadata.peopleV2[idx].isUnknown {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
                 continue
             }
 
-            // Need a linked identity + birthDate.
-            guard let identityID = person.identityID,
-                  let identity = identityStore.identity(withID: identityID),
-                  let birthYMD = identity.birthDate
+            // Need a linked identity.
+            guard let identityID = vm.metadata.peopleV2[idx].identityID,
+                  let identity = identityStore.identity(withID: identityID)
             else {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
                 continue
             }
 
-            // Compute rough integer age in years.
-            guard let years = yearsBetween(birthYMD: birthYMD, and: photoDateYMD) else {
-                vm.metadata.peopleV2[idx].ageAtPhoto = nil
-                continue
-            }
-
-            // For v1: simple integer-as-string, e.g. "3", "42".
-            vm.metadata.peopleV2[idx].ageAtPhoto = String(years)
+            // Use the shared ageDescription helper (can return "7" or "7-10").
+            vm.metadata.peopleV2[idx].ageAtPhoto = ageDescription(
+                birthDateString: identity.birthDate,
+                range: range
+            )
         }
     }
+
+
 
     
 }
@@ -875,11 +868,15 @@ private func dateValidationMessage(for raw: String) -> String? {
     }
 
     // Simple patterns
+
     let fullDate     = #"^\d{4}-\d{2}-\d{2}$"#      // 1976-07-04
     let yearMonth    = #"^\d{4}-\d{2}$"#            // 1976-07
     let yearOnly     = #"^\d{4}$"#                  // 1976
     let decade       = #"^\d{4}s$"#                 // 1970s
     let yearRange    = #"^(\d{4})-(\d{4})$"#        // 1975-1977
+    let monthRange    = #"^(\d{4})-(\d{2})-(\d{4})-(\d{2})$"#              // 1965-06-1966-02
+    let monthRangeTo  = #"^(\d{4})-(\d{2})\s+to\s+(\d{4})-(\d{2})$"#        // 1965-06 to 1966-02
+
 
     func matches(_ pattern: String) -> NSTextCheckingResult? {
         let regex = try? NSRegularExpression(pattern: pattern)
@@ -911,8 +908,55 @@ private func dateValidationMessage(for raw: String) -> String? {
         }
     }
 
+    // 2b) Month range: YYYY-MM-YYYY-MM
+    if let match = matches(monthRange) {
+        if match.numberOfRanges == 5,
+           let sYRange = Range(match.range(at: 1), in: trimmed),
+           let sMRange = Range(match.range(at: 2), in: trimmed),
+           let eYRange = Range(match.range(at: 3), in: trimmed),
+           let eMRange = Range(match.range(at: 4), in: trimmed) {
+
+            let sY = Int(trimmed[sYRange]) ?? 0
+            let sM = Int(trimmed[sMRange]) ?? 0
+            let eY = Int(trimmed[eYRange]) ?? 0
+            let eM = Int(trimmed[eMRange]) ?? 0
+
+            if !(1...12).contains(sM) || !(1...12).contains(eM) {
+                return "Months must be between 01 and 12."
+            }
+            if eY < sY || (eY == sY && eM < sM) {
+                return "End month must not be earlier than start month."
+            }
+            return nil
+        }
+    }
+
+    // 2c) Month range with "to": YYYY-MM to YYYY-MM
+    if let match = matches(monthRangeTo) {
+        if match.numberOfRanges == 5,
+           let sYRange = Range(match.range(at: 1), in: trimmed),
+           let sMRange = Range(match.range(at: 2), in: trimmed),
+           let eYRange = Range(match.range(at: 3), in: trimmed),
+           let eMRange = Range(match.range(at: 4), in: trimmed) {
+
+            let sY = Int(trimmed[sYRange]) ?? 0
+            let sM = Int(trimmed[sMRange]) ?? 0
+            let eY = Int(trimmed[eYRange]) ?? 0
+            let eM = Int(trimmed[eMRange]) ?? 0
+
+            if !(1...12).contains(sM) || !(1...12).contains(eM) {
+                return "Months must be between 01 and 12."
+            }
+            if eY < sY || (eY == sY && eM < sM) {
+                return "End month must not be earlier than start month."
+            }
+            return nil
+        }
+    }
+
+    
     // 3) Anything else → soft warning
-    return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977"
+    return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
 }
 
 
@@ -1150,6 +1194,40 @@ extension DMPPImageEditorView {
     DMPPImageEditorView()
         .frame(width: 1000, height: 650)
 }
+// MARK: - Age helper (shared in this file)
+
+/// Computes a simple age-at-photo description from a birth date and a date range.
+///
+/// - Parameters:
+///   - birthDateString: The person's birth date (string using dMPMS grammar).
+///   - range: The photo's date range (derived from `dateTaken`).
+/// - Returns: A string like "5" or "5-7", or nil if we can't compute.
+fileprivate func ageDescription(
+    birthDateString: String?,
+    range: DmpmsDateRange?
+) -> String? {
+    guard
+        let range,
+        let birthDateString,
+        birthDateString.count >= 4,
+        let birthYear = Int(birthDateString.prefix(4)),
+        let earliestYear = Int(range.earliest.prefix(4)),
+        let latestYear = Int(range.latest.prefix(4))
+    else {
+        return nil
+    }
+
+    let minAge = max(0, earliestYear - birthYear)
+    let maxAge = max(0, latestYear - birthYear)
+
+    if minAge == maxAge {
+        return "\(minAge)"
+    } else {
+        return "\(minAge)-\(maxAge)"
+    }
+}
+
+
 // MARK: - Small helpers for age calculation
 
 /// Parses simple "YYYY-MM-DD" strings and returns integer years difference.
