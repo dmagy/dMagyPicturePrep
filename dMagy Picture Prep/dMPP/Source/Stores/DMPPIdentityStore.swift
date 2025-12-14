@@ -1,210 +1,377 @@
-//
-//  DMPPIdentityStore.swift
-//  dMagy Picture Prep
-//
-//  dMPP-2025-12-08-ID1 — Identity store (load/save/query + favorites)
-//
-
 import Foundation
 import Observation
 
-/// [DMPP-IDENTITY-STORE]
-/// Application-wide store for identity records (`DmpmsIdentity`).
-///
-/// Responsibilities:
-/// - Load/save a single JSON file containing all identities.
-/// - Provide simple query helpers for favorites vs others.
-/// - Offer stable, sorted lists for UI (favorites first, then alphabetical).
-///
-/// NOTE:
-/// This is intentionally *not* tied to any particular view;
-/// it can be injected into future identity pickers, people panes, etc.
 @Observable
 final class DMPPIdentityStore {
 
-    /// Shared singleton used throughout the app.
     static let shared = DMPPIdentityStore()
 
-    /// Convenience loader used by views that expect a `load()` factory.
-    /// For now this simply returns the shared singleton.
-    static func load() -> DMPPIdentityStore {
-        DMPPIdentityStore.shared
-    }
+    /// Flat list of all identity versions persisted to disk.
+    /// Multiple entries may share the same `personID`.
+    var identities: [DmpmsIdentity] = []
 
-    /// In-memory list of all identities.
-    /// This is the single source of truth for identity records in dMPP.
-    private(set) var identities: [DmpmsIdentity] = []
-
-    /// Backwards-friendly alias for `identities` so older code that
-    /// refers to `identityStore.people` still compiles.
-    ///
-    /// This is a full get/set computed property so callers can
-    /// modify `people` (append/remove/etc.) and those changes
-    /// are applied to the underlying `identities` array.
-    var people: [DmpmsIdentity] {
-        get { identities }
-        set { identities = newValue }
-    }
-
-
-    /// Backing file path for persistence.
-    private let storeURL: URL
+    private let storageURL: URL
 
     // MARK: - Init
 
-    private init() {
-        self.storeURL = DMPPIdentityStore.defaultStoreURL()
-        self.identities = DMPPIdentityStore.loadFromDisk(at: storeURL)
+    init() {
+        let fm = FileManager.default
+
+        if let appSupport = try? fm.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) {
+            let dir = appSupport.appendingPathComponent("dMagyPicturePrep", isDirectory: true)
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            storageURL = dir.appendingPathComponent("identities.json")
+        } else {
+            storageURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("dMPP-identities.json")
+        }
+
+        load()
     }
 
-    // MARK: - Public API
+    // MARK: - Persistence
 
-    /// Reloads identities from disk, discarding any in-memory changes
-    /// that have not been saved. Intended for future "Reload" / debug hooks.
-    func refreshFromDisk() {
-        identities = DMPPIdentityStore.loadFromDisk(at: storeURL)
+    func load() {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: storageURL.path) else {
+            identities = []
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: storageURL)
+            identities = try JSONDecoder().decode([DmpmsIdentity].self, from: data)
+            migrateAndNormalize()
+        } catch {
+            print("dMPP: Failed to load identities: \(error)")
+            identities = []
+        }
     }
 
-    /// Persists the current in-memory identities to disk.
-    func save() {
-        DMPPIdentityStore.saveToDisk(identities, at: storeURL)
+    private func save() {
+        do {
+            let data = try JSONEncoder().encode(identities)
+            try data.write(to: storageURL, options: .atomic)
+        } catch {
+            print("dMPP: Failed to save identities: \(error)")
+        }
     }
 
-    /// Returns all identities sorted for UI:
-    /// - Favorites first, then non-favorites
-    /// - Alphabetical by `shortName` (case-insensitive) within each group.
+    // MARK: - Migration / normalization
+
+    /// Ensures older files work and keeps per-person shared fields in sync.
+    private func migrateAndNormalize() {
+
+        // 1) Backfill missing/blank personID from identity.id
+        for idx in identities.indices {
+            let pid = identities[idx].personID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if pid.isEmpty {
+                identities[idx].personID = identities[idx].id
+            }
+        }
+
+        // 2) Propagate shared fields across versions
+        propagateSharedFieldsAcrossIdentityVersions()
+
+        // 3) Keep stable UI ordering
+        identities = identitiesSortedForUI
+
+        // Optional: write back the migrated structure so it stays clean next run
+        save()
+    }
+
+    private func propagateSharedFieldsAcrossIdentityVersions() {
+        let groups = Dictionary(grouping: identities, by: { $0.personID ?? $0.id })
+
+        var rebuilt: [DmpmsIdentity] = []
+        rebuilt.reserveCapacity(identities.count)
+
+        for (personID, versions) in groups {
+
+            // Choose a “primary” identity to define shared fields:
+            // Prefer Birth; otherwise first by date-ish.
+            let primary = versions.first(where: { normalize($0.idReason) == "birth" })
+                ?? versions.sorted(by: { sortKey(for: $0.idDate) < sortKey(for: $1.idDate) }).first
+                ?? versions.first!
+
+            let sharedShortName = primary.shortName
+            let sharedBirthDate = primary.birthDate
+            let sharedFavorite  = primary.isFavorite
+            let sharedNotes     = primary.notes
+
+            for v in versions {
+                var copy = v
+                copy.personID = personID
+                copy.shortName = sharedShortName
+                copy.birthDate = sharedBirthDate
+                copy.isFavorite = sharedFavorite
+                // Notes are person-level in your design, so keep them in sync too.
+                copy.notes = sharedNotes
+                rebuilt.append(copy)
+            }
+        }
+
+        identities = rebuilt
+    }
+
+    // MARK: - Computed views (raw identities)
+
     var identitiesSortedForUI: [DmpmsIdentity] {
-        let (favorites, others) = identities.partitionedByFavorite()
-        return favorites.sortedByShortName() + others.sortedByShortName()
+        identities.sorted {
+            $0.shortName.localizedCaseInsensitiveCompare($1.shortName) == .orderedAscending
+        }
     }
 
-    /// Convenience: favorites only, sorted by short name.
     var favoriteIdentities: [DmpmsIdentity] {
-        identities.filter { $0.isFavorite }.sortedByShortName()
+        identitiesSortedForUI.filter { $0.isFavorite }
     }
 
-    /// Convenience: non-favorites only, sorted by short name.
     var nonFavoriteIdentities: [DmpmsIdentity] {
-        identities.filter { !$0.isFavorite }.sortedByShortName()
+        identitiesSortedForUI.filter { !$0.isFavorite }
     }
 
-    /// Look up an identity by its `id`.
+    // MARK: - Person grouping (one row per person for editor UI)
+
+    struct PersonSummary: Identifiable, Hashable {
+        /// Uses the stable personID as the group identifier.
+        let id: String
+
+        /// Shared person-level fields (kept in sync across versions).
+        let shortName: String
+        let birthDate: String?
+        let isFavorite: Bool
+        let notes: String?
+
+        /// All identity versions for this person (sorted: Birth first, then by date-ish)
+        let versions: [DmpmsIdentity]
+    }
+
+    /// One row per person, used for checkbox UI (dedupes “two Amys” problem).
+    var peopleSortedForUI: [PersonSummary] {
+        let groups = Dictionary(grouping: identities) { $0.personID ?? $0.id }
+
+        let people: [PersonSummary] = groups.map { (personID, versions) in
+            let sortedVersions = identityVersionsInternalSorted(versions)
+
+            // person-level fields are already propagated, so any version is fine.
+            let representative = sortedVersions.first ?? versions.first!
+
+            let sn = representative.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayShort = sn.isEmpty ? "Untitled" : sn
+
+            let bd = representative.birthDate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let birth = (bd?.isEmpty == false) ? bd : nil
+
+            return PersonSummary(
+                id: personID,
+                shortName: displayShort,
+                birthDate: birth,
+                isFavorite: representative.isFavorite,
+                notes: representative.notes,
+                versions: sortedVersions
+            )
+        }
+
+        return people.sorted {
+            $0.shortName.localizedCaseInsensitiveCompare($1.shortName) == .orderedAscending
+        }
+    }
+
+    var favoritePeople: [PersonSummary] {
+        peopleSortedForUI.filter { $0.isFavorite }
+    }
+
+    var nonFavoritePeople: [PersonSummary] {
+        peopleSortedForUI.filter { !$0.isFavorite }
+    }
+
+    // MARK: - Lookup / mutation
+
     func identity(withID id: String) -> DmpmsIdentity? {
         identities.first { $0.id == id }
     }
 
-    /// Look up all identities that share a `shortName`.
-    /// This is useful for people who have multiple identity versions
-    /// (e.g., pre-/post-marriage surname).
-    func identities(withShortName shortName: String) -> [DmpmsIdentity] {
-        identities.filter { $0.shortName == shortName }
+    func identityVersions(forPersonID personID: String) -> [DmpmsIdentity] {
+        let versions = identities.filter { ($0.personID ?? $0.id) == personID }
+        return identityVersionsInternalSorted(versions)
     }
 
-    /// Insert or replace an identity by `id`.
-    /// - If an identity with the same `id` exists, it is updated in-place.
-    /// - Otherwise, the identity is appended.
+    /// Insert or replace a single identity version, then normalize and save.
     func upsert(_ identity: DmpmsIdentity) {
-        if let idx = identities.firstIndex(where: { $0.id == identity.id }) {
-            identities[idx] = identity
+        var incoming = identity
+
+        // Ensure personID exists
+        let pid = (incoming.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+        incoming.personID = pid ?? incoming.id
+
+        if let idx = identities.firstIndex(where: { $0.id == incoming.id }) {
+            identities[idx] = incoming
         } else {
-            identities.append(identity)
+            identities.append(incoming)
         }
+
+        propagateSharedFieldsAcrossIdentityVersions()
+        identities = identitiesSortedForUI
         save()
     }
 
-    /// Removes an identity by `id`.
-    func delete(identityID: String) {
-        identities.removeAll { $0.id == identityID }
+    func delete(id: String) {
+        identities.removeAll { $0.id == id }
+        propagateSharedFieldsAcrossIdentityVersions()
         save()
     }
 
-    /// Ensures that short names remain unique by checking whether any
-    /// identity (other than the provided one, if any) already uses it.
-    func isShortNameInUse(_ shortName: String, excludingID: String? = nil) -> Bool {
-        identities.contains { identity in
-            if let excludingID, identity.id == excludingID {
-                return false
-            }
-            return identity.shortName == shortName
+    func deletePerson(personID: String) {
+        identities.removeAll { ($0.personID ?? $0.id) == personID }
+        save()
+    }
+
+    /// Given a person’s versions, pick the best identity for a photo date.
+    /// Selects the identity with the latest idDate <= photo earliest date.
+    func bestIdentityForPhoto(versions: [DmpmsIdentity], photoEarliestYMD: String?) -> DmpmsIdentity {
+        let sorted = versions.sorted { sortValue(for: $0.idDate) < sortValue(for: $1.idDate) }
+        guard let photoEarliestYMD else { return sorted.last ?? sorted.first! }
+        let photoVal = sortValue(for: photoEarliestYMD)
+        return sorted.last(where: { sortValue(for: $0.idDate) <= photoVal }) ?? sorted.first!
+    }
+
+    // MARK: - Creation helpers for People Manager
+
+    /// Creates a new person with a birth identity and returns the new personID.
+    func addPerson() -> String {
+        let personID = UUID().uuidString
+
+        let birth = DmpmsIdentity(
+            id: UUID().uuidString,
+            shortName: "New",
+            givenName: "",
+            middleName: nil,
+            surname: "",
+            birthDate: "",            // user will fill
+            idDate: "",               // can mirror birthDate later in UI
+            idReason: "Birth",
+            isFavorite: false,
+            notes: nil
+        )
+
+        var birthCopy = birth
+        birthCopy.personID = personID
+
+        identities.append(birthCopy)
+        propagateSharedFieldsAcrossIdentityVersions()
+        identities = identitiesSortedForUI
+        save()
+
+        return personID
+    }
+
+    /// Adds an additional identity version for an existing person.
+    /// Prefills from the most recent known version.
+    func addIdentityVersion(forPersonID personID: String) -> String {
+        let versions = identityVersions(forPersonID: personID)
+        let base = versions.last ?? versions.first!
+
+        var new = base
+        new.id = UUID().uuidString
+        new.personID = personID
+        new.idReason = "Marriage"   // default; user can change
+        new.idDate = ""
+        // name fields start as the last-known name
+        // birthDate/shortName/isFavorite/notes will be propagated anyway
+
+        identities.append(new)
+        propagateSharedFieldsAcrossIdentityVersions()
+        identities = identitiesSortedForUI
+        save()
+
+        return new.id
+    }
+
+    // MARK: - Internal helpers
+
+    private func normalize(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func identityVersionsInternalSorted(_ versions: [DmpmsIdentity]) -> [DmpmsIdentity] {
+        versions.sorted { a, b in
+            let aIsBirth = normalize(a.idReason) == "birth"
+            let bIsBirth = normalize(b.idReason) == "birth"
+            if aIsBirth != bIsBirth { return aIsBirth }
+            return sortKey(for: a.idDate) < sortKey(for: b.idDate)
         }
     }
 
-    // MARK: - Storage Locations
-
-    /// Default location for the identity store JSON:
-    ///   ~/Library/Application Support/dMagyPicturePrep/identities.json
-    private static func defaultStoreURL() -> URL {
-        let fm = FileManager.default
-        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fm.temporaryDirectory
-
-        let folder = appSupport.appendingPathComponent("dMagyPicturePrep", isDirectory: true)
-
-        if !fm.fileExists(atPath: folder.path) {
-            do {
-                try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
-            } catch {
-                print("dMPP: Failed to create identity store directory at \(folder.path): \(error)")
-            }
-        }
-
-        return folder.appendingPathComponent("identities.json")
+    private func sortValue(for dateString: String) -> Int {
+        let parts = dateString.split(separator: "-").map { Int($0) ?? 0 }
+        let y = parts.count > 0 ? parts[0] : 0
+        let m = parts.count > 1 ? parts[1] : 0
+        let d = parts.count > 2 ? parts[2] : 0
+        return y * 10_000 + m * 100 + d
     }
 
-    // MARK: - Disk I/O
+    // MARK: - Sorting helpers (date grammar)
 
-    private static func loadFromDisk(at url: URL) -> [DmpmsIdentity] {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else {
-            // No file yet → start with an empty list.
-            return []
+    /// Turns loose date grammar into a comparable key (earliest plausible YYYYMMDD).
+    private func sortKey(for raw: String) -> Int {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return Int.max }
+
+        // YYYY-MM-DD
+        if s.count == 10, s[4] == "-", s[7] == "-" {
+            return intKey(
+                year: String(s.prefix(4)),
+                month: String(s.dropFirst(5).prefix(2)),
+                day: String(s.dropFirst(8).prefix(2))
+            )
         }
 
-        do {
-            let data = try Data(contentsOf: url)
-            let decoded = try JSONDecoder().decode([DmpmsIdentity].self, from: data)
-            return decoded
-        } catch {
-            print("dMPP: Failed to load identity store from \(url.path): \(error)")
-            return []
+        // YYYY-MM
+        if s.count == 7, s[4] == "-" {
+            return intKey(
+                year: String(s.prefix(4)),
+                month: String(s.dropFirst(5).prefix(2)),
+                day: "01"
+            )
         }
+
+        // YYYY
+        if s.count == 4, Int(s) != nil {
+            return intKey(year: s, month: "01", day: "01")
+        }
+
+        // YYYYs (decade)
+        if s.count == 5, s.hasSuffix("s"), Int(s.prefix(4)) != nil {
+            return intKey(year: String(s.prefix(4)), month: "01", day: "01")
+        }
+
+        // YYYY-YYYY (year range) → take start
+        if s.count == 9, s[4] == "-", Int(s.prefix(4)) != nil {
+            return intKey(year: String(s.prefix(4)), month: "01", day: "01")
+        }
+
+        // "YYYY-MM to YYYY-MM" → take start
+        if let range = s.range(of: " to ") {
+            let start = String(s[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return sortKey(for: start)
+        }
+
+        return Int.max
     }
 
-    private static func saveToDisk(_ identities: [DmpmsIdentity], at url: URL) {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-
-            let data = try encoder.encode(identities)
-            try data.write(to: url, options: .atomic)
-
-        } catch {
-            print("dMPP: Failed to save identity store to \(url.path): \(error)")
-        }
+    private func intKey(year: String, month: String, day: String) -> Int {
+        let y = Int(year) ?? 9999
+        let m = Int(month) ?? 99
+        let d = Int(day) ?? 99
+        return (y * 10000) + (m * 100) + d
     }
 }
 
-// MARK: - Small helpers for sorting/partitioning
-
-private extension Array where Element == DmpmsIdentity {
-
-    func sortedByShortName() -> [DmpmsIdentity] {
-        self.sorted { a, b in
-            a.shortName.lowercased() < b.shortName.lowercased()
-        }
-    }
-
-    func partitionedByFavorite() -> (favorites: [DmpmsIdentity], others: [DmpmsIdentity]) {
-        var favorites: [DmpmsIdentity] = []
-        var others: [DmpmsIdentity] = []
-
-        for identity in self {
-            if identity.isFavorite {
-                favorites.append(identity)
-            } else {
-                others.append(identity)
-            }
-        }
-        return (favorites, others)
-    }
+fileprivate extension String {
+    subscript(_ i: Int) -> Character { self[index(startIndex, offsetBy: i)] }
 }

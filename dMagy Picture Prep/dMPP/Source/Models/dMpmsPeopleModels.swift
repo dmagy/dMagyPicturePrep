@@ -2,7 +2,7 @@
 //  DmpmsPeopleModels.swift
 //  dMagy Picture Prep
 //
-//  dMPMS-2025-12-08-PPL2 — People / identity models for dMPMS 1.1
+//  dMPMS-2025-12-12-PPL3 — People / identity models for dMPMS 1.1
 //
 
 import Foundation
@@ -30,6 +30,11 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
     /// Short name used in UI (and for legacy `people: [String]` compatibility).
     /// Intended to be unique across identities.
     var shortName: String
+    
+    /// Groups multiple identities that belong to the same individual.
+    /// If missing (older identities.json), dMPP will default it to `id` on load.
+    var personID: String?
+
 
     /// Structured name components.
     var givenName: String
@@ -67,6 +72,11 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         }
     }
 
+    /// Normalized short name for case-insensitive comparisons.
+    var normalizedShortName: String {
+        shortName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     // MARK: - Designated init
 
     init(
@@ -91,6 +101,66 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         self.idReason = idReason
         self.isFavorite = isFavorite
         self.notes = notes
+    }
+}
+
+// MARK: - Person record (groups multiple identities for one human)
+
+/// [DMPMS-PERSON]
+/// A *person* across their whole life, potentially with multiple
+/// `DmpmsIdentity` records (birth name, married name, etc.).
+///
+/// Conventions:
+/// - `identities[0]` is intended to be the **birth identity**.
+/// - `primaryShortName` is what you show in most checklists (“Erin”, “Anna C”).
+/// - `birthDate` is the canonical birth date used for age calculations.
+struct DmpmsPerson: Identifiable, Codable, Hashable {
+
+    /// Stable ID for the person (NOT the same as any identity.id).
+    var id: String
+
+    /// Whether this person should appear in the "Favorites" group in the UI.
+    var isFavorite: Bool
+
+    /// Primary label used in lists and checkboxes (e.g. “Anna C”).
+    var primaryShortName: String
+
+    /// Canonical birth date for age calculations (YYYY-MM-DD or dMPMS date grammar).
+    var birthDate: String?
+
+    /// Free-form notes about this person.
+    var notes: String?
+
+    /// All identity versions for this person.
+    ///
+    /// Convention: identities[0] is the birth identity.
+    var identities: [DmpmsIdentity]
+
+    init(
+        id: String = UUID().uuidString,
+        isFavorite: Bool = false,
+        primaryShortName: String,
+        birthDate: String? = nil,
+        notes: String? = nil,
+        identities: [DmpmsIdentity] = []
+    ) {
+        self.id = id
+        self.isFavorite = isFavorite
+        self.primaryShortName = primaryShortName
+        self.birthDate = birthDate
+        self.notes = notes
+        self.identities = identities
+    }
+
+    /// Best identity to use as the “primary” for this person.
+    ///
+    /// - Prefer the identity whose `idReason` is "birth" (case-insensitive).
+    /// - Fall back to the first identity if none are explicitly "birth".
+    var primaryIdentity: DmpmsIdentity? {
+        if let birth = identities.first(where: { $0.idReason.caseInsensitiveEquals("birth") }) {
+            return birth
+        }
+        return identities.first
     }
 }
 
@@ -164,3 +234,10 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
     }
 }
 
+// MARK: - Small helper
+
+private extension String {
+    func caseInsensitiveEquals(_ other: String) -> Bool {
+        self.compare(other, options: .caseInsensitive) == .orderedSame
+    }
+}

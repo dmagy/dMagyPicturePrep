@@ -628,7 +628,7 @@ struct DMPPMetadataFormPane: View {
                         // People in this photo (summary ABOVE the checklists)
                         // -------------------------------------------------
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("People in this photo")
+                            Text("People in this photo left to right")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -651,7 +651,7 @@ struct DMPPMetadataFormPane: View {
                                         .map { person in
                                             if let age = person.ageAtPhoto,
                                                !age.isEmpty {
-                                                // Show "Name (age)" or "Name (5-7)" depending on stored value
+                                                // Show "Name (age)" or "Name (5-7)" or "Name (*)"
                                                 return "\(person.shortNameSnapshot) (\(age))"
                                             } else {
                                                 // No age info → just the name
@@ -662,58 +662,80 @@ struct DMPPMetadataFormPane: View {
                                 )
                                 .font(.caption)
                             }
+                        }
 
+                        // -------------------------------------------------
+                        // Impossible-age warning (*) — directly under summary
+                        // -------------------------------------------------
+                        let hasImpossibleAge = vm.metadata.peopleV2.contains { $0.ageAtPhoto == "*" }
+                        if hasImpossibleAge {
+                            Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                                .padding(.top, 2)
                         }
 
                         Divider()
                             .padding(.vertical, 4)
 
                         // -------------------------------------------------
-                        // Favorites column
+                        // Favorites (left) + All others (right) columns
                         // -------------------------------------------------
-                        if !identityStore.favoriteIdentities.isEmpty {
-                            Text("Favorites")
-                                .font(.caption.bold())
+                        if identityStore.favoritePeople.isEmpty &&
+                            identityStore.nonFavoritePeople.isEmpty {
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(identityStore.favoriteIdentities) { identity in
-                                    Toggle(identity.shortName, isOn: bindingForIdentity(identity))
-                                        .toggleStyle(.checkbox)
+                            Text("No identities defined yet. Open People Manager to add some.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+
+                        } else {
+                            HStack(alignment: .top, spacing: 24) {
+
+                                // LEFT COLUMN — Favorites
+                                if !identityStore.favoritePeople.isEmpty {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Favorites")
+                                            .font(.caption.bold())
+
+                                        ForEach(identityStore.favoritePeople) { person in
+                                            Toggle(person.shortName,
+                                                   isOn: bindingForPerson(person))
+                                                .toggleStyle(.checkbox)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
+
+                                // RIGHT COLUMN — All others
+                                if !identityStore.nonFavoritePeople.isEmpty {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("All others")
+                                            .font(.caption.bold())
+
+                                        ForEach(identityStore.nonFavoritePeople) { person in
+                                            Toggle(person.shortName,
+                                                   isOn: bindingForPerson(person))
+                                                .toggleStyle(.checkbox)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
                             }
                         }
 
-                        // -------------------------------------------------
-                        // All others column
-                        // -------------------------------------------------
-                        if !identityStore.nonFavoriteIdentities.isEmpty {
-                            Text("All others")
-                                .font(.caption.bold())
-                                .padding(.top, 6)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(identityStore.nonFavoriteIdentities) { identity in
-                                    Toggle(identity.shortName, isOn: bindingForIdentity(identity))
-                                        .toggleStyle(.checkbox)
-                                }
-                            }
-                        }
                         HStack(spacing: 8) {
                             Button("Open People Manager…") {
                                 openWindow(id: "People-Manager")
                             }
                             .buttonStyle(.link)
                             .font(.caption)
-                            .tint(.accentColor) // use OS theme color for the link
-
-                          //  Text("Manage identities, favorites, and details.")
-                           //     .font(.caption)
-                             ///   .foregroundStyle(.secondary)
+                            .tint(.accentColor)
 
                             Spacer()
                         }
                         .padding(.top, 4)
-
 
                         // Optional helper text
                         Text("Check people who appear in this photo; they’ll be added left-to-right in the front row by default.")
@@ -724,6 +746,8 @@ struct DMPPMetadataFormPane: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
+
+
 
 
                 Spacer(minLength: 0)
@@ -753,63 +777,87 @@ struct DMPPMetadataFormPane: View {
         DMPPIdentityStore.shared
     }
 
-    /// Binding that reflects whether a given identity is present in this photo.
-       /// - When turned ON: adds a `DmpmsPersonInPhoto` row (and mirrors legacy `people`).
-       /// - When turned OFF: removes that row (and removes the shortName from legacy `people`).
-       private func bindingForIdentity(_ identity: DmpmsIdentity) -> Binding<Bool> {
-           Binding<Bool>(
-               get: {
-                   vm.metadata.peopleV2.contains { $0.identityID == identity.id }
-               },
-               set: { isOn in
-                   if isOn {
-                       // Already present? Keep legacy list in sync, then bail.
-                       if vm.metadata.peopleV2.contains(where: { $0.identityID == identity.id }) {
-                           if !vm.metadata.people.contains(identity.shortName) {
-                               vm.metadata.people.append(identity.shortName)
-                           }
-                           return
-                       }
+    /// Binding that reflects whether a given PERSON (not identity-version)
+    /// is present in this photo.
+    /// - When turned ON: adds a `DmpmsPersonInPhoto` row using the best identity version for the photo date.
+    /// - When turned OFF: removes any row whose identityID belongs to this person (any version).
+    private func bindingForPerson(_ person: DMPPIdentityStore.PersonSummary) -> Binding<Bool> {
 
-                       // Compute next position in the front row (rowIndex 0).
-                       let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
-                       let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
+        let personIdentityIDs = Set(person.versions.map { $0.id })
 
-                       // New person-in-photo row; age will be filled by recomputeAgesForCurrentImage().
-                       let person = DmpmsPersonInPhoto(
-                           id: UUID().uuidString,
-                           identityID: identity.id,
-                           isUnknown: false,
-                           shortNameSnapshot: identity.shortName,
-                           displayNameSnapshot: identity.fullName,
-                           ageAtPhoto: nil,
-                           rowIndex: 0,
-                           rowName: "front",
-                           positionIndex: nextPosition,
-                           roleHint: nil
-                       )
+        return Binding<Bool>(
+            get: {
+                vm.metadata.peopleV2.contains { row in
+                    guard let id = row.identityID else { return false }
+                    return personIdentityIDs.contains(id)
+                }
+            },
+            set: { isOn in
+                if isOn {
 
-                       vm.metadata.peopleV2.append(person)
+                    // Already present? Just ensure legacy list is in sync.
+                    if vm.metadata.peopleV2.contains(where: { row in
+                        guard let id = row.identityID else { return false }
+                        return personIdentityIDs.contains(id)
+                    }) {
+                        if !vm.metadata.people.contains(person.shortName) {
+                            vm.metadata.people.append(person.shortName)
+                        }
+                        return
+                    }
 
-                       // Keep legacy `people` list in sync for v1 consumers.
-                       if !vm.metadata.people.contains(identity.shortName) {
-                           vm.metadata.people.append(identity.shortName)
-                       }
+                    // Compute next position in the front row (rowIndex 0).
+                    let frontRowPeople = vm.metadata.peopleV2.filter { $0.rowIndex == 0 }
+                    let nextPosition = (frontRowPeople.map { $0.positionIndex }.max() ?? -1) + 1
 
-                       // Ensure ages respect current date.
-                       recomputeAgesForCurrentImage()
+                    // Choose the best identity version for this photo's date.
+                    let photoEarliest = vm.metadata.dateRange?.earliest
+                    let chosen = identityStore.bestIdentityForPhoto(
+                        versions: person.versions,
+                        photoEarliestYMD: photoEarliest
+                    )
 
-                   } else {
-                       // Turn OFF: remove from v2 + legacy people.
-                       vm.metadata.peopleV2.removeAll { $0.identityID == identity.id }
-                       vm.metadata.people.removeAll { $0 == identity.shortName }
+                    // Compute age (uses person-level birthDate + photo dateRange)
+                    let age = ageDescription(
+                        birthDateString: person.birthDate,
+                        range: vm.metadata.dateRange
+                    )
 
-                       // Recompute ages in case anything changed.
-                       recomputeAgesForCurrentImage()
-                   }
-               }
-           )
-       }
+                    let row = DmpmsPersonInPhoto(
+                        identityID: chosen.id,
+                        isUnknown: false,
+                        shortNameSnapshot: person.shortName,
+                        displayNameSnapshot: chosen.fullName,
+                        ageAtPhoto: age,
+                        rowIndex: 0,
+                        rowName: "front",
+                        positionIndex: nextPosition,
+                        roleHint: nil
+                    )
+
+                    vm.metadata.peopleV2.append(row)
+
+                    // Keep legacy `people` list in sync (one shortName per person).
+                    if !vm.metadata.people.contains(person.shortName) {
+                        vm.metadata.people.append(person.shortName)
+                    }
+
+                } else {
+                    // OFF: remove any peopleV2 rows that belong to this person (any identity version)
+                    vm.metadata.peopleV2.removeAll { row in
+                        guard let id = row.identityID else { return false }
+                        return personIdentityIDs.contains(id)
+                    }
+
+                    // Remove from legacy list
+                    vm.metadata.people.removeAll { $0 == person.shortName }
+                }
+            }
+        )
+    }
+
+
+
 
     // MARK: - Age recomputation for peopleV2
 
@@ -820,9 +868,10 @@ struct DMPPMetadataFormPane: View {
     /// - If no `dateRange` → clear all ages.
     /// - If a person is marked `isUnknown` or has no identityID → age = nil.
     /// - If identity has no `birthDate` → age = nil.
-    /// - Otherwise: use `ageDescription` (which can return ranges like "5-10").
+    /// - If the photo is clearly before the person's birth → age = "*".
+    /// - Otherwise: compute an age or age range as a string.
     private func recomputeAgesForCurrentImage() {
-        // If there's no usable dateRange, clear ages and bail.
+        // No usable date range → clear ages.
         guard let range = vm.metadata.dateRange else {
             for idx in vm.metadata.peopleV2.indices {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
@@ -832,27 +881,32 @@ struct DMPPMetadataFormPane: View {
 
         // Walk all people in this photo.
         for idx in vm.metadata.peopleV2.indices {
+            let person = vm.metadata.peopleV2[idx]
+
             // Unknown placeholders never get ages.
-            if vm.metadata.peopleV2[idx].isUnknown {
+            if person.isUnknown {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
                 continue
             }
 
-            // Need a linked identity.
-            guard let identityID = vm.metadata.peopleV2[idx].identityID,
+            // Need a linked identity + birthDate.
+            guard let identityID = person.identityID,
                   let identity = identityStore.identity(withID: identityID)
             else {
                 vm.metadata.peopleV2[idx].ageAtPhoto = nil
                 continue
             }
 
-            // Use the shared ageDescription helper (can return "7" or "7-10").
-            vm.metadata.peopleV2[idx].ageAtPhoto = ageDescription(
+            let age = ageDescription(
                 birthDateString: identity.birthDate,
                 range: range
             )
+
+            vm.metadata.peopleV2[idx].ageAtPhoto = age
         }
     }
+
+
 
 
 
@@ -1196,12 +1250,13 @@ extension DMPPImageEditorView {
 }
 // MARK: - Age helper (shared in this file)
 
-/// Computes a simple age-at-photo description from a birth date and a date range.
+/// Computes an age description string from a birth date and a date range.
 ///
-/// - Parameters:
-///   - birthDateString: The person's birth date (string using dMPMS grammar).
-///   - range: The photo's date range (derived from `dateTaken`).
-/// - Returns: A string like "5" or "5-7", or nil if we can't compute.
+/// - If the entire photo range is *before* the birth year → returns "*"
+///   (used to flag “impossible” ages in the UI).
+/// - Otherwise:
+///   - If minAge == maxAge → "7"
+///   - Else → "5-7"
 fileprivate func ageDescription(
     birthDateString: String?,
     range: DmpmsDateRange?
@@ -1210,11 +1265,16 @@ fileprivate func ageDescription(
         let range,
         let birthDateString,
         birthDateString.count >= 4,
-        let birthYear = Int(birthDateString.prefix(4)),
+        let birthYear    = Int(birthDateString.prefix(4)),
         let earliestYear = Int(range.earliest.prefix(4)),
-        let latestYear = Int(range.latest.prefix(4))
+        let latestYear   = Int(range.latest.prefix(4))
     else {
         return nil
+    }
+
+    // Entire photo happens before the birth year → impossible age.
+    if latestYear < birthYear {
+        return "*"   // we flag this in the UI
     }
 
     let minAge = max(0, earliestYear - birthYear)

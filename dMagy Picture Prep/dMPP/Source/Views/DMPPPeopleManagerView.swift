@@ -1,384 +1,550 @@
-//
-//  DMPPPeopleManagerView.swift
-//  dMagy Picture Prep
-//
-//  dMPP-2025-12-09-PPL-MGR3 — People Manager aligned with current DmpmsIdentity
-//
-
 import SwiftUI
 
+/// Standalone window for managing dMPMS identities.
+/// Uses the shared `DMPPIdentityStore` singleton as its backing store.
 struct DMPPPeopleManagerView: View {
 
-    // Search/filter text
+    // Shared store – NOT a Binding, not @Bindable.
+    private let identityStore = DMPPIdentityStore.shared
+
     @State private var searchText: String = ""
+    @State private var selectedPersonID: String? = nil
 
-    // Shared identity store (singleton)
-    @State private var identityStore = DMPPIdentityStore.shared
+    // Drafts for the selected person (birth first, then additional versions)
+    @State private var draftBirth: DmpmsIdentity? = nil
+    @State private var draftAdditional: [DmpmsIdentity] = []
 
-    // Currently selected identity (by id)
-    @State private var selectedIdentityID: String? = nil
+    @State private var refreshToken = UUID()   // used to force List refresh after edits
 
-    // Editable copy of the selected identity
-    @State private var draftIdentity: DmpmsIdentity? = nil
-
-    // MARK: - Derived data
-
-    /// Identities sorted for UI, then filtered by search text.
-    private var filteredIdentities: [DmpmsIdentity] {
-        let all = identityStore.identitiesSortedForUI
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmed.isEmpty else { return all }
-
-        let lower = trimmed.lowercased()
-        return all.filter { identity in
-            identity.shortName.lowercased().contains(lower) ||
-            identity.fullName.lowercased().contains(lower) ||
-            (identity.notes?.lowercased().contains(lower) ?? false)
-        }
-    }
-
-    // Common identity-change events used to seed the Event picker.
-    // This is just a suggestion list; users can still type any text.
-    private let eventSuggestions: [String] = [
-        "Birth",
+    // Default event suggestions for additional identity versions.
+    // (Birth is handled by the birth identity block.)
+    private let eventSuggestions = [
         "Marriage",
         "Divorce",
         "Name Change",
+        "Name Variant",
         "Adoption",
-        "Legal Change",
-        "Other"
+        "Legal Name Change"
     ]
 
-    
-    // MARK: - Body
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("People Manager")
-                        .font(.title2.bold())
-                    Text("You have \(identityStore.identitiesSortedForUI.count) identities in your registry.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-
-            // Search row
-            HStack(spacing: 8) {
-                TextField("Search by short name, full name, or notes", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-
+        NavigationSplitView {
+            leftPane
+                .id(refreshToken)
+                .navigationSplitViewColumnWidth(min: 320, ideal: 320, max: 320) // fixed
+        } detail: {
+            detailEditor
+        }
+        .frame(minWidth: 900, minHeight: 500)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
-                    // Clear search quickly
-                    searchText = ""
+                    let newPersonID = identityStore.addPerson()
+                    selectedPersonID = newPersonID
+                    loadDrafts(for: newPersonID)
+                    refreshToken = UUID()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .opacity(searchText.isEmpty ? 0.0 : 0.5)
+                    Label("New Person", systemImage: "plus")
                 }
-                .buttonStyle(.borderless)
-                .disabled(searchText.isEmpty)
-                .help("Clear search")
-            }
-
-            Divider()
-
-            // Main 2-column layout: list on the left, detail editor on the right
-            HStack(alignment: .top, spacing: 16) {
-
-                // LEFT: identity list
-                identityList
-                    .frame(minWidth: 260, maxWidth: 320, maxHeight: .infinity)
-
-                // RIGHT: detail editor
-                detailEditor
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .help("Create a new person (birth identity first)")
             }
         }
-        .padding()
-        .onChange(of: selectedIdentityID) { _, newID in
-            // Load the selected identity into the draft editor
-            if let id = newID,
-               let identity = identityStore.identity(withID: id) {
-                draftIdentity = identity
+        .onAppear {
+            identityStore.load()
+
+            // If nothing is selected yet, preselect first person.
+            if selectedPersonID == nil, let first = filteredPeople.first {
+                selectedPersonID = first.id
+                loadDrafts(for: first.id)
+            }
+        }
+        .onChange(of: selectedPersonID) { _, newValue in
+            if let pid = newValue {
+                loadDrafts(for: pid)
             } else {
-                draftIdentity = nil
+                draftBirth = nil
+                draftAdditional = []
             }
-        }
-        .onChange(of: draftIdentity) { _, newDraft in
-            // Auto-save changes to the store whenever the draft changes
-            guard let updated = newDraft else { return }
-            identityStore.upsert(updated)
         }
     }
 
-    // MARK: - Left: Identity list
 
-    private var identityList: some View {
+    // MARK: - Left pane (list + search)
+
+    private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Identities")
-                    .font(.headline)
-                Spacer()
-            }
+        //    Text("People Manager")
+        //       .font(.title2.bold())
+//
+         //   Text("Manage people identities used for tagging and age calculations.")
+        //        .font(.caption)
+         //       .foregroundStyle(.secondary)
 
-            if filteredIdentities.isEmpty {
-                Text("No identities match your search.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-            } else {
-                List(selection: $selectedIdentityID) {
-                    ForEach(filteredIdentities) { identity in
-                        HStack(alignment: .center, spacing: 8) {
+            TextField("Search by short name, names, event, or notes", text: $searchText)
+                .textFieldStyle(.roundedBorder)
 
-                            // Favorite star next to short name
-                            Button {
-                                var updated = identity
-                                updated.isFavorite.toggle()
-                                identityStore.upsert(updated)
-                            } label: {
-                                Image(systemName: identity.isFavorite ? "star.fill" : "star")
-                                    .foregroundStyle(identity.isFavorite ? .yellow : .secondary)
-                                    .help("Mark as favorite")
-                            }
-                            .buttonStyle(.plain)
+            List(selection: $selectedPersonID) {
+                ForEach(filteredPeople) { person in
+                    let versions = identityStore.identityVersions(forPersonID: person.id)
+                    let current = versions.last ?? versions.first
 
-                            // Short name + full name
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(identity.shortName)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: person.isFavorite ? "star.fill" : "star")
+                            .foregroundStyle(person.isFavorite ? .yellow : .secondary)
+                            .help(person.isFavorite ? "Favorite" : "Not marked favorite")
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text(person.shortName.isEmpty ? "Untitled" : person.shortName)
                                     .font(.headline)
 
-                                Text(identity.fullName)
+                                if let birth = person.birthDate, !birth.isEmpty {
+                                    Text("(b. \(birth))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                if versions.count > 1 {
+                                    Text("\(versions.count) identities")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            if let current {
+                                Text(current.fullName)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+
+                                // Show latest event (if not Birth)
+                                if !current.idReason.isEmpty,
+                                   current.idReason.lowercased() != "birth" {
+                                    HStack(spacing: 6) {
+                                        Text(current.idReason)
+                                            .font(.caption2)
+                                        if !current.idDate.isEmpty {
+                                            Text(current.idDate)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
                             }
 
-                            Spacer()
-
-                            // Optional small birth date on the right, if present
-                            if let birthDate = identity.birthDate, !birthDate.isEmpty {
-                                Text(birthDate)
+                            if let notes = person.notes, !notes.isEmpty {
+                                Text(notes)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
                         }
-                        .padding(.vertical, 2)
-                        .contentShape(Rectangle())
                     }
-
-
+                    .tag(person.id)
                 }
-                .listStyle(.inset)
+            }
+
+            HStack {
+            
+                Button(role: .destructive) {
+                    deleteSelectedPerson()
+                } label: {
+                    Label("Delete person", systemImage: "trash")
+                }
+                .disabled(selectedPersonID == nil)
+
+             
+            }
+            .padding(.top, 4)
+         
+        }
+        .padding()
+    }
+
+    private var filteredPeople: [DMPPIdentityStore.PersonSummary] {
+        let all = identityStore.peopleSortedForUI
+
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return all }
+
+        let needle = trimmed.lowercased()
+
+        return all.filter { person in
+            // Person-level fields
+            if person.shortName.lowercased().contains(needle) { return true }
+            if let notes = person.notes?.lowercased(), notes.contains(needle) { return true }
+            if let birth = person.birthDate?.lowercased(), birth.contains(needle) { return true }
+
+            // Any identity version fields
+            let versions = identityStore.identityVersions(forPersonID: person.id)
+            return versions.contains { v in
+                v.fullName.lowercased().contains(needle)
+                || v.givenName.lowercased().contains(needle)
+                || (v.middleName?.lowercased().contains(needle) ?? false)
+                || v.surname.lowercased().contains(needle)
+                || v.idReason.lowercased().contains(needle)
+                || v.idDate.lowercased().contains(needle)
+                || (v.notes?.lowercased().contains(needle) ?? false)
             }
         }
     }
 
-    // MARK: - Right: Detail editor
+    // MARK: - Right pane (detail editor)
 
     private var detailEditor: some View {
         Group {
-            if let _ = draftIdentity {
+            if selectedPersonID == nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No person selected")
+                        .font(.headline)
+                    Text("Select a person on the left, or click “New person” to add one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+
+            } else if draftBirth == nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No birth identity found")
+                        .font(.headline)
+                    Text("This shouldn’t happen. Try creating a new person.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+
+            } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Details")
-                            .font(.headline)
-                        Spacer()
-                        deleteButton
-                    }
+   
 
                     GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 14) {
 
-                            // Short name + favorite star
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Short name")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            // BIRTH IDENTITY (always first)
+                            birthEditorSection
 
-                                HStack(spacing: 6) {
-                                    TextField("Short name", text: binding(\.shortName))
+                            Divider()
 
-                                    // Favorite star inline with short name
-                                    Button {
-                                        var current = binding(\.isFavorite).wrappedValue
-                                        current.toggle()
-                                        binding(\.isFavorite).wrappedValue = current
-                                    } label: {
-                                        let isFavorite = binding(\.isFavorite).wrappedValue
-                                        Image(systemName: isFavorite ? "star.fill" : "star")
-                                            .foregroundStyle(isFavorite ? .yellow : .secondary)
-                                            .help(isFavorite ? "Unmark as favorite" : "Mark as favorite")
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+                            // ADDITIONAL IDENTITIES (repeat blocks)
+                            additionalIdentitiesSection
 
-                            // Name components
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Name")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            Divider()
 
-                                HStack(spacing: 6) {
-                                    TextField("Given", text: binding(\.givenName))
-                                    TextField("Middle", text: optionalBinding(\.middleName))
-                                        .frame(width: 120)
-                                    TextField("Surname", text: binding(\.surname))
-                                }
-                            }
-
-                            // Event & Dates
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Event & Dates")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                HStack(spacing: 6) {
-
-                                    // EVENT (reason)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Event")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-
-                                        Picker("Event", selection: binding(\.idReason)) {
-                                            // Allow empty / custom
-                                            Text("—").tag("")
-                                            ForEach(eventSuggestions, id: \.self) { suggestion in
-                                                Text(suggestion).tag(suggestion)
-                                            }
-                                        }
-                                        .labelsHidden()
-                                        .frame(width: 150)
-                                        .focusable(true)   // ensure it participates in tab order on macOS
-                                    }
-
-                                    // EVENT DATE (idDate)
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        Text("Event Date")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-
-                                        TextField(
-                                            "YYYY-MM-DD",
-                                            text: Binding(
-                                                get: { draftIdentity?.idDate ?? "" },
-                                                set: { newValue in
-                                                    // Always update idDate
-                                                    draftIdentity?.idDate = newValue
-
-                                                    // If this is a Birth event, keep Birth Date in sync
-                                                    if draftIdentity?.idReason.lowercased() == "birth" {
-                                                        let trimmed = newValue
-                                                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                                                        draftIdentity?.birthDate = trimmed.isEmpty ? nil : trimmed
-                                                    }
-                                                }
-                                            )
-                                        )
-                                    }
-
-                                    // BIRTH DATE
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Birth Date")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-
-                                        TextField("YYYY-MM-DD", text: optionalBinding(\.birthDate))
-                                    }
-                                }
-                            }
-
-                            // Notes
+                            // Notes (person-level; store keeps synced across versions)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Notes")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+
                                 TextField(
-                                    "Notes (relationships, roles, etc.)",
-                                    text: optionalBinding(\.notes)
+                                    "Notes (relationships, roles, variants, etc.)",
+                                    text: optionalBindingBirth(\.notes)
                                 )
                             }
                         }
-                        .padding(8)
+                        .padding(12)
                     }
+
+                    
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("No person selected")
-                        .font(.headline)
-                    Text("Select an identity on the left to view or edit details.")
+              //  .padding()
+                
+                HStack {
+                    Spacer()
+
+                    Button("Add identity…") {
+                        if let pid = selectedPersonID {
+                            addIdentityVersion(for: pid)
+                        }
+                    }
+
+                    Button("Save") {
+                        if let pid = selectedPersonID {
+                            saveAllDrafts(for: pid)
+                        }
+                    }
+                    .keyboardShortcut("s", modifiers: [.command])
+                    .padding()
+                    
+                }
+                Spacer()
+            }
+        }
+    }
+
+
+    private var birthEditorSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+
+            // LINE 1: Favorite + Short name + Birth date
+            HStack(alignment: .top, spacing: 12) {
+
+
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Short name")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    TextField("Short name", text: bindingBirth(\.shortName))
+                        .frame(width: 180)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Birth Date")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("YYYY-MM-DD", text: optionalBindingBirth(\.birthDate))
+                        .frame(width: 120)
+                }
+                // Favorite (with caption)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Favorite")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Toggle(isOn: boolBindingBirth(\.isFavorite)) {
+                        Image(systemName: (draftBirth?.isFavorite ?? false) ? "star.fill" : "star")
+                            .foregroundStyle((draftBirth?.isFavorite ?? false) ? .yellow : .secondary)
+                    }
+                    .toggleStyle(.button)
+                    .help("Mark this person as a favorite for quick access.")
+                }
+                .frame(width: 80, alignment: .leading)
+              //  Spacer()
+            }
+
+
+            // LINE 2: Given / Middle / Surname at birth
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name at birth")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    TextField("Given", text: bindingBirth(\.givenName))
+                    TextField("Middle", text: optionalBindingBirth(\.middleName))
+                        .frame(width: 140)
+                    TextField("Surname", text: bindingBirth(\.surname))
+                }
+            }
+        }
+    }
+
+    private var additionalIdentitiesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Additional identities")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if draftAdditional.isEmpty {
+                Text("None yet. Click “Add identity…” to add marriage/name-change/etc.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach($draftAdditional, id: \.id) { $identity in
+                    VStack(alignment: .leading, spacing: 8) {
+
+                        // Event + Event Date + Remove (same row)
+                        HStack(alignment: .top, spacing: 10) {
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Event")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Event", selection: $identity.idReason) {
+                                    Text("—").tag("")
+                                    ForEach(eventSuggestions, id: \.self) { suggestion in
+                                        Text(suggestion).tag(suggestion)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 160)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Event Date")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+
+                                TextField("YYYY-MM-DD", text: $identity.idDate)
+                                    .frame(width: 120)
+                            }
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                let removeID = identity.id
+                                draftAdditional.removeAll { $0.id == removeID }
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        // Name at event (only show after Event is selected)
+                        let hasEvent = !identity.idReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        if hasEvent {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Name at event")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                HStack(spacing: 6) {
+                                    TextField("Given", text: $identity.givenName)
+
+                                    TextField(
+                                        "Middle",
+                                        text: Binding(
+                                            get: { identity.middleName ?? "" },
+                                            set: { identity.middleName = $0.isEmpty ? nil : $0 }
+                                        )
+                                    )
+                                    .frame(width: 140)
+
+                                    TextField("Surname", text: $identity.surname)
+                                }
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.35))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
     }
 
 
-    // MARK: - Delete button
+    // MARK: - Actions
 
-    private var deleteButton: some View {
-        Button(role: .destructive) {
-            guard let id = draftIdentity?.id else { return }
-            identityStore.delete(identityID: id)
-            selectedIdentityID = nil
-            draftIdentity = nil
-        } label: {
-            Image(systemName: "trash")
+    private func loadDrafts(for personID: String) {
+        let versions = identityStore.identityVersions(forPersonID: personID)
+
+        // Pick birth identity if present, otherwise first.
+        let birth = versions.first(where: { $0.idReason.lowercased() == "birth" }) ?? versions.first
+        draftBirth = birth
+        if let birthID = birth?.id {
+            draftAdditional = versions.filter { $0.id != birthID }
+        } else {
+            draftAdditional = versions
         }
-        .help("Delete this identity from the registry")
-        .buttonStyle(.borderless)
-        .disabled(draftIdentity == nil)
     }
 
-    // MARK: - Binding helpers for draftIdentity
+    private func newPerson() {
+        let personID = identityStore.addPerson()
+        selectedPersonID = personID
+        loadDrafts(for: personID)
+        refreshToken = UUID()
+    }
 
-    /// Simple binding for non-optional String properties on `DmpmsIdentity`.
-    private func binding(_ keyPath: WritableKeyPath<DmpmsIdentity, String>) -> Binding<String> {
-        Binding<String>(
-            get: {
-                draftIdentity?[keyPath: keyPath] ?? ""
-            },
-            set: { newValue in
-                draftIdentity?[keyPath: keyPath] = newValue
+    private func addIdentityVersion(for personID: String) {
+        _ = identityStore.addIdentityVersion(forPersonID: personID)
+        loadDrafts(for: personID)
+        refreshToken = UUID()
+    }
+
+    private func deleteSelectedPerson() {
+        guard let pid = selectedPersonID else { return }
+        identityStore.deletePerson(personID: pid)
+        selectedPersonID = nil
+        draftBirth = nil
+        draftAdditional = []
+        refreshToken = UUID()
+    }
+
+    private func deleteAdditionalDraft(at idx: Int) {
+        guard draftAdditional.indices.contains(idx) else { return }
+        let idToDelete = draftAdditional[idx].id
+        identityStore.delete(id: idToDelete)
+
+        if let pid = selectedPersonID {
+            loadDrafts(for: pid)
+        }
+        refreshToken = UUID()
+    }
+
+    private func saveAllDrafts(for personID: String) {
+        guard var birth = draftBirth else { return }
+
+        // Force birth identity invariants
+        birth.personID = personID
+        birth.idReason = "Birth"
+        if birth.idDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // If they provided a birthDate, mirror it into idDate as a nice default.
+            if let bd = birth.birthDate?.trimmingCharacters(in: .whitespacesAndNewlines), !bd.isEmpty {
+                birth.idDate = bd
             }
+        }
+
+        identityStore.upsert(birth)
+
+        for v in draftAdditional {
+            var copy = v
+            copy.personID = personID
+            identityStore.upsert(copy)
+        }
+
+        // Reload after store propagation (shortName/birthDate/favorite/notes sync)
+        loadDrafts(for: personID)
+        refreshToken = UUID()
+    }
+
+    // MARK: - Binding helpers (Birth)
+
+    private func bindingBirth(_ keyPath: WritableKeyPath<DmpmsIdentity, String>) -> Binding<String> {
+        Binding<String>(
+            get: { draftBirth?[keyPath: keyPath] ?? "" },
+            set: { newValue in draftBirth?[keyPath: keyPath] = newValue }
         )
     }
 
-    /// Binding for optional String properties on `DmpmsIdentity`,
-    /// treating empty string as `nil`.
-    private func optionalBinding(_ keyPath: WritableKeyPath<DmpmsIdentity, String?>) -> Binding<String> {
+    private func optionalBindingBirth(_ keyPath: WritableKeyPath<DmpmsIdentity, String?>) -> Binding<String> {
         Binding<String>(
-            get: {
-                draftIdentity?[keyPath: keyPath] ?? ""
-            },
+            get: { draftBirth?[keyPath: keyPath] ?? "" },
             set: { newValue in
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                draftIdentity?[keyPath: keyPath] = trimmed.isEmpty ? nil : trimmed
+                draftBirth?[keyPath: keyPath] = trimmed.isEmpty ? nil : trimmed
             }
         )
     }
 
-    /// Binding for Bool properties on `DmpmsIdentity`.
-    private func binding(_ keyPath: WritableKeyPath<DmpmsIdentity, Bool>) -> Binding<Bool> {
+    private func boolBindingBirth(_ keyPath: WritableKeyPath<DmpmsIdentity, Bool>) -> Binding<Bool> {
         Binding<Bool>(
+            get: { draftBirth?[keyPath: keyPath] ?? false },
+            set: { newValue in draftBirth?[keyPath: keyPath] = newValue }
+        )
+    }
+
+    // MARK: - Binding helpers (Additional versions)
+
+    private func bindingAdditional(_ idx: Int, _ keyPath: WritableKeyPath<DmpmsIdentity, String>) -> Binding<String> {
+        Binding<String>(
             get: {
-                draftIdentity?[keyPath: keyPath] ?? false
+                guard draftAdditional.indices.contains(idx) else { return "" }
+                return draftAdditional[idx][keyPath: keyPath]
             },
             set: { newValue in
-                draftIdentity?[keyPath: keyPath] = newValue
+                guard draftAdditional.indices.contains(idx) else { return }
+                draftAdditional[idx][keyPath: keyPath] = newValue
+            }
+        )
+    }
+
+    private func optionalBindingAdditional(_ idx: Int, _ keyPath: WritableKeyPath<DmpmsIdentity, String?>) -> Binding<String> {
+        Binding<String>(
+            get: {
+                guard draftAdditional.indices.contains(idx) else { return "" }
+                return draftAdditional[idx][keyPath: keyPath] ?? ""
+            },
+            set: { newValue in
+                guard draftAdditional.indices.contains(idx) else { return }
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                draftAdditional[idx][keyPath: keyPath] = trimmed.isEmpty ? nil : trimmed
             }
         )
     }
 }
-
-// MARK: - Preview
 
 #Preview {
     DMPPPeopleManagerView()
