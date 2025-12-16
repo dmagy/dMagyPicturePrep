@@ -23,46 +23,51 @@ import Foundation
 ///   - Range: "1975-1977"
 struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
-    /// Stable identifier for this identity version.
-    /// You can use human-readable IDs like "erin1" or UUIDs as strings.
+    // MARK: - Core identifiers
+
+    /// Stable ID for this identity version (UUID string or human-readable).
     var id: String
 
-    /// Short name used in UI (and for legacy `people: [String]` compatibility).
-    /// Intended to be unique across identities.
-    var shortName: String
-    
-    /// Groups multiple identities that belong to the same individual.
-    /// If missing (older identities.json), dMPP will default it to `id` on load.
+    /// Groups multiple identity versions under one person.
+    /// (Birth identity + later identities share the same personID)
     var personID: String?
 
+    // MARK: - Person-level display & search fields (shared across versions)
 
-    /// Structured name components.
+    /// Short label shown in the People checklist (your “commonly known name”).
+    var shortName: String
+
+    /// Preferred / “Known as” name (e.g., Betty). Optional.
+    var preferredName: String?
+
+    /// Search helpers / historical variants (e.g., Elizabeth, Betty Ann).
+    /// NOT intended to be the primary UI label.
+    var aliases: [String]
+
+    /// Birth date of the person (same grammar as dMPMS).
+    var birthDate: String?
+
+    /// Person-level favorite flag.
+    var isFavorite: Bool
+
+    /// Person-level notes.
+    var notes: String?
+
+    // MARK: - Identity-version fields (may vary over time)
+
+    /// Structured legal name components for THIS identity version.
     var givenName: String
     var middleName: String?
     var surname: String
 
-    /// Birth date of the person (same date grammar as dMPMS).
-    /// Typically a precise date, but we keep it as a string for flexibility.
-    var birthDate: String?
-
-    /// The date from which this identity version becomes valid.
-    /// Example: marriage date when surname changes.
+    /// When this identity version becomes valid.
     var idDate: String
 
-    /// Reason for this identity version (e.g., "birth", "marriage", "divorce", "name change").
+    /// Why this version exists (Birth/Marriage/etc.)
     var idReason: String
 
-    /// Optional flag to mark this identity as a "favorite" in UI.
-    /// dMPP can use this to build a "favorites" column.
-    var isFavorite: Bool
+    // MARK: - Computed
 
-    /// Optional free-form notes: relationships, roles, etc.
-    var notes: String?
-
-    // MARK: - Computed helpers
-
-    /// Convenience display name built from name components.
-    /// This is *not* encoded; it’s derived at runtime.
     var fullName: String {
         let mid = middleName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let mid, !mid.isEmpty {
@@ -72,27 +77,28 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         }
     }
 
-    /// Normalized short name for case-insensitive comparisons.
-    var normalizedShortName: String {
-        shortName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    // MARK: - Designated init
+    // MARK: - Init
 
     init(
         id: String,
+        personID: String? = nil,
         shortName: String,
+        preferredName: String? = nil,
+        aliases: [String] = [],
         givenName: String,
         middleName: String? = nil,
         surname: String,
-        birthDate: String,
+        birthDate: String? = nil,
         idDate: String,
         idReason: String,
         isFavorite: Bool = false,
         notes: String? = nil
     ) {
         self.id = id
+        self.personID = personID
         self.shortName = shortName
+        self.preferredName = preferredName
+        self.aliases = aliases
         self.givenName = givenName
         self.middleName = middleName
         self.surname = surname
@@ -102,7 +108,39 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         self.isFavorite = isFavorite
         self.notes = notes
     }
+
+    // MARK: - Codable migration safety (defaults)
+
+    enum CodingKeys: String, CodingKey {
+        case id, personID
+        case shortName, preferredName, aliases, birthDate, isFavorite, notes
+        case givenName, middleName, surname
+        case idDate, idReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try c.decode(String.self, forKey: .id)
+        personID = try c.decodeIfPresent(String.self, forKey: .personID)
+
+        shortName = try c.decodeIfPresent(String.self, forKey: .shortName) ?? ""
+        preferredName = try c.decodeIfPresent(String.self, forKey: .preferredName)
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+
+        birthDate = try c.decodeIfPresent(String.self, forKey: .birthDate)
+        isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+
+        givenName = try c.decodeIfPresent(String.self, forKey: .givenName) ?? ""
+        middleName = try c.decodeIfPresent(String.self, forKey: .middleName)
+        surname = try c.decodeIfPresent(String.self, forKey: .surname) ?? ""
+
+        idDate = try c.decodeIfPresent(String.self, forKey: .idDate) ?? ""
+        idReason = try c.decodeIfPresent(String.self, forKey: .idReason) ?? ""
+    }
 }
+
 
 // MARK: - Person record (groups multiple identities for one human)
 

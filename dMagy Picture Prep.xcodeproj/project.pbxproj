@@ -38,6 +38,7 @@
 		99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",
@@ -45,6 +46,7 @@
 				"Docs/dMPP/dMPP-Context-v6.md",
 				"Docs/dMPP/dMPP-Context-v7.md",
 				"Docs/dMPP/dMPP-Context-v8.md",
+				"Docs/dMPP/dMPP-Context-v9.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};

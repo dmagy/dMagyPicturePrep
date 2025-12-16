@@ -698,7 +698,7 @@ struct DMPPMetadataFormPane: View {
                                             .font(.caption.bold())
 
                                         ForEach(identityStore.favoritePeople) { person in
-                                            Toggle(person.shortName,
+                                            Toggle(identityStore.checklistLabel(for: person),
                                                    isOn: bindingForPerson(person))
                                                 .toggleStyle(.checkbox)
                                         }
@@ -713,15 +713,15 @@ struct DMPPMetadataFormPane: View {
                                             .font(.caption.bold())
 
                                         ForEach(identityStore.nonFavoritePeople) { person in
-                                            Toggle(person.shortName,
+                                            Toggle(identityStore.checklistLabel(for: person),
                                                    isOn: bindingForPerson(person))
                                                 .toggleStyle(.checkbox)
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-
                             }
+
                         }
 
 
@@ -784,6 +784,7 @@ struct DMPPMetadataFormPane: View {
     private func bindingForPerson(_ person: DMPPIdentityStore.PersonSummary) -> Binding<Bool> {
 
         let personIdentityIDs = Set(person.versions.map { $0.id })
+        let label = identityStore.checklistLabel(for: person)
 
         return Binding<Bool>(
             get: {
@@ -800,8 +801,8 @@ struct DMPPMetadataFormPane: View {
                         guard let id = row.identityID else { return false }
                         return personIdentityIDs.contains(id)
                     }) {
-                        if !vm.metadata.people.contains(person.shortName) {
-                            vm.metadata.people.append(person.shortName)
+                        if !vm.metadata.people.contains(label) {
+                            vm.metadata.people.append(label)
                         }
                         return
                     }
@@ -826,7 +827,7 @@ struct DMPPMetadataFormPane: View {
                     let row = DmpmsPersonInPhoto(
                         identityID: chosen.id,
                         isUnknown: false,
-                        shortNameSnapshot: person.shortName,
+                        shortNameSnapshot: label,          // <- show deduped label in summary too
                         displayNameSnapshot: chosen.fullName,
                         ageAtPhoto: age,
                         rowIndex: 0,
@@ -837,9 +838,9 @@ struct DMPPMetadataFormPane: View {
 
                     vm.metadata.peopleV2.append(row)
 
-                    // Keep legacy `people` list in sync (one shortName per person).
-                    if !vm.metadata.people.contains(person.shortName) {
-                        vm.metadata.people.append(person.shortName)
+                    // Keep legacy `people` list in sync (use label so dupes can coexist)
+                    if !vm.metadata.people.contains(label) {
+                        vm.metadata.people.append(label)
                     }
 
                 } else {
@@ -849,12 +850,13 @@ struct DMPPMetadataFormPane: View {
                         return personIdentityIDs.contains(id)
                     }
 
-                    // Remove from legacy list
-                    vm.metadata.people.removeAll { $0 == person.shortName }
+                    // Remove from legacy list (remove the label, not the raw shortName)
+                    vm.metadata.people.removeAll { $0 == label }
                 }
             }
         )
     }
+
 
 
 
@@ -1128,8 +1130,52 @@ extension DMPPImageEditorView {
         // Work on a mutable copy so we can tweak before encoding.
         var metadataToSave = vm.metadata
 
+        // --- B/C: peopleV2 cleanup before save ---
+        let store = DMPPIdentityStore.shared
+        let photoEarliest = metadataToSave.dateRange?.earliest
+
+        // 1) Strip rows whose identityID no longer exists in the store.
+        metadataToSave.peopleV2.removeAll { row in
+            guard let id = row.identityID else { return false } // unknown placeholders allowed
+            return store.identity(withID: id) == nil
+        }
+
+        // 2) Reconcile remaining rows to the best identity for this photo date,
+        //    and refresh snapshots (and age).
+        for i in metadataToSave.peopleV2.indices {
+            guard
+                let currentID = metadataToSave.peopleV2[i].identityID,
+                let currentIdentity = store.identity(withID: currentID)
+            else { continue }
+
+            let pid = currentIdentity.personID ?? currentIdentity.id
+            let versions = store.identityVersions(forPersonID: pid)
+            guard !versions.isEmpty else { continue }
+
+            let chosen = store.bestIdentityForPhoto(
+                versions: versions,
+                photoEarliestYMD: photoEarliest
+            )
+
+            metadataToSave.peopleV2[i].identityID = chosen.id
+            metadataToSave.peopleV2[i].shortNameSnapshot = chosen.shortName
+            metadataToSave.peopleV2[i].displayNameSnapshot = chosen.fullName
+
+            // Refresh age snapshot too (uses person-level birthDate + photo dateRange)
+            metadataToSave.peopleV2[i].ageAtPhoto = ageDescription(
+                birthDateString: chosen.birthDate,
+                range: metadataToSave.dateRange
+            )
+        }
+
+        
+        
         // Keep legacy `people` in sync with peopleV2, when present.
         metadataToSave.syncLegacyPeopleFromPeopleV2IfNeeded()
+
+        // IMPORTANT: update the live VM so the UI doesn't "bring back" deleted rows
+        // on save/navigation.
+        vm.metadata = metadataToSave
 
         let url = sidecarURL(for: vm.imageURL)
 
@@ -1138,8 +1184,7 @@ extension DMPPImageEditorView {
 
         do {
             let encoder = JSONEncoder()
-            // Pretty-printed, but DO NOT sort keys alphabetically.
-            encoder.outputFormatting = [.prettyPrinted]
+            encoder.outputFormatting = [.prettyPrinted] // do NOT sort keys
 
             let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
@@ -1154,6 +1199,53 @@ extension DMPPImageEditorView {
         }
     }
 
+    /// Returns true if anything changed.
+    private func reconcilePeopleV2AndLegacy(in metadata: inout DmpmsMetadata) -> Bool {
+        let store = DMPPIdentityStore.shared
+        let photoEarliest = metadata.dateRange?.earliest
+
+        var changed = false
+
+        // Remove rows pointing at deleted identities (unknown placeholders allowed).
+        let beforeCount = metadata.peopleV2.count
+        metadata.peopleV2.removeAll { row in
+            guard let id = row.identityID else { return false }
+            return store.identity(withID: id) == nil
+        }
+        if metadata.peopleV2.count != beforeCount { changed = true }
+
+        // Re-point each row to the best identity for this photo date + refresh snapshots (+ age).
+        for i in metadata.peopleV2.indices {
+            guard
+                let currentID = metadata.peopleV2[i].identityID,
+                let currentIdentity = store.identity(withID: currentID)
+            else { continue }
+
+            let pid = currentIdentity.personID ?? currentIdentity.id
+            let versions = store.identityVersions(forPersonID: pid)
+            guard !versions.isEmpty else { continue }
+
+            let chosen = store.bestIdentityForPhoto(versions: versions, photoEarliestYMD: photoEarliest)
+
+            if metadata.peopleV2[i].identityID != chosen.id { changed = true }
+            metadata.peopleV2[i].identityID = chosen.id
+            metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
+            metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
+            metadata.peopleV2[i].ageAtPhoto = ageDescription(
+                birthDateString: chosen.birthDate,
+                range: metadata.dateRange
+            )
+        }
+
+        // Keep legacy `people` aligned.
+        let beforePeople = metadata.people
+        metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
+        if metadata.people != beforePeople { changed = true }
+
+        return changed
+    }
+
+
 
     /// [DMPP-SIDECAR-LOAD] Load metadata from sidecar if present; else defaults.
     private func loadMetadata(for imageURL: URL) -> DmpmsMetadata {
@@ -1167,6 +1259,10 @@ extension DMPPImageEditorView {
 
                 // Ensure sourceFile matches the actual image filename
                 metadata.sourceFile = imageURL.lastPathComponent
+
+                // NEW: strip deleted identities + reconcile best identity for photo date
+                _ = reconcilePeopleV2AndLegacy(in: &metadata)
+
                 return metadata
             } catch {
                 print("dMPP: Failed to read metadata from \(sidecar.lastPathComponent): \(error)")
@@ -1176,6 +1272,8 @@ extension DMPPImageEditorView {
             return makeDefaultMetadata(for: imageURL)
         }
     }
+
+
 
     // [DMPP-NAV-DEFAULT-META] Default dMPMS metadata for a new image
     // NOTE: We no longer set default crops here; the ViewModel

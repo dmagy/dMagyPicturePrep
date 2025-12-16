@@ -55,6 +55,7 @@ final class DMPPIdentityStore {
 
     private func save() {
         do {
+            
             let data = try JSONEncoder().encode(identities)
             try data.write(to: storageURL, options: .atomic)
         } catch {
@@ -93,31 +94,43 @@ final class DMPPIdentityStore {
 
         for (personID, versions) in groups {
 
-            // Choose a “primary” identity to define shared fields:
-            // Prefer Birth; otherwise first by date-ish.
+            // Choose a “primary” identity to define person-level shared fields:
+            // Prefer Birth; otherwise earliest idDate-ish.
             let primary = versions.first(where: { normalize($0.idReason) == "birth" })
                 ?? versions.sorted(by: { sortKey(for: $0.idDate) < sortKey(for: $1.idDate) }).first
                 ?? versions.first!
 
-            let sharedShortName = primary.shortName
-            let sharedBirthDate = primary.birthDate
-            let sharedFavorite  = primary.isFavorite
-            let sharedNotes     = primary.notes
+            // Person-level fields to keep in sync across ALL versions
+            let sharedShortName  = primary.shortName
+            let sharedBirthDate  = primary.birthDate
+            let sharedFavorite   = primary.isFavorite
+            let sharedNotes      = primary.notes
+
+            // NEW: Preferred + Aliases (person-level)
+            let sharedPreferred  = primary.preferredName
+            let sharedAliases    = primary.aliases
 
             for v in versions {
                 var copy = v
-                copy.personID = personID
-                copy.shortName = sharedShortName
-                copy.birthDate = sharedBirthDate
+                copy.personID   = personID
+
+                // existing shared fields
+                copy.shortName  = sharedShortName
+                copy.birthDate  = sharedBirthDate
                 copy.isFavorite = sharedFavorite
-                // Notes are person-level in your design, so keep them in sync too.
-                copy.notes = sharedNotes
+                copy.notes      = sharedNotes
+
+                // NEW shared fields
+                copy.preferredName = sharedPreferred
+                copy.aliases       = sharedAliases
+
                 rebuilt.append(copy)
             }
         }
 
         identities = rebuilt
     }
+
 
     // MARK: - Computed views (raw identities)
 
@@ -143,6 +156,8 @@ final class DMPPIdentityStore {
 
         /// Shared person-level fields (kept in sync across versions).
         let shortName: String
+        let preferredName: String?
+        let aliases: [String]
         let birthDate: String?
         let isFavorite: Bool
         let notes: String?
@@ -150,6 +165,44 @@ final class DMPPIdentityStore {
         /// All identity versions for this person (sorted: Birth first, then by date-ish)
         let versions: [DmpmsIdentity]
     }
+
+    // MARK: - Checklist labels (People section)
+
+    private var shortNameCounts: [String: Int] {
+        Dictionary(grouping: peopleSortedForUI, by: { $0.shortName.lowercased() })
+            .mapValues { $0.count }
+    }
+
+    // MARK: - Checklist labels (People section)
+
+    /// Returns a label for the People checklist.
+    /// - If `shortName` is unique: "Anna"
+    /// - If duplicated: "Anna (b. 1942)"
+    /// - If duplicated but birth year missing: "Anna (b. ? #A1B2)"
+    func checklistLabel(for person: PersonSummary) -> String {
+        // Count duplicates by shortName (case-insensitive)
+        let counts = Dictionary(grouping: peopleSortedForUI, by: { $0.shortName.lowercased() })
+            .mapValues { $0.count }
+
+        let key = person.shortName.lowercased()
+        let isDuplicate = (counts[key] ?? 0) > 1
+        guard isDuplicate else { return person.shortName }
+
+        let year = person.birthDate.flatMap { bd -> String? in
+            let t = bd.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.count >= 4 ? String(t.prefix(4)) : nil
+        }
+
+        if let year, !year.isEmpty {
+            return "\(person.shortName) (b. \(year))"
+        } else {
+            let suffix = String(person.id.prefix(4)).uppercased()
+            return "\(person.shortName) (b. ? #\(suffix))"
+        }
+    }
+
+
+
 
     /// One row per person, used for checkbox UI (dedupes “two Amys” problem).
     var peopleSortedForUI: [PersonSummary] {
@@ -167,14 +220,25 @@ final class DMPPIdentityStore {
             let bd = representative.birthDate?.trimmingCharacters(in: .whitespacesAndNewlines)
             let birth = (bd?.isEmpty == false) ? bd : nil
 
+            let preferred = representative.preferredName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let preferredClean = (preferred?.isEmpty == false) ? preferred : nil
+
+            let aliasesClean = representative.aliases
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
             return PersonSummary(
                 id: personID,
                 shortName: displayShort,
+                preferredName: preferredClean,
+                aliases: aliasesClean,
                 birthDate: birth,
                 isFavorite: representative.isFavorite,
                 notes: representative.notes,
                 versions: sortedVersions
             )
+
         }
 
         return people.sorted {
@@ -190,6 +254,8 @@ final class DMPPIdentityStore {
         peopleSortedForUI.filter { !$0.isFavorite }
     }
 
+    
+    
     // MARK: - Lookup / mutation
 
     func identity(withID id: String) -> DmpmsIdentity? {
@@ -248,12 +314,15 @@ final class DMPPIdentityStore {
 
         let birth = DmpmsIdentity(
             id: UUID().uuidString,
+            personID: personID,
             shortName: "New",
+            preferredName: nil,
+            aliases: [],
             givenName: "",
             middleName: nil,
             surname: "",
-            birthDate: "",            // user will fill
-            idDate: "",               // can mirror birthDate later in UI
+            birthDate: "",
+            idDate: "",
             idReason: "Birth",
             isFavorite: false,
             notes: nil

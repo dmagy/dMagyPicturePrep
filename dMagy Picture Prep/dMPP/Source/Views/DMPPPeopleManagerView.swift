@@ -19,12 +19,29 @@ struct DMPPPeopleManagerView: View {
     // Default event suggestions for additional identity versions.
     // (Birth is handled by the birth identity block.)
     private let eventSuggestions = [
-        "Marriage",
+        
+        "Adoption",
+        "Anglicization",
+        "Baptism",
+        "Confirmation",
+        "Correction of record",
+        "Court-ordered",
+        "Diacritics changed",
         "Divorce",
+        "Gender transition",
+        "Legal name change",
+        "Localization",
+        "Marriage",
         "Name Change",
         "Name Variant",
-        "Adoption",
-        "Legal Name Change"
+        "Paternity established",
+        "Pen name",
+        "Religious conversion",
+        "Spelling correction",
+        "Stage name",
+        "Transliteration",
+        "Witness protection"
+        
     ]
 
     var body: some View {
@@ -216,13 +233,14 @@ struct DMPPPeopleManagerView: View {
 
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-   
 
                     GroupBox {
                         VStack(alignment: .leading, spacing: 14) {
 
                             // BIRTH IDENTITY (always first)
                             birthEditorSection
+
+                       
 
                             Divider()
 
@@ -245,11 +263,8 @@ struct DMPPPeopleManagerView: View {
                         }
                         .padding(12)
                     }
-
-                    
                 }
-              //  .padding()
-                
+
                 HStack {
                     Spacer()
 
@@ -266,12 +281,13 @@ struct DMPPPeopleManagerView: View {
                     }
                     .keyboardShortcut("s", modifiers: [.command])
                     .padding()
-                    
                 }
+
                 Spacer()
             }
         }
     }
+
 
 
     private var birthEditorSection: some View {
@@ -312,6 +328,27 @@ struct DMPPPeopleManagerView: View {
                 }
                 .frame(width: 80, alignment: .leading)
               //  Spacer()
+            }
+
+            // LINE 1b: Preferred + Aliases (person-level)
+            HStack(spacing: 12) {
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Preferred")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("e.g., Betty", text: optionalBindingBirth(\.preferredName))
+                        .frame(width: 180)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Aliases")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Comma-separated (e.g., Elizabeth, Betty Ann)", text: aliasesBindingBirth())
+                }
+
+                Spacer()
             }
 
 
@@ -374,12 +411,12 @@ struct DMPPPeopleManagerView: View {
                             Spacer()
 
                             Button(role: .destructive) {
-                                let removeID = identity.id
-                                draftAdditional.removeAll { $0.id == removeID }
+                                removeAdditionalIdentity(id: identity.id)
                             } label: {
                                 Label("Remove", systemImage: "trash")
                             }
                             .buttonStyle(.bordered)
+
                         }
 
                         // Name at event (only show after Event is selected)
@@ -437,6 +474,21 @@ struct DMPPPeopleManagerView: View {
         loadDrafts(for: personID)
         refreshToken = UUID()
     }
+    private func removeAdditionalIdentity(id removeID: String) {
+        // Remove from UI drafts
+        draftAdditional.removeAll { $0.id == removeID }
+
+        // Remove from persistent store
+        identityStore.delete(id: removeID)
+
+        // Reload drafts so the right pane reflects store truth
+        if let pid = selectedPersonID {
+            loadDrafts(for: pid)
+        }
+
+        // Nudge left list refresh if needed
+        refreshToken = UUID()
+    }
 
     private func addIdentityVersion(for personID: String) {
         _ = identityStore.addIdentityVersion(forPersonID: personID)
@@ -465,30 +517,47 @@ struct DMPPPeopleManagerView: View {
     }
 
     private func saveAllDrafts(for personID: String) {
-        guard var birth = draftBirth else { return }
+        guard let birth = draftBirth else { return }
 
-        // Force birth identity invariants
-        birth.personID = personID
-        birth.idReason = "Birth"
-        if birth.idDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            // If they provided a birthDate, mirror it into idDate as a nice default.
-            if let bd = birth.birthDate?.trimmingCharacters(in: .whitespacesAndNewlines), !bd.isEmpty {
-                birth.idDate = bd
-            }
+        // IDs that should exist after save
+        let keepIDs = Set([birth.id] + draftAdditional.map { $0.id })
+
+        // Delete any stored versions for this person that are not in the drafts
+        let existing = identityStore.identityVersions(forPersonID: personID)
+        for v in existing where !keepIDs.contains(v.id) {
+            identityStore.delete(id: v.id)
         }
 
+        // Upsert what remains
         identityStore.upsert(birth)
-
         for v in draftAdditional {
-            var copy = v
-            copy.personID = personID
-            identityStore.upsert(copy)
+            identityStore.upsert(v)
         }
 
-        // Reload after store propagation (shortName/birthDate/favorite/notes sync)
-        loadDrafts(for: personID)
         refreshToken = UUID()
     }
+
+    
+    private func removeAdditionalIdentity(at idx: Int) {
+        guard draftAdditional.indices.contains(idx) else { return }
+
+        let idToDelete = draftAdditional[idx].id
+
+        // 1) Remove from UI drafts
+        draftAdditional.remove(at: idx)
+
+        // 2) Remove from persistent store
+        identityStore.delete(id: idToDelete)
+
+        // 3) Reload drafts to ensure UI matches store
+        if let pid = selectedPersonID {
+            loadDrafts(for: pid)
+        }
+
+        // 4) Nudge list refresh (optional, but helps)
+        refreshToken = UUID()
+    }
+
 
     // MARK: - Binding helpers (Birth)
 
@@ -530,7 +599,33 @@ struct DMPPPeopleManagerView: View {
             }
         )
     }
+    private func aliasesBindingBirth() -> Binding<String> {
+        Binding<String>(
+            get: {
+                (draftBirth?.aliases ?? []).joined(separator: ", ")
+            },
+            set: { newValue in
+                let parts = newValue
+                    .split(whereSeparator: { $0 == "," || $0 == ";" })
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
 
+                // de-dupe (case-insensitive) while preserving order
+                var seen = Set<String>()
+                var cleaned: [String] = []
+                for p in parts {
+                    let key = p.lowercased()
+                    if !seen.contains(key) {
+                        seen.insert(key)
+                        cleaned.append(p)
+                    }
+                }
+                draftBirth?.aliases = cleaned
+            }
+        )
+    }
+
+    
     private func optionalBindingAdditional(_ idx: Int, _ keyPath: WritableKeyPath<DmpmsIdentity, String?>) -> Binding<String> {
         Binding<String>(
             get: {
@@ -545,6 +640,8 @@ struct DMPPPeopleManagerView: View {
         )
     }
 }
+
+
 
 #Preview {
     DMPPPeopleManagerView()

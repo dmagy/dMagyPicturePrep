@@ -1118,3 +1118,105 @@ extension DMPPImageEditorViewModel {
         metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
     }
 }
+
+// MARK: - PeopleV2 reconciliation (ViewModel extension)
+
+extension DMPPImageEditorViewModel {
+
+    /// Keep selected people, but re-pick the best identity for the current photo date.
+    /// Call this after dateTaken/dateRange changes OR before saving.
+    func reconcilePeopleV2Identities(identityStore: DMPPIdentityStore = .shared) {
+        guard !metadata.peopleV2.isEmpty else { return }
+
+        let photoEarliest = metadata.dateRange?.earliest
+
+        for i in metadata.peopleV2.indices {
+            guard let currentID = metadata.peopleV2[i].identityID,
+                  let currentIdentity = identityStore.identity(withID: currentID)
+            else { continue }
+
+            // Resolve the personID for the currently stored identity
+            let pidRaw = currentIdentity.personID?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
+            let personID = pidRaw.isEmpty ? currentIdentity.id : pidRaw
+
+            let versions = identityStore.identityVersions(forPersonID: personID)
+            guard !versions.isEmpty else { continue }
+
+            let chosen = identityStore.bestIdentityForPhoto(
+                versions: versions,
+                photoEarliestYMD: photoEarliest
+            )
+
+            // Update identityID if it changed
+            if metadata.peopleV2[i].identityID != chosen.id {
+                metadata.peopleV2[i].identityID = chosen.id
+            }
+
+            // Refresh snapshots so the row reflects the identity-at-date
+            metadata.peopleV2[i].isUnknown = false
+            metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
+            metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
+            metadata.peopleV2[i].ageAtPhoto = approxAgeDescription(
+                birthDateString: chosen.birthDate,
+                photoEarliestYMD: photoEarliest
+            )
+        }
+
+        // Keep legacy `people` in sync (1 shortName per person)
+        let selectedShortNames: [String] = metadata.peopleV2.compactMap { row in
+            guard let id = row.identityID,
+                  let ident = identityStore.identity(withID: id) else { return nil }
+            return ident.shortName
+        }
+
+        var cleaned: [String] = []
+        for name in selectedShortNames {
+            if !cleaned.contains(name) { cleaned.append(name) }
+        }
+        metadata.people = cleaned
+    }
+
+    /// If an identity was deleted from the People Manager, strip it when the image is opened.
+    func stripMissingPeopleV2Identities(identityStore: DMPPIdentityStore = .shared) {
+        guard !metadata.peopleV2.isEmpty else { return }
+
+        for i in metadata.peopleV2.indices {
+            guard let id = metadata.peopleV2[i].identityID else { continue }
+            if identityStore.identity(withID: id) == nil {
+                metadata.peopleV2[i].identityID = nil
+                metadata.peopleV2[i].isUnknown = true
+                // Keep snapshots as breadcrumbs.
+            }
+        }
+
+        // Also clean legacy `people` so it doesn't retain deleted labels.
+        let stillValidShortNames = Set(
+            metadata.peopleV2.compactMap { row -> String? in
+                guard let id = row.identityID,
+                      let ident = identityStore.identity(withID: id) else { return nil }
+                return ident.shortName
+            }
+        )
+        metadata.people.removeAll { !stillValidShortNames.contains($0) }
+    }
+
+    // MARK: - Local helper
+
+    /// Minimal, compile-safe age helper (years only) based on YYYY or YYYY-MM-DD.
+    private func approxAgeDescription(birthDateString: String?, photoEarliestYMD: String?) -> String? {
+        func year(from s: String?) -> Int? {
+            guard let s else { return nil }
+            let t = s.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            guard t.count >= 4 else { return nil }
+            return Int(t.prefix(4))
+        }
+
+        guard let by = year(from: birthDateString),
+              let py = year(from: photoEarliestYMD)
+        else { return nil }
+
+        let age = py - by
+        guard age >= 0, age <= 130 else { return nil }
+        return "\(age)"
+    }
+}
