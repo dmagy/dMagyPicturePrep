@@ -26,6 +26,7 @@ struct DMPPPeopleManagerView: View {
         "Confirmation",
         "Correction of record",
         "Court-ordered",
+        "Death",
         "Diacritics changed",
         "Divorce",
         "Gender transition",

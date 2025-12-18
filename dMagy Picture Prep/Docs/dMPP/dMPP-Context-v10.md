@@ -207,9 +207,7 @@ Tabs:
 
 - **Crops**
 - **Tags**
-- **People**
-  - Summary
-  - “Open People Manager”
+
 
 ---
 
@@ -306,8 +304,8 @@ On save:
 
 ## 7. Known Limitations (CTX10)
 
-- No crop rotation
-- Freeform aspect not numerically editable
+- No crop rotation - rejected
+- Freeform aspect not numerically editable - rejected
 - Soft-only date validation
 - Global tags only
 - Age display not finalized

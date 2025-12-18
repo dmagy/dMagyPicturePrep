@@ -39,6 +39,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
+				"Docs/dMPMS/dMPMS-Spec-v1.2.md",
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",
@@ -47,6 +48,7 @@
 				"Docs/dMPP/dMPP-Context-v7.md",
 				"Docs/dMPP/dMPP-Context-v8.md",
 				"Docs/dMPP/dMPP-Context-v9.md",
+				"Docs/dMPP/dMPP-Context-v10.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};

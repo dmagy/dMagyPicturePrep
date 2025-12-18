@@ -1,14 +1,20 @@
 import Foundation
-import Observation
+import Combine
 
-@Observable
-final class DMPPIdentityStore {
+// cp-2025-12-18-02(IDS)
+// NOTE: Converted from @Observable to ObservableObject so it works with @StateObject / .environmentObject.
+
+final class DMPPIdentityStore: ObservableObject {
 
     static let shared = DMPPIdentityStore()
 
     /// Flat list of all identity versions persisted to disk.
     /// Multiple entries may share the same `personID`.
-    var identities: [DmpmsIdentity] = []
+    @Published var identities: [DmpmsIdentity] = []
+
+    /// [IDS-REV] Lightweight change signal for cross-window refresh (People Manager -> Editor).
+    /// Any mutation bumps this so views/viewmodels can recompute derived values (like ages).
+    @Published private(set) var revision: Int = 0
 
     private let storageURL: URL
 
@@ -34,12 +40,19 @@ final class DMPPIdentityStore {
         load()
     }
 
+    // MARK: - Revision bump
+
+    private func bumpRevision() {
+        revision &+= 1
+    }
+
     // MARK: - Persistence
 
     func load() {
         let fm = FileManager.default
         guard fm.fileExists(atPath: storageURL.path) else {
             identities = []
+            bumpRevision()
             return
         }
 
@@ -47,15 +60,16 @@ final class DMPPIdentityStore {
             let data = try Data(contentsOf: storageURL)
             identities = try JSONDecoder().decode([DmpmsIdentity].self, from: data)
             migrateAndNormalize()
+            bumpRevision()
         } catch {
             print("dMPP: Failed to load identities: \(error)")
             identities = []
+            bumpRevision()
         }
     }
 
     private func save() {
         do {
-            
             let data = try JSONEncoder().encode(identities)
             try data.write(to: storageURL, options: .atomic)
         } catch {
@@ -106,7 +120,7 @@ final class DMPPIdentityStore {
             let sharedFavorite   = primary.isFavorite
             let sharedNotes      = primary.notes
 
-            // NEW: Preferred + Aliases (person-level)
+            // Preferred + Aliases (person-level)
             let sharedPreferred  = primary.preferredName
             let sharedAliases    = primary.aliases
 
@@ -120,7 +134,7 @@ final class DMPPIdentityStore {
                 copy.isFavorite = sharedFavorite
                 copy.notes      = sharedNotes
 
-                // NEW shared fields
+                // shared fields
                 copy.preferredName = sharedPreferred
                 copy.aliases       = sharedAliases
 
@@ -130,7 +144,6 @@ final class DMPPIdentityStore {
 
         identities = rebuilt
     }
-
 
     // MARK: - Computed views (raw identities)
 
@@ -173,8 +186,6 @@ final class DMPPIdentityStore {
             .mapValues { $0.count }
     }
 
-    // MARK: - Checklist labels (People section)
-
     /// Returns a label for the People checklist.
     /// - If `shortName` is unique: "Anna"
     /// - If duplicated: "Anna (b. 1942)"
@@ -200,9 +211,6 @@ final class DMPPIdentityStore {
             return "\(person.shortName) (b. ? #\(suffix))"
         }
     }
-
-
-
 
     /// One row per person, used for checkbox UI (dedupes “two Amys” problem).
     var peopleSortedForUI: [PersonSummary] {
@@ -238,7 +246,6 @@ final class DMPPIdentityStore {
                 notes: representative.notes,
                 versions: sortedVersions
             )
-
         }
 
         return people.sorted {
@@ -254,8 +261,6 @@ final class DMPPIdentityStore {
         peopleSortedForUI.filter { !$0.isFavorite }
     }
 
-    
-    
     // MARK: - Lookup / mutation
 
     func identity(withID id: String) -> DmpmsIdentity? {
@@ -265,6 +270,11 @@ final class DMPPIdentityStore {
     func identityVersions(forPersonID personID: String) -> [DmpmsIdentity] {
         let versions = identities.filter { ($0.personID ?? $0.id) == personID }
         return identityVersionsInternalSorted(versions)
+    }
+
+    /// Convenience for age/label recompute: identityID == identity.id
+    func identity(forIdentityID identityID: String) -> DmpmsIdentity? {
+        identity(withID: identityID)
     }
 
     /// Insert or replace a single identity version, then normalize and save.
@@ -284,17 +294,20 @@ final class DMPPIdentityStore {
         propagateSharedFieldsAcrossIdentityVersions()
         identities = identitiesSortedForUI
         save()
+        bumpRevision()
     }
 
     func delete(id: String) {
         identities.removeAll { $0.id == id }
         propagateSharedFieldsAcrossIdentityVersions()
         save()
+        bumpRevision()
     }
 
     func deletePerson(personID: String) {
         identities.removeAll { ($0.personID ?? $0.id) == personID }
         save()
+        bumpRevision()
     }
 
     /// Given a person’s versions, pick the best identity for a photo date.
@@ -335,6 +348,7 @@ final class DMPPIdentityStore {
         propagateSharedFieldsAcrossIdentityVersions()
         identities = identitiesSortedForUI
         save()
+        bumpRevision()
 
         return personID
     }
@@ -350,13 +364,12 @@ final class DMPPIdentityStore {
         new.personID = personID
         new.idReason = "Marriage"   // default; user can change
         new.idDate = ""
-        // name fields start as the last-known name
-        // birthDate/shortName/isFavorite/notes will be propagated anyway
 
         identities.append(new)
         propagateSharedFieldsAcrossIdentityVersions()
         identities = identitiesSortedForUI
         save()
+        bumpRevision()
 
         return new.id
     }

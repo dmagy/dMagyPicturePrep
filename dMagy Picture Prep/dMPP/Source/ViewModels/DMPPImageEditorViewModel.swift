@@ -3,6 +3,9 @@ import SwiftUI
 import AppKit
 import Observation
 import ImageIO
+import Combine
+
+
 
 
 // dMPP-2025-11-20-VM1 — ViewModel for Single Image Editor
@@ -19,6 +22,23 @@ class DMPPImageEditorViewModel {
 
     // Selected crop ID for tabs
     var selectedCropID: String? = nil
+    
+    // cp-2025-12-18-07(AGE-STATE)
+
+    /// [AGE-STORE] Identity store for birthdate lookup + cross-window refresh.
+    /// Uses your existing singleton for now (keeps call sites unchanged).
+    private let identityStore: DMPPIdentityStore = .shared
+
+    /// [AGE-MAP] identityID -> age (years) or nil
+    var agesByIdentityID: [String: Int?] = [:]
+    
+    // cp-2025-12-18-16(AGE-RANGE)
+    var ageTextByIdentityID: [String: String] = [:]
+
+
+    /// [AGE-C] Combine cancellables for live refresh subscriptions
+    private var cancellables = Set<AnyCancellable>()
+
 
     // ============================================================
     // [DMPP-VM-CROP-SLIDER-CONFIG] Bounds for crop size slider
@@ -111,6 +131,9 @@ class DMPPImageEditorViewModel {
         if let first = self.metadata.virtualCrops.first?.id {
             self.selectedCropID = first
         }
+        
+  
+
     }
 
 
@@ -653,8 +676,102 @@ class DMPPImageEditorViewModel {
 //  cp-2025-11-22-VC5 — Core virtual crop helpers using dMPMS models
 //
 
+
+
 import Foundation
 import CoreGraphics
+
+
+// cp-2025-12-18-08(AGE-EXT)
+
+import Combine
+
+extension DMPPImageEditorViewModel {
+
+    // [AGE-WIRE] Subscribe to identityStore changes so People Manager edits refresh ages in the editor.
+    func wireAgeRefresh() {
+
+        // Avoid double-wiring if init runs more than once in previews/tests.
+        cancellables.removeAll()
+
+        identityStore.$revision
+            .sink { [weak self] _ in
+                self?.recomputeAgesForCurrentImage()
+            }
+            .store(in: &cancellables)
+    }
+
+    // cp-2025-12-18-17(AGE-RECOMP)
+
+    func recomputeAgesForCurrentImage() {
+
+        let dt = metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If the user entered a specific month (YYYY-MM), treat it as end-of-month (single age).
+        let preferredSingleDate: Date? = {
+            // YYYY-MM-DD (exact)
+            if dt.count == 10 { return LooseYMD.parse(dt) }
+
+            // YYYY-MM (month precision) => end-of-month
+            if dt.count == 7 { return LooseYMD.parseEndOfMonthIfMonthPrecision(dt) }
+
+            return nil
+        }()
+
+        let earliestDate = LooseYMD.parse(metadata.dateRange?.earliest) ?? metadata.dateTakenDate
+        let latestDate   = LooseYMD.parse(metadata.dateRange?.latest)   ?? earliestDate
+
+        // Decide whether to show a single age or a range
+        let startForAge = preferredSingleDate ?? earliestDate
+        let endForAge   = preferredSingleDate ?? latestDate
+
+        var nextYears: [String: Int?] = [:]
+        var nextText:  [String: String] = [:]
+
+        for row in metadata.peopleV2 {
+            guard let identityID = row.identityID else { continue }
+
+            guard let identity = identityStore.identity(forIdentityID: identityID) else {
+                nextYears[identityID] = nil
+                nextText[identityID] = ""
+                continue
+            }
+
+            // cp-2025-12-18-20(AGE-BIRTH-RANGE)
+            let (b0, b1) = LooseYMD.birthRange(identity.birthDate)
+
+            // Use the most "range-generating" combination:
+            // youngest age = photo earliest - birth latest
+            // oldest age   = photo latest   - birth earliest
+            let youngest = AgeAtPhoto.yearsOld(on: startForAge, birthDate: b1)
+            let oldest   = AgeAtPhoto.yearsOld(on: endForAge, birthDate: b0)
+
+            let a0 = youngest
+            let a1 = oldest
+
+
+            nextYears[identityID] = a0
+
+            if let a0, let a1 {
+                if a0 == a1 {
+                    nextText[identityID] = "\(a0)"
+                } else {
+                    let lo = min(a0, a1)
+                    let hi = max(a0, a1)
+                    nextText[identityID] = "\(lo)–\(hi)"
+                }
+            } else {
+                nextText[identityID] = ""
+            }
+        }
+
+        agesByIdentityID = nextYears
+        ageTextByIdentityID = nextText
+    }
+
+
+}
+
 
 extension DMPPImageEditorViewModel {
     
