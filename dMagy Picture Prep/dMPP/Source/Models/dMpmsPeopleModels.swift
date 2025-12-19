@@ -7,20 +7,8 @@
 
 import Foundation
 
-// MARK: - Identity records (who this person is over time)
+// cp-2025-12-18-31(DmpmsIdentity-DEATHDATE)
 
-/// [DMPMS-IDENTITY]
-/// A single identity "version" for a person, valid starting at `idDate`.
-/// Example:
-///   erin1: Erin Amanda Magyar, valid from birth
-///   erin2: Erin Amanda Colburn, valid from marriage date
-///
-/// All date strings use the same dMPMS date grammar as `dateTaken`:
-///   - Full: "1976-07-04"
-///   - Year-month: "1976-07"
-///   - Year: "1976"
-///   - Decade: "1970s"
-///   - Range: "1975-1977"
 struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
     // MARK: - Core identifiers
@@ -46,6 +34,9 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
     /// Birth date of the person (same grammar as dMPMS).
     var birthDate: String?
+
+    /// Death date of the person (same grammar as dMPMS).
+    var deathDate: String?
 
     /// Person-level favorite flag.
     var isFavorite: Bool
@@ -89,6 +80,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         middleName: String? = nil,
         surname: String,
         birthDate: String? = nil,
+        deathDate: String? = nil,
         idDate: String,
         idReason: String,
         isFavorite: Bool = false,
@@ -103,6 +95,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         self.middleName = middleName
         self.surname = surname
         self.birthDate = birthDate
+        self.deathDate = deathDate
         self.idDate = idDate
         self.idReason = idReason
         self.isFavorite = isFavorite
@@ -113,7 +106,9 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, personID
-        case shortName, preferredName, aliases, birthDate, isFavorite, notes
+        case shortName, preferredName, aliases
+        case birthDate, deathDate
+        case isFavorite, notes
         case givenName, middleName, surname
         case idDate, idReason
     }
@@ -129,6 +124,8 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
 
         birthDate = try c.decodeIfPresent(String.self, forKey: .birthDate)
+        deathDate = try c.decodeIfPresent(String.self, forKey: .deathDate) // IMPORTANT
+
         isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
 
@@ -139,7 +136,32 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         idDate = try c.decodeIfPresent(String.self, forKey: .idDate) ?? ""
         idReason = try c.decodeIfPresent(String.self, forKey: .idReason) ?? ""
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(personID, forKey: .personID)
+
+        try c.encode(shortName, forKey: .shortName)
+        try c.encodeIfPresent(preferredName, forKey: .preferredName)
+        try c.encode(aliases, forKey: .aliases)
+
+        try c.encodeIfPresent(birthDate, forKey: .birthDate)
+        try c.encodeIfPresent(deathDate, forKey: .deathDate)
+
+        try c.encode(isFavorite, forKey: .isFavorite)
+        try c.encodeIfPresent(notes, forKey: .notes)
+
+        try c.encode(givenName, forKey: .givenName)
+        try c.encodeIfPresent(middleName, forKey: .middleName)
+        try c.encode(surname, forKey: .surname)
+
+        try c.encode(idDate, forKey: .idDate)
+        try c.encode(idReason, forKey: .idReason)
+    }
 }
+
 
 
 // MARK: - Person record (groups multiple identities for one human)
@@ -179,6 +201,7 @@ struct DmpmsPerson: Identifiable, Codable, Hashable {
         isFavorite: Bool = false,
         primaryShortName: String,
         birthDate: String? = nil,
+
         notes: String? = nil,
         identities: [DmpmsIdentity] = []
     ) {
@@ -186,6 +209,7 @@ struct DmpmsPerson: Identifiable, Codable, Hashable {
         self.isFavorite = isFavorite
         self.primaryShortName = primaryShortName
         self.birthDate = birthDate
+
         self.notes = notes
         self.identities = identities
     }

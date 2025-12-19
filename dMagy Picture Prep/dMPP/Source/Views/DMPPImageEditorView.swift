@@ -8,14 +8,18 @@ import Observation
 
 struct DMPPImageEditorView: View {
 
-    // [DMPP-SI-VM] Current image editor view model (optional until a folder is chosen)
     @State private var vm: DMPPImageEditorViewModel? = nil
 
-    // [DMPP-SI-LIST] Folder + image list + current index
     @State private var folderURL: URL? = nil
     @State private var imageURLs: [URL] = []
     @State private var currentIndex: Int = 0
-    
+
+    @AppStorage("pinFavoritesToTop") private var pinFavoritesToTop: Bool = true
+    @AppStorage("showAllPeopleInChecklist") private var showAllPeopleInChecklist: Bool = false
+
+    // cp-2025-12-18-UNK1(UNKNOWN-STATE)
+    @State private var showAddUnknownSheet: Bool = false
+    @State private var unknownLabelDraft: String = ""
    
 
     var body: some View {
@@ -89,7 +93,36 @@ struct DMPPImageEditorView: View {
                     Divider()
 
                     // RIGHT — Metadata Form
-                    DMPPMetadataFormPane(vm: vm)
+                    DMPPMetadataFormPane(
+                        vm: vm,
+                        pinFavoritesToTop: $pinFavoritesToTop,
+                        showAllPeopleInChecklist: $showAllPeopleInChecklist,
+                        showAddUnknownSheet: $showAddUnknownSheet,
+                        unknownLabelDraft: $unknownLabelDraft,
+                        addUnknownPersonRow: { label in
+                            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+
+                            let newRow = DmpmsPersonInPhoto(
+                                identityID: nil,
+                                isUnknown: true,
+                                shortNameSnapshot: trimmed,
+                                displayNameSnapshot: trimmed,
+                                ageAtPhoto: nil,
+                                rowIndex: 0,
+                                rowName: nil,
+                                positionIndex: 0,
+                                roleHint: nil
+                            )
+
+                            vm.metadata.peopleV2.append(newRow)
+
+                            // refresh live ages (unknowns won’t have ages, but this keeps things consistent)
+                            vm.recomputeAgesForCurrentImage()
+                        }
+                    )
+
+
                         .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                         .padding()
                 }
@@ -457,9 +490,25 @@ struct DMPPCropEditorPane: View {
 
 struct DMPPMetadataFormPane: View {
 
+    // dMPP uses Observation (@Observable), so use @Bindable (NOT @ObservedObject).
     @Bindable var vm: DMPPImageEditorViewModel
+
+    // Parent-controlled UI toggles
+    @Binding var pinFavoritesToTop: Bool
+    @Binding var showAllPeopleInChecklist: Bool
+
+    // Unknown-person sheet state (owned by parent)
+    @Binding var showAddUnknownSheet: Bool
+    @Binding var unknownLabelDraft: String
+
+    // Action implemented by parent (adds a row to vm.metadata.peopleV2)
+    var addUnknownPersonRow: (String) -> Void
+
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
+
+    
+
   
 
     // Tags from preferences, kept in sync via notification.
@@ -470,7 +519,7 @@ struct DMPPMetadataFormPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-
+                
                 // FILE
                 GroupBox("File") {
                     VStack(alignment: .leading, spacing: 4) {
@@ -479,9 +528,9 @@ struct DMPPMetadataFormPane: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)
-                       .padding(.vertical, 8)
+                    .padding(.vertical, 8)
                 }
-          
+                
                 // DESCRIPTION
                 GroupBox("Description") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -492,18 +541,18 @@ struct DMPPMetadataFormPane: View {
                                 .foregroundStyle(.secondary)
                             TextField("", text: $vm.metadata.title)
                                 .textFieldStyle(.roundedBorder)
-
-
-                            .frame(maxWidth: .infinity)
+                            
+                            
+                                .frame(maxWidth: .infinity)
                         }
                         .padding(.horizontal, 8)
-                           .padding(.vertical, 8)
+                        .padding(.vertical, 8)
                         // Description
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Description")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-
+                            
                             TextField(
                                 "",
                                 text: $vm.metadata.description,
@@ -514,17 +563,17 @@ struct DMPPMetadataFormPane: View {
                             .frame(maxWidth: .infinity)
                         }
                         .padding(.horizontal, 8)
-                           .padding(.vertical, 8)
+                        .padding(.vertical, 8)
                     }
                 }
-
+                
                 // DATE / ERA
                 GroupBox("Date / Era") {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Date Taken or Era")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
+                        
                         TextField(
                             "",
                             text: Binding(
@@ -533,17 +582,17 @@ struct DMPPMetadataFormPane: View {
                             )
                         )
                         .textFieldStyle(.roundedBorder)
-
-                            .frame(maxWidth: .infinity)
-                            .onChange(of: vm.metadata.dateTaken) { _, newValue in
-                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                                vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
-                                dateWarning = dateValidationMessage(for: trimmed)
-
-                                recomputeAgesForCurrentImage()
-                            }
-
+                        
+                        .frame(maxWidth: .infinity)
+                        .onChange(of: vm.metadata.dateTaken) { _, newValue in
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            
+                            vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
+                            dateWarning = dateValidationMessage(for: trimmed)
+                            
+                            recomputeAgesForCurrentImage()
+                        }
+                        
                         if let dateWarning, !dateWarning.isEmpty {
                             Text(dateWarning)
                                 .font(.caption2)
@@ -563,20 +612,20 @@ struct DMPPMetadataFormPane: View {
                 .onChange(of: vm.metadata.sourceFile) { _, _ in
                     recomputeAgesForCurrentImage()
                 }
-
-
-
-
-
+                
+                
+                
+                
+                
                 // TAGS & PEOPLE
                 // TAGS
- 
+                
                 GroupBox("Tags") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Tags")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
+                        
                         if availableTags.isEmpty {
                             Text("No tags defined. Use Settings to add tags.")
                                 .font(.caption2)
@@ -586,7 +635,7 @@ struct DMPPMetadataFormPane: View {
                                 GridItem(.flexible(), alignment: .leading),
                                 GridItem(.flexible(), alignment: .leading)
                             ]
-
+                            
                             LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
                                 ForEach(availableTags, id: \.self) { tag in
                                     Toggle(
@@ -611,7 +660,7 @@ struct DMPPMetadataFormPane: View {
                                 }
                             }
                         }
-
+                        
                         Button("Add / Edit tags…") {
                             openSettings()
                         }
@@ -623,20 +672,20 @@ struct DMPPMetadataFormPane: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
-
-
+                
+                
                 // PEOPLE
                 GroupBox("People") {
                     VStack(alignment: .leading, spacing: 8) {
-
+                        
                         // -------------------------------------------------
                         // People in this photo (summary ABOVE the checklists)
                         // -------------------------------------------------
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("People in this photo left to right")
+                            Text("Check people in this photo left to right, row by row")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-
+                            
                             let sortedPeople = vm.metadata.peopleV2
                                 .sorted { lhs, rhs in
                                     if lhs.rowIndex == rhs.rowIndex {
@@ -645,20 +694,20 @@ struct DMPPMetadataFormPane: View {
                                         return lhs.rowIndex < rhs.rowIndex
                                     }
                                 }
-
+                            
                             if sortedPeople.isEmpty {
                                 Text("None yet.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else {
                                 // cp-2025-12-18-13(UI-AGE-LIVE)
-
-                               
-
+                                
+                                
+                                
                                 // cp-2025-12-18-14(UI-AGE-LIVE)
-
+                                
                                 // cp-2025-12-18-15(UI-AGE-LIVE-WITH-FALLBACK)
-
+                                
                                 Text(
                                     sortedPeople
                                         .map { person in
@@ -669,27 +718,42 @@ struct DMPPMetadataFormPane: View {
                                                     return "\(person.shortNameSnapshot) (\(live))"
                                                 }
                                             }
-
-
+                                            
+                                            
                                             // 2) Fallback to whatever snapshot string was saved
                                             if let snap = person.ageAtPhoto, !snap.isEmpty {
                                                 return "\(person.shortNameSnapshot) (\(snap))"
                                             }
-
+                                            
                                             // 3) Otherwise just name
                                             return person.shortNameSnapshot
                                         }
                                         .joined(separator: ", ")
                                 )
                                 .font(.caption)
+                                
+                                // cp-2025-12-19-UNK-BTN(UNKNOWN-BUTTON-UNDER-SUMMARY)
+                                HStack {
+                                    Button {
+                                        // Default draft label (matches your “Unknown” default request)
+                                        unknownLabelDraft = "Unknown"
+                                        showAddUnknownSheet = true
+                                    } label: {
+                                        Text("Add unknown person…")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
 
+                                    Spacer()
+                                }
+                                .padding(.top, 6)
 
-
-
-
+                                
+                                
+                                
                             }
                         }
-
+                        
                         // -------------------------------------------------
                         // Impossible-age warning (*) — directly under summary
                         // -------------------------------------------------
@@ -700,57 +764,89 @@ struct DMPPMetadataFormPane: View {
                                 .foregroundStyle(.red)
                                 .padding(.top, 2)
                         }
-
+                        
                         Divider()
                             .padding(.vertical, 4)
-
+                        
+                        // cp-2025-12-18-30(ALIVE-FILTER-UI)
+                        let availablePeople: [DMPPIdentityStore.PersonSummary] =
+                        showAllPeopleInChecklist
+                        ? identityStore.peopleSortedForUI
+                        : identityStore.peopleAliveDuring(photoRange: vm.metadata.dateRange)
+                        
+                        let favoriteAvailable = availablePeople.filter { $0.isFavorite }
+                        let othersAvailable   = availablePeople.filter { !$0.isFavorite }
+                        
+                        
                         // -------------------------------------------------
-                        // Favorites (left) + All others (right) columns
+                        // Two columns (alphabetical), optional "pin favorites"
                         // -------------------------------------------------
-                        if identityStore.favoritePeople.isEmpty &&
-                            identityStore.nonFavoritePeople.isEmpty {
-
+                        
+                        let availableAll = (favoriteAvailable + othersAvailable)
+                            .sorted { a, b in
+                                a.shortName.localizedCaseInsensitiveCompare(b.shortName) == .orderedAscending
+                            }
+                        
+                        if availableAll.isEmpty {
+                            
                             Text("No identities defined yet. Open People Manager to add some.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
-
+                            
                         } else {
+                            
+                            // Optional: favorites first before splitting into columns
+                            let ordered: [DMPPIdentityStore.PersonSummary] = {
+                                guard pinFavoritesToTop else { return availableAll }
+                                let favs = availableAll.filter { $0.isFavorite }
+                                let non  = availableAll.filter { !$0.isFavorite }
+                                return favs + non
+                            }()
+                            
+                            let half = (ordered.count + 1) / 2
+                            let leftColumn  = Array(ordered.prefix(half))
+                            let rightColumn = Array(ordered.dropFirst(half))
+                            
                             HStack(alignment: .top, spacing: 24) {
-
-                                // LEFT COLUMN — Favorites
-                                if !identityStore.favoritePeople.isEmpty {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Favorites")
-                                            .font(.caption.bold())
-
-                                        ForEach(identityStore.favoritePeople) { person in
-                                            Toggle(identityStore.checklistLabel(for: person),
-                                                   isOn: bindingForPerson(person))
-                                                .toggleStyle(.checkbox)
-                                        }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(leftColumn) { person in
+                                        Toggle(identityStore.checklistLabel(for: person),
+                                               isOn: bindingForPerson(person))
+                                        .toggleStyle(.checkbox)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-
-                                // RIGHT COLUMN — All others
-                                if !identityStore.nonFavoritePeople.isEmpty {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("All others")
-                                            .font(.caption.bold())
-
-                                        ForEach(identityStore.nonFavoritePeople) { person in
-                                            Toggle(identityStore.checklistLabel(for: person),
-                                                   isOn: bindingForPerson(person))
-                                                .toggleStyle(.checkbox)
-                                        }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(rightColumn) { person in
+                                        Toggle(identityStore.checklistLabel(for: person),
+                                               isOn: bindingForPerson(person))
+                                        .toggleStyle(.checkbox)
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-
+                            
+                            HStack {
+                                Toggle("Show all people", isOn: $showAllPeopleInChecklist)
+                                    .toggleStyle(.switch)
+                                    .font(.caption)
+                                
+                                //    Spacer()
+                                
+                                Toggle("Pin favorites to top", isOn: $pinFavoritesToTop)
+                                    .toggleStyle(.switch)
+                                    .font(.caption)
+                            }
+                            .padding(.top, 6)
                         }
+                        
+                        
 
-
+              
+                        
+                        
                         HStack(spacing: 8) {
                             Button("Open People Manager…") {
                                 openWindow(id: "People-Manager")
@@ -758,35 +854,97 @@ struct DMPPMetadataFormPane: View {
                             .buttonStyle(.link)
                             .font(.caption)
                             .tint(.accentColor)
-
+                            
                             Spacer()
                         }
                         .padding(.top, 4)
-
+                        
                         // Optional helper text
-                        Text("Check people who appear in this photo; they’ll be added left-to-right in the front row by default.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 6)
+                        //       Text("Check people who appear in this photo; they’ll be added left-to-right in the front row by default.")
+                        //          .font(.caption2)
+                        //          .foregroundStyle(.secondary)
+                        //         .padding(.top, 6)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
-
-
-
-
+                
+                
+                
+                
                 Spacer(minLength: 0)
             }
             .padding()
-        }
-        .onAppear {
-            reloadAvailableTags()
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(for: .dmppPreferencesChanged)
-        ) { _ in
-            reloadAvailableTags()
+            
+            //}
+            
+            .onAppear {
+                reloadAvailableTags()
+            }
+            
+            .onReceive(
+                NotificationCenter.default.publisher(for: .dmppPreferencesChanged)
+            ) { _ in
+                reloadAvailableTags()
+                
+            }
+            .onChange(of: showAddUnknownSheet) { _, isShown in
+                guard isShown else { return }
+                if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    unknownLabelDraft = "Unknown"
+                }
+            }
+
+            
+            // cp-2025-12-18-UNK5(UNKNOWN-SHEET)
+            .sheet(isPresented: $showAddUnknownSheet) {
+                VStack(alignment: .leading, spacing: 12) {
+                   
+                    
+        
+                    
+                    
+                    Text("Add unknown person")
+                        .font(.headline)
+                
+
+                    Text("This creates an unknown person in this picture only (no identity record).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: $unknownLabelDraft)
+                        .textFieldStyle(.roundedBorder)
+
+                    Text("Examples: “Unknown boy in red jacket”, “Unknown woman holding baby”, “Unknown teacher (left)”.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Spacer()
+
+                        Button("Cancel") {
+                            showAddUnknownSheet = false
+                        }
+
+                        Button("Add") {
+                            let trimmed = unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+
+                            addUnknownPersonRow(trimmed)
+                            showAddUnknownSheet = false
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding()
+                .frame(minWidth: 420)
+      
+            }
+
+
+
+            
         }
     }
 
@@ -947,6 +1105,7 @@ struct DMPPMetadataFormPane: View {
 
     
 }
+
 
 // MARK: - Date validation helper
 
@@ -1111,6 +1270,29 @@ extension DMPPImageEditorView {
         }
     }
 
+    // cp-2025-12-18-UNK2(UNKNOWN-ADD)
+    private func addUnknownPersonRow(label: String) {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let vm = self.vm else { return }
+
+        let newRow = DmpmsPersonInPhoto(
+            identityID: nil,
+            isUnknown: true,
+            shortNameSnapshot: trimmed,
+            displayNameSnapshot: trimmed,
+            ageAtPhoto: nil,
+            rowIndex: 0,
+            rowName: nil,
+            positionIndex: 0,
+            roleHint: nil
+        )
+
+        vm.metadata.peopleV2.append(newRow)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    
     // [DMPP-NAV-SUPPORTED] Basic extension filter for images
     private func isSupportedImageURL(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
@@ -1247,6 +1429,18 @@ extension DMPPImageEditorView {
         }
     }
 
+
+    // cp-2025-12-18-UNK3(UNKNOWN-REMOVE)
+    private func removeUnknownRow(rowID: String) {
+        guard let vm else { return }          // was: guard var vm else { return }
+        vm.metadata.peopleV2.removeAll { $0.id == rowID }
+        vm.recomputeAgesForCurrentImage()
+        // self.vm = vm   // not needed if DMPPImageEditorViewModel is a class (it is)
+    }
+
+
+    
+    
     /// Returns true if anything changed.
     private func reconcilePeopleV2AndLegacy(in metadata: inout DmpmsMetadata) -> Bool {
         let store = DMPPIdentityStore.shared
