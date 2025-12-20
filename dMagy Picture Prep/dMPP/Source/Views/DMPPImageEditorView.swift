@@ -20,6 +20,8 @@ struct DMPPImageEditorView: View {
     // cp-2025-12-18-UNK1(UNKNOWN-STATE)
     @State private var showAddUnknownSheet: Bool = false
     @State private var unknownLabelDraft: String = ""
+    
+    @State private var activeRowIndex: Int = 0
    
 
     var body: some View {
@@ -103,23 +105,27 @@ struct DMPPImageEditorView: View {
                             let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
 
+                            let nextPos = (vm.metadata.peopleV2
+                                .filter { $0.rowIndex == activeRowIndex && $0.roleHint != "rowMarker" }
+                                .map(\.positionIndex)
+                                .max() ?? -1) + 1
+
                             let newRow = DmpmsPersonInPhoto(
                                 identityID: nil,
                                 isUnknown: true,
                                 shortNameSnapshot: trimmed,
                                 displayNameSnapshot: trimmed,
                                 ageAtPhoto: nil,
-                                rowIndex: 0,
+                                rowIndex: activeRowIndex,
                                 rowName: nil,
-                                positionIndex: 0,
+                                positionIndex: nextPos,
                                 roleHint: nil
                             )
 
                             vm.metadata.peopleV2.append(newRow)
-
-                            // refresh live ages (unknowns won’t have ages, but this keeps things consistent)
                             vm.recomputeAgesForCurrentImage()
                         }
+
                     )
 
 
@@ -175,8 +181,12 @@ struct DMPPImageEditorView: View {
 
                     // Save + navigation buttons on the right
                     Button("Save") {
+                        // cp-2025-12-19-PS4(SNAPSHOT-ON-SAVE)
+                        vm.capturePeopleSnapshot(note: "Before reset")
+
                         saveCurrentMetadata()
                     }
+
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut("s", modifiers: [.command])
                     .help("Save notes and crop for this picture (original photo is never changed).")
@@ -507,7 +517,13 @@ struct DMPPMetadataFormPane: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
-    
+    // cp-2025-12-19-PS4(SNAPSHOTS-STATE)
+    @State private var showCaptureSnapshotSheet: Bool = false
+    @State private var snapshotNoteDraft: String = ""
+
+    // cp-2025-12-19-PS5(RESET-STATE)
+    @State private var showResetPeopleConfirm: Bool = false
+    @State private var resetSnapshotNoteDraft: String = ""
 
   
 
@@ -515,6 +531,9 @@ struct DMPPMetadataFormPane: View {
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
     
     @State private var dateWarning: String? = nil
+    
+    @State private var activeRowIndex: Int = 0
+    
 
     var body: some View {
         ScrollView {
@@ -682,9 +701,14 @@ struct DMPPMetadataFormPane: View {
                         // People in this photo (summary ABOVE the checklists)
                         // -------------------------------------------------
                         VStack(alignment: .leading, spacing: 2) {
+                            
+                            
+        
+                            
                             Text("Check people in this photo left to right, row by row")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+               
                             
                             let sortedPeople = vm.metadata.peopleV2
                                 .sorted { lhs, rhs in
@@ -694,7 +718,7 @@ struct DMPPMetadataFormPane: View {
                                         return lhs.rowIndex < rhs.rowIndex
                                     }
                                 }
-                            
+                        // from here
                             if sortedPeople.isEmpty {
                                 Text("None yet.")
                                     .font(.caption2)
@@ -731,24 +755,197 @@ struct DMPPMetadataFormPane: View {
                                         .joined(separator: ", ")
                                 )
                                 .font(.caption)
-                                
-                                // cp-2025-12-19-UNK-BTN(UNKNOWN-BUTTON-UNDER-SUMMARY)
-                                HStack {
-                                    Button {
-                                        // Default draft label (matches your “Unknown” default request)
+               
+                                .alert("Reset people?", isPresented: $showResetPeopleConfirm) {
+                                    Button("Cancel", role: .cancel) { }
+
+                                    Button("Reset", role: .destructive) {
+                                        resetPeople(identityStore: DMPPIdentityStore.shared)
+                                    }
+                                } message: {
+                                    Text("This will clear the current People list for this photo (including unknowns and row markers). A snapshot will be saved first so you can restore it.")
+                                }
+
+                                .padding(.top, 6)
+
+                                HStack(spacing: 10) {
+
+                                    Text("Current: \(rowLabel(for: activeRowIndex))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+
+                                    
+                                    Button("Add unknown person…") {
                                         unknownLabelDraft = "Unknown"
                                         showAddUnknownSheet = true
-                                    } label: {
-                                        Text("Add unknown person…")
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.small)
 
+                                    Button("+ New row") {
+                                        // Make the next row active; new people/unknowns will be added there.
+                                        activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0) + 1
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+
+                                    // cp-2025-12-19-PS5(RESET-BUTTON)
+                                    Button(role: .destructive) {
+                                        resetSnapshotNoteDraft = "Before reset \(shortNowStamp())"
+                                        showResetPeopleConfirm = true
+                                    } label: {
+                                        Text("Reset people")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+
+                                    Button("Restore last snapshot") {
+                                        restoreLastPeopleSnapshot()
+                                        // After a restore, set activeRowIndex to the last row so adding continues naturally.
+                                        activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(vm.metadata.peopleV2Snapshots.isEmpty)
+
                                     Spacer()
                                 }
-                                .padding(.top, 6)
+                                // =====================================================
+                                // cp-2025-12-19-PS4(SNAPSHOTS-UI)
+                                // Put this inside GroupBox("People") -> VStack(...)
+                                // Recommended placement: under your Add/New Row/Reset row.
+                                // =====================================================
 
-                                
+                                // Local store for reconcile after restore
+                                let identityStore = DMPPIdentityStore.shared
+
+                                Divider()
+                                    .padding(.vertical, 6)
+
+                                VStack(alignment: .leading, spacing: 8) {
+
+                                    HStack(spacing: 10) {
+                                        Text("Snapshots (\(vm.metadata.peopleV2Snapshots.count))")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.secondary)
+
+                                        Spacer()
+
+                                        Button("Capture snapshot…") {
+                                            // Default note uses date/time; user can edit
+                                            snapshotNoteDraft = ""
+                                            showCaptureSnapshotSheet = true
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+
+                                    if vm.metadata.peopleV2Snapshots.isEmpty {
+                                        Text("No snapshots yet. Capture one before making big changes (reset, re-order, unknown cleanup).")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        // newest first
+                                        let snapshots = vm.metadata.peopleV2Snapshots.sorted { $0.createdAtISO8601 > $1.createdAtISO8601 }
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            ForEach(snapshots) { snap in
+
+                                                VStack(alignment: .leading, spacing: 6) {
+
+                                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+
+                                                        // Editable note (writes back to snapshot)
+                                                        TextField(
+                                                            "Snapshot note (e.g., “Before reset”, “Uncle Tim confirmed”)",
+                                                            text: Binding(
+                                                                get: { snap.note },
+                                                                set: { newValue in
+                                                                    updateSnapshotNote(id: snap.id, note: newValue)
+                                                                }
+                                                            )
+                                                        )
+                                                        .textFieldStyle(.roundedBorder)
+
+                                                        Text(snap.createdAtISO8601)
+                                                            .font(.caption2)
+                                                            .foregroundStyle(.secondary)
+                                                            .lineLimit(1)
+
+                                                        Button("Restore") {
+                                                            restoreSnapshot(id: snap.id, identityStore: identityStore)
+                                                        }
+                                                        .buttonStyle(.borderedProminent)
+                                                        .controlSize(.small)
+
+                                                        Button(role: .destructive) {
+                                                            deleteSnapshot(id: snap.id)
+                                                        } label: {
+                                                            Text("Delete")
+                                                        }
+                                                        .buttonStyle(.bordered)
+                                                        .controlSize(.small)
+                                                    }
+
+                                                    // Optional: tiny preview line (first ~6 names)
+                                                    let preview = snap.peopleV2
+                                                        .sorted { a, b in
+                                                            if a.rowIndex == b.rowIndex { return a.positionIndex < b.positionIndex }
+                                                            return a.rowIndex < b.rowIndex
+                                                        }
+                                                        .map { $0.shortNameSnapshot }
+                                                        .prefix(6)
+                                                        .joined(separator: ", ")
+
+                                                    if !preview.isEmpty {
+                                                        Text(preview + (snap.peopleV2.count > 6 ? "…" : ""))
+                                                            .font(.caption2)
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                .sheet(isPresented: $showCaptureSnapshotSheet) {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text("Capture snapshot")
+                                            .font(.headline)
+
+                                        Text("This saves the current People list into the dmpms.json so you can restore it later.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+
+                                        TextField(
+                                            "",
+                                            text: $snapshotNoteDraft
+                                        )
+                                        .textFieldStyle(.roundedBorder)
+                                        .onAppear {
+                                            // Default suggestion; user can overwrite
+                                            if snapshotNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                snapshotNoteDraft = "Snapshot \(shortNowStamp())"
+                                            }
+                                        }
+
+                                        HStack {
+                                            Spacer()
+
+                                            Button("Cancel") {
+                                                showCaptureSnapshotSheet = false
+                                            }
+
+                                            Button("Capture") {
+                                                captureSnapshot(note: snapshotNoteDraft)
+                                                showCaptureSnapshotSheet = false
+                                            }
+                                            .keyboardShortcut(.defaultAction)
+                                        }
+                                    }
+                                    .padding()
+                                    .frame(minWidth: 520)
+                                }
+
                                 
                                 
                             }
@@ -880,6 +1077,7 @@ struct DMPPMetadataFormPane: View {
             
             .onAppear {
                 reloadAvailableTags()
+                activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
             }
             
             .onReceive(
@@ -954,6 +1152,151 @@ struct DMPPMetadataFormPane: View {
         availableTags = DMPPUserPreferences.load().availableTags
     }
     
+    // cp-2025-12-19-PS4(SNAPSHOTS-HELPERS)
+    private func shortNowStamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: Date())
+    }
+
+    private func captureSnapshot(note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+
+        let snapshot = DmpmsPeopleSnapshot(
+            id: UUID().uuidString,
+            createdAtISO8601: stamp,
+            note: trimmed.isEmpty ? "Snapshot \(shortNowStamp())" : trimmed,
+            peopleV2: vm.metadata.peopleV2
+        )
+
+        vm.metadata.peopleV2Snapshots.append(snapshot)
+    }
+
+    // cp-2025-12-19-ROW1(ROW-MARKER-HELPERS)
+
+    private func isRowMarker(_ row: DmpmsPersonInPhoto) -> Bool {
+        row.isUnknown && (row.roleHint?.lowercased() == "rowmarker")
+    }
+    // cp-2025-12-19-ROW2(UNKNOWN-INHERITS-ROW)
+    private func nextPositionIndex(inRow rowIndex: Int) -> Int {
+        let inRow = vm.metadata.peopleV2.filter { $0.rowIndex == rowIndex && !isRowMarker($0) }
+        return (inRow.map(\.positionIndex).max() ?? -1) + 1
+    }
+
+    private func nextRowIndexForNewAdd() -> Int {
+        // If there are no people yet, we’re in row 0 (Front row).
+        guard !vm.metadata.peopleV2.isEmpty else { return 0 }
+
+        // Find the max rowIndex currently present.
+        let maxRow = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
+
+        // If the last item is a row marker, it already “started” a new row.
+        // Otherwise, we’re still adding to the current row.
+        return maxRow
+    }
+
+    private func rowLabel(for rowIndex: Int) -> String {
+        switch rowIndex {
+        case 0: return "Front row"
+        case 1: return "Second row"
+        case 2: return "Third row"
+        case 3: return "Fourth row"
+        default: return "Row \(rowIndex + 1)"
+        }
+    }
+
+    /// Inserts a new row marker at the end, starting the next row.
+    /// Example: after Front row people, add “Second row” marker.
+    private func addNewRowMarker() {
+        // Determine what the next row index should be.
+        let currentMax = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
+
+        // If list is empty, don’t insert “Front row” marker; row 0 is implied.
+        // The first time they click “New row” with an empty list, we start “Second row”?
+        // Better behavior: if empty, start row 1 marker only if they really want it.
+        // But most of the time: they’ll add people first. So:
+        let newRowIndex: Int
+        if vm.metadata.peopleV2.isEmpty {
+            newRowIndex = 1
+        } else {
+            newRowIndex = currentMax + 1
+        }
+
+        let label = rowLabel(for: newRowIndex)
+
+        let marker = DmpmsPersonInPhoto(
+            identityID: nil,
+            isUnknown: true,
+            shortNameSnapshot: label,
+            displayNameSnapshot: label,
+            ageAtPhoto: nil,
+            rowIndex: newRowIndex,
+            rowName: label,
+            positionIndex: 0,
+            roleHint: "rowMarker"
+        )
+
+        vm.metadata.peopleV2.append(marker)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    
+    // cp-2025-12-19-PS5(RESET-HELPERS)
+    private func resetPeople(identityStore: DMPPIdentityStore) {
+
+        // 1) Snapshot first (always)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let note = resetSnapshotNoteDraft
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalNote = note.isEmpty ? "Before reset \(shortNowStamp())" : note
+
+        let snapshot = DmpmsPeopleSnapshot(
+            id: UUID().uuidString,
+            createdAtISO8601: stamp,
+            note: finalNote,
+            peopleV2: vm.metadata.peopleV2
+        )
+        vm.metadata.peopleV2Snapshots.append(snapshot)
+
+        // 2) Clear
+        vm.metadata.peopleV2.removeAll()
+
+        // 3) Reconcile + recompute
+        vm.reconcilePeopleV2Identities(identityStore: identityStore)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    private func restoreMostRecentSnapshot(identityStore: DMPPIdentityStore) {
+        guard let newest = vm.metadata.peopleV2Snapshots.max(by: { $0.createdAtISO8601 < $1.createdAtISO8601 }) else { return }
+        vm.metadata.peopleV2 = newest.peopleV2
+        vm.reconcilePeopleV2Identities(identityStore: identityStore)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    
+    private func restoreSnapshot(id: String, identityStore: DMPPIdentityStore) {
+        guard let snap = vm.metadata.peopleV2Snapshots.first(where: { $0.id == id }) else { return }
+
+        vm.metadata.peopleV2 = snap.peopleV2
+
+        // Keep identities/ages consistent after restore
+        vm.reconcilePeopleV2Identities(identityStore: identityStore)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    private func deleteSnapshot(id: String) {
+        vm.metadata.peopleV2Snapshots.removeAll { $0.id == id }
+    }
+
+    private func updateSnapshotNote(id: String, note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let idx = vm.metadata.peopleV2Snapshots.firstIndex(where: { $0.id == id }) else { return }
+        vm.metadata.peopleV2Snapshots[idx].note = trimmed
+    }
+
+    
     // MARK: - Identity helpers (People section)
 
     /// Shared identity store for the editor.
@@ -992,6 +1335,7 @@ struct DMPPMetadataFormPane: View {
             set: { newValue in
 
                 if newValue {
+
                     // Add a new row ONLY if one doesn't already exist for this person group.
                     let alreadySelected = vm.metadata.peopleV2.contains(where: { (row: DmpmsPersonInPhoto) in
                         guard let iid = row.identityID else { return false }
@@ -1002,6 +1346,7 @@ struct DMPPMetadataFormPane: View {
                     })
 
                     if !alreadySelected {
+
                         // Pick the best identity version for THIS photo date and store it on the new row.
                         let versions = identityStore.identityVersions(forPersonID: person.id)
                         let photoEarliest = vm.metadata.dateRange?.earliest
@@ -1010,22 +1355,25 @@ struct DMPPMetadataFormPane: View {
                             photoEarliestYMD: photoEarliest
                         )
 
-                        // cp-2025-12-18-25(ADD-ROW)
+                        // Add to the currently active row
+                        let nextPos = (vm.metadata.peopleV2
+                            .filter { $0.rowIndex == activeRowIndex && $0.roleHint != "rowMarker" }
+                            .map(\.positionIndex)
+                            .max() ?? -1) + 1
 
                         let newRow = DmpmsPersonInPhoto(
                             identityID: chosen.id,
                             isUnknown: false,
                             shortNameSnapshot: chosen.shortName,
                             displayNameSnapshot: chosen.fullName,
-                            ageAtPhoto: nil,        // live age is computed; snapshot can be set on save if you want
-                            rowIndex: 0,
+                            ageAtPhoto: nil,
+                            rowIndex: activeRowIndex,
                             rowName: nil,
-                            positionIndex: 0,
+                            positionIndex: nextPos,
                             roleHint: nil
                         )
 
                         vm.metadata.peopleV2.append(newRow)
-
                     }
 
                 } else {
@@ -1046,6 +1394,54 @@ struct DMPPMetadataFormPane: View {
         )
     }
 
+    // cp-2025-12-19-PS4(PEOPLE-RESET)
+    private func resetPeople() {
+        // Snapshot first (so "Reset" doesn’t destroy the only record of who’s who)
+        capturePeopleSnapshot(note: "Before Reset")
+
+        vm.metadata.peopleV2.removeAll()
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    private func restoreLastPeopleSnapshot() {
+        guard !vm.metadata.peopleV2Snapshots.isEmpty else { return }
+
+        // 1) Capture current state so Restore is reversible
+        capturePeopleSnapshot(note: "Before Restore")
+
+        // 2) Pop the snapshot we want to restore to (Undo-stack behavior)
+        let snap = vm.metadata.peopleV2Snapshots.removeLast()
+
+        // 3) Restore
+        vm.metadata.peopleV2 = snap.peopleV2
+        vm.recomputeAgesForCurrentImage()
+    }
+
+
+    
+    private func addRowMarker() {
+        capturePeopleSnapshot(note: "Before New Row")
+
+        let nextRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? -1) + 1
+        activeRowIndex = nextRowIndex
+    }
+
+
+    // cp-2025-12-19-PS6(PEOPLE-SNAPSHOT)
+    private func capturePeopleSnapshot(note: String) {
+        // If you don’t want snapshotting here yet, you can delete this function
+        // and remove the calls above. But this is the “don’t lose Aunt Dorothy knowledge” safeguard.
+        let iso = ISO8601DateFormatter().string(from: Date())
+
+        let snap = DmpmsPeopleSnapshot(
+            id: UUID().uuidString,
+            createdAtISO8601: iso,
+            note: note,
+            peopleV2: vm.metadata.peopleV2
+        )
+
+        vm.metadata.peopleV2Snapshots.append(snap)
+    }
 
 
 
@@ -1208,6 +1604,15 @@ private func dateValidationMessage(for raw: String) -> String? {
 }
 
 
+private func rowLabel(for idx: Int) -> String {
+    switch idx {
+    case 0: return "Front row"
+    case 1: return "Second row"
+    case 2: return "Third row"
+    case 3: return "Fourth row"
+    default: return "Row \(idx + 1)"
+    }
+}
 
 
 
@@ -1270,27 +1675,35 @@ extension DMPPImageEditorView {
         }
     }
 
-    // cp-2025-12-18-UNK2(UNKNOWN-ADD)
     private func addUnknownPersonRow(label: String) {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard let vm = self.vm else { return }
+        guard var vm = self.vm else { return }
+
+        // Next position in the CURRENT active row (skip row markers)
+        let nextPos = (vm.metadata.peopleV2
+            .filter { $0.rowIndex == activeRowIndex && $0.roleHint != "rowMarker" }
+            .map(\.positionIndex)
+            .max() ?? -1) + 1
 
         let newRow = DmpmsPersonInPhoto(
-            identityID: nil,
+            identityID: nil,                // unknown => no identity
             isUnknown: true,
             shortNameSnapshot: trimmed,
             displayNameSnapshot: trimmed,
             ageAtPhoto: nil,
-            rowIndex: 0,
+            rowIndex: activeRowIndex,       // use current row
             rowName: nil,
-            positionIndex: 0,
+            positionIndex: nextPos,
             roleHint: nil
         )
 
         vm.metadata.peopleV2.append(newRow)
         vm.recomputeAgesForCurrentImage()
+        self.vm = vm
     }
+
+
 
     
     // [DMPP-NAV-SUPPORTED] Basic extension filter for images

@@ -13,6 +13,9 @@ struct DmpmsDateRange: Codable, Hashable {
     var earliest: String
     /// Latest possible date this photo could reasonably be from (YYYY-MM-DD).
     var latest: String
+    
+
+
 
     /// Build a DmpmsDateRange from a human-entered `dateTaken` string.
     /// Supported patterns:
@@ -156,6 +159,9 @@ struct DmpmsMetadata: Codable, Hashable {
     /// Each entry represents a specific person in this photo
     /// (identity ID, display name snapshot, age-at-photo, row/position, etc.).
     var peopleV2: [DmpmsPersonInPhoto] = []
+    
+    // cp-2025-12-19-PS2(METADATA-ADD-SNAPSHOTS)
+    var peopleV2Snapshots: [DmpmsPeopleSnapshot] = []
 
     // Crops + history
     var virtualCrops: [VirtualCrop] = []
@@ -174,6 +180,7 @@ struct DmpmsMetadata: Codable, Hashable {
         case tags
         case people
         case peopleV2
+        case peopleV2Snapshots   // <-- add this
         case virtualCrops
         case history
     }
@@ -213,10 +220,8 @@ struct DmpmsMetadata: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        // Required (for v1.0 files this will be "1.0")
         dmpmsVersion = try container.decode(String.self, forKey: .dmpmsVersion)
 
-        // New in v1.0+: dmpmsNotice (optional in older files)
         dmpmsNotice = (try? container.decode(String.self, forKey: .dmpmsNotice))
             ?? DmpmsMetadata.defaultNotice
 
@@ -225,21 +230,43 @@ struct DmpmsMetadata: Codable, Hashable {
         description = try container.decode(String.self, forKey: .description)
         dateTaken   = try container.decode(String.self, forKey: .dateTaken)
 
-        // New in v1.1+: dateRange (optional for older sidecars)
         dateRange   = try? container.decode(DmpmsDateRange.self, forKey: .dateRange)
 
-        tags        = try container.decode([String].self, forKey: .tags)
-        people      = try container.decode([String].self, forKey: .people)
+        tags   = try container.decode([String].self, forKey: .tags)
+        people = try container.decode([String].self, forKey: .people)
 
-        // New in v1.1+: peopleV2 (optional for older sidecars)
-        peopleV2    = (try? container.decode([DmpmsPersonInPhoto].self, forKey: .peopleV2)) ?? []
+        peopleV2 = (try? container.decode([DmpmsPersonInPhoto].self, forKey: .peopleV2)) ?? []
+
+        // NEW (v1.2+)
+        peopleV2Snapshots = (try? container.decode([DmpmsPeopleSnapshot].self, forKey: .peopleV2Snapshots)) ?? []
 
         virtualCrops = try container.decode([VirtualCrop].self, forKey: .virtualCrops)
         history      = try container.decode([HistoryEvent].self, forKey: .history)
     }
 
-    // Encodable is synthesized; it will use CodingKeys order and include
-    // dateRange and peopleV2 when present.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+
+        try c.encode(dmpmsVersion, forKey: .dmpmsVersion)
+        try c.encodeIfPresent(dmpmsNotice, forKey: .dmpmsNotice)
+        try c.encode(sourceFile, forKey: .sourceFile)
+        try c.encode(title, forKey: .title)
+        try c.encode(description, forKey: .description)
+        try c.encode(dateTaken, forKey: .dateTaken)
+        try c.encodeIfPresent(dateRange, forKey: .dateRange)
+        try c.encode(tags, forKey: .tags)
+
+        try c.encode(people, forKey: .people)
+        try c.encode(peopleV2, forKey: .peopleV2)
+
+        // NEW (v1.2+)
+        try c.encode(peopleV2Snapshots, forKey: .peopleV2Snapshots)
+
+        try c.encode(virtualCrops, forKey: .virtualCrops)
+        try c.encode(history, forKey: .history)
+    }
+
+
 }
 
 /* [DMPMS-HISTORY] Simple history event. */

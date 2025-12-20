@@ -183,6 +183,37 @@ class DMPPImageEditorViewModel {
         // For now this is a no-op. The owner view/controller
         // already reads vm.metadata and writes the sidecar.
     }
+    // cp-2025-12-19-PS4(SNAPSHOT-ON-SAVE-IMPL)
+
+    // cp-2025-12-19-PS4(SNAPSHOT-ON-SAVE-IMPL)
+
+    private static func _isoNow() -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: Date())
+    }
+
+    /// Captures the current People list (including unknown rows) into metadata.peopleV2Snapshots.
+    /// Call this before destructive actions (Reset) and also on Save.
+    func capturePeopleSnapshot(note: String = "Snapshot") {
+        let clean = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalNote = clean.isEmpty ? "Snapshot" : clean
+
+        let snap = DmpmsPeopleSnapshot(
+            id: UUID().uuidString,
+            createdAtISO8601: Self._isoNow(),
+            note: finalNote,
+            peopleV2: metadata.peopleV2
+        )
+
+        metadata.peopleV2Snapshots.append(snap)
+
+        // Optional guardrail: keep last 50 snapshots
+        if metadata.peopleV2Snapshots.count > 50 {
+            metadata.peopleV2Snapshots.removeFirst(metadata.peopleV2Snapshots.count - 50)
+        }
+    }
+
 
     
     // [DMPP-VM-TAG-FIELDS] Helpers for converting back to display.
@@ -767,6 +798,22 @@ extension DMPPImageEditorViewModel {
 
         agesByIdentityID = nextYears
         ageTextByIdentityID = nextText
+    }
+    // cp-2025-12-19-PS5(RESET-AND-RESTORE)
+
+    /// Snapshots the current people list, then clears it.
+    /// Use this for the "Reset people" button.
+    func resetPeopleList(snapshotNote: String = "Before reset") {
+        capturePeopleSnapshot(note: snapshotNote)
+        metadata.peopleV2.removeAll()
+        recomputeAgesForCurrentImage()
+    }
+
+    /// Restores the most recent snapshot (if any) into peopleV2.
+    func restoreLastPeopleSnapshot() {
+        guard let last = metadata.peopleV2Snapshots.last else { return }
+        metadata.peopleV2 = last.peopleV2
+        recomputeAgesForCurrentImage()
     }
 
 
