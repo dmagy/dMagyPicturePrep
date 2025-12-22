@@ -18,13 +18,25 @@ struct DMPPImageEditorView: View {
 
     @AppStorage("pinFavoritesToTop") private var pinFavoritesToTop: Bool = true
     @AppStorage("showAllPeopleInChecklist") private var showAllPeopleInChecklist: Bool = false
+    @AppStorage("includeSubfolders") private var includeSubfolders: Bool = false
+    @AppStorage("advanceToNextWithoutSidecar") private var advanceToNextWithoutSidecar: Bool = false
+
+
 
     // cp-2025-12-18-UNK1(UNKNOWN-STATE)
     @State private var showAddUnknownSheet: Bool = false
     @State private var unknownLabelDraft: String = ""
     @State private var activeRowIndex: Int = 0
 
- 
+    @State private var loadedMetadataHash: Int? = nil
+
+    private var isSaveEnabled: Bool {
+        guard let vm else { return false }
+        // If we somehow don't have a baseline yet, allow save.
+        guard let loadedMetadataHash else { return true }
+        return metadataHash(vm.metadata) != loadedMetadataHash
+    }
+
 
     // MARK: View
 
@@ -48,6 +60,16 @@ struct DMPPImageEditorView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .help("Change folder…")
+                    
+                        Toggle("Include subfolders", isOn: $includeSubfolders)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .help("If enabled, Prep will scan this folder and all subfolders for pictures.")
+                        Toggle("Show only un-prepped pictures", isOn: $advanceToNextWithoutSidecar)
+                            .toggleStyle(.checkbox)
+                            .font(.caption)
+                            .help("If enabled, Prep will skip photos that already have crop or picture data saved for them")
+                   
                 } else {
                     Button {
                         chooseFolder()
@@ -66,13 +88,24 @@ struct DMPPImageEditorView: View {
                 Spacer()
 
                 if let folderURL {
-                    Text(folderURL.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                    Button {
+                        NSWorkspace.shared.open(folderURL)
+                    } label: {
+                        Text(displayPathText)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    .buttonStyle(.plain)
+                    .help(folderURL.path) // full path on hover
                 }
             }
+            .onChange(of: includeSubfolders) { _, _ in
+                guard let folderURL else { return }
+                loadImages(from: folderURL)
+            }
+
             .padding()
             .background(.thinMaterial)
 
@@ -177,13 +210,15 @@ struct DMPPImageEditorView: View {
                     Spacer(minLength: 8)
 
                     Button("Save") {
-                        // cp-2025-12-19-PS4(SNAPSHOT-ON-SAVE)
-                        vm.capturePeopleSnapshot(note: "Before reset")
                         saveCurrentMetadata()
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!isSaveEnabled)
                     .keyboardShortcut("s", modifiers: [.command])
-                    .help("Save notes and crop for this picture (original photo is never changed).")
+                    .keyboardShortcut(.defaultAction) // optional, see note below
+                    .help(isSaveEnabled
+                          ? "Save crop and data for this picture (original picture is never changed)."
+                          : "No changes to save.")
 
                     Button("Previous Picture") {
                         goToPreviousImage()
@@ -204,6 +239,7 @@ struct DMPPImageEditorView: View {
                         goToNextImage()
                     }
                     .disabled(!canGoToNext)
+                    .help("Changes are saved automatically.")
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -1233,8 +1269,13 @@ extension DMPPImageEditorView {
     }
 
     private var canGoToNext: Bool {
-        imageURLs.indices.contains(currentIndex + 1)
+        if advanceToNextWithoutSidecar {
+            return nextIndexWithoutSidecar(from: currentIndex + 1) != nil
+        } else {
+            return imageURLs.indices.contains(currentIndex + 1)
+        }
     }
+
 
     // MARK: Folder picking
 
@@ -1250,13 +1291,49 @@ extension DMPPImageEditorView {
         }
     }
 
+    private func hasSidecar(_ imageURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: sidecarURL(for: imageURL).path)
+    }
+
+    private func nextIndexWithoutSidecar(from start: Int) -> Int? {
+        guard start < imageURLs.count else { return nil }
+        for i in start..<imageURLs.count {
+            if !hasSidecar(imageURLs[i]) { return i }
+        }
+        return nil
+    }
+
+    
     private func loadImages(from folder: URL) {
+        // Save current image metadata before switching folders / re-scanning
         saveCurrentMetadata()
 
         folderURL = folder
 
+        let found: [URL] = includeSubfolders
+            ? recursiveImageURLs(in: folder)
+            : immediateImageURLs(in: folder)
+
+        // Sort by relative path so subfolders feel stable/expected
+        let basePath = folder.path
+        imageURLs = found.sorted {
+            $0.path.replacingOccurrences(of: basePath + "/", with: "")
+                < $1.path.replacingOccurrences(of: basePath + "/", with: "")
+        }
+
+        if imageURLs.isEmpty {
+            vm = nil
+            loadedMetadataHash = nil
+            currentIndex = 0
+            activeRowIndex = 0
+        } else {
+            loadImage(at: 0)
+        }
+    }
+
+    private func immediateImageURLs(in folder: URL) -> [URL] {
         let fm = FileManager.default
-        let keys: [URLResourceKey] = [.isRegularFileKey, .typeIdentifierKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey]
 
         let urls = (try? fm.contentsOfDirectory(
             at: folder,
@@ -1264,18 +1341,63 @@ extension DMPPImageEditorView {
             options: [.skipsHiddenFiles]
         )) ?? []
 
-        imageURLs = urls
-            .filter { isSupportedImageURL($0) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return urls.filter { dmppIsSupportedImageURL($0) }
 
-        if imageURLs.isEmpty {
-            vm = nil
-            currentIndex = 0
-            activeRowIndex = 0
-        } else {
-            loadImage(at: 0)
-        }
     }
+
+    private var displayPathText: String {
+        guard let folderURL else { return "" }
+
+        // If includeSubfolders is on, show root + relative folder of current image (if any).
+        if includeSubfolders,
+           imageURLs.indices.contains(currentIndex) {
+
+            let imageURL = imageURLs[currentIndex]
+            let parent = imageURL.deletingLastPathComponent()
+
+            // If the image is inside the selected folder (or a subfolder), show relative path.
+            if parent.path.hasPrefix(folderURL.path) {
+                let rel = parent.path
+                    .replacingOccurrences(of: folderURL.path, with: "")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+                if rel.isEmpty {
+                    return folderURL.lastPathComponent
+                } else {
+                    // Use a friendly separator
+                    return "\(folderURL.lastPathComponent) ▸ \(rel.replacingOccurrences(of: "/", with: " ▸ "))"
+                }
+            }
+        }
+
+        // Default: last 3 path components
+        let parts = folderURL.pathComponents
+        let tail = parts.suffix(3).joined(separator: " / ")
+        return tail
+    }
+
+    
+    private func recursiveImageURLs(in folder: URL) -> [URL] {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+
+        guard let enumerator = fm.enumerator(
+            at: folder,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var results: [URL] = []
+        for case let url as URL in enumerator {
+            // avoid counting directories (enumerator returns both)
+            let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            guard isFile else { continue }
+            guard dmppIsSupportedImageURL(url) else { continue }
+            results.append(url)
+        }
+        return results
+    }
+
 
     // MARK: Row sync (per-image)
 
@@ -1296,11 +1418,6 @@ extension DMPPImageEditorView {
 
     // MARK: Image navigation
 
-    private func isSupportedImageURL(_ url: URL) -> Bool {
-        let ext = url.pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "tif", "tiff", "webp"].contains(ext)
-    }
-
     private func loadImage(at index: Int) {
         guard imageURLs.indices.contains(index) else { return }
 
@@ -1319,9 +1436,14 @@ extension DMPPImageEditorView {
 
         vm = newVM
 
+        // Baseline for dirty tracking (after reconciliation)
+        loadedMetadataHash = metadataHash(newVM.metadata)
+
         // Critical: row context is per-image
         syncActiveRowIndexFromCurrentPhoto()
     }
+
+
 
     private func goToPreviousImage() {
         let newIndex = currentIndex - 1
@@ -1330,10 +1452,17 @@ extension DMPPImageEditorView {
     }
 
     private func goToNextImage() {
-        let newIndex = currentIndex + 1
-        guard imageURLs.indices.contains(newIndex) else { return }
-        loadImage(at: newIndex)
+        let start = currentIndex + 1
+        guard imageURLs.indices.contains(start) else { return }
+
+        if advanceToNextWithoutSidecar {
+            guard let idx = nextIndexWithoutSidecar(from: start) else { return }
+            loadImage(at: idx)
+        } else {
+            loadImage(at: start)
+        }
     }
+
 
     // MARK: Sidecar Read/Write
 
@@ -1388,6 +1517,9 @@ extension DMPPImageEditorView {
 
         let url = sidecarURL(for: vm.imageURL)
 
+        // Precompute what "saved" would mean
+        let newBaseline = metadataHash(metadataToSave)
+
         print("dMPP: Attempting to save metadata for \(metadataToSave.sourceFile) to:")
         print("      \(url.path)")
 
@@ -1397,6 +1529,9 @@ extension DMPPImageEditorView {
 
             let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
+
+            // Only now: mark clean
+            loadedMetadataHash = newBaseline
 
             print("dMPP: ✅ Saved metadata successfully.")
         } catch {
@@ -1408,6 +1543,52 @@ extension DMPPImageEditorView {
         }
     }
 
+
+
+    private func metadataHash(_ m: DmpmsMetadata) -> Int {
+        var h = Hasher()
+
+        h.combine(m.title)
+        h.combine(m.description)
+        h.combine(m.dateTaken)
+
+        // Tags: stable order
+        for t in m.tags.sorted() { h.combine(t) }
+
+        // People: stable order, exclude derived ageAtPhoto (prevents churn)
+        let peopleSorted = m.peopleV2.sorted {
+            if $0.rowIndex != $1.rowIndex { return $0.rowIndex < $1.rowIndex }
+            if $0.positionIndex != $1.positionIndex { return $0.positionIndex < $1.positionIndex }
+            return $0.shortNameSnapshot < $1.shortNameSnapshot
+        }
+
+        for p in peopleSorted {
+            h.combine(p.identityID)
+            h.combine(p.isUnknown)
+            h.combine(p.shortNameSnapshot)
+            h.combine(p.displayNameSnapshot)
+            h.combine(p.rowIndex)
+            h.combine(p.positionIndex)
+            h.combine(p.roleHint)
+            // DO NOT include p.ageAtPhoto here
+        }
+
+        // Crops: stable order
+        let cropsSorted = m.virtualCrops.sorted { $0.id < $1.id }
+        for c in cropsSorted {
+            h.combine(c.id)
+            h.combine(c.label)
+            h.combine(c.aspectRatio)
+            h.combine(c.rect.x)
+            h.combine(c.rect.y)
+            h.combine(c.rect.width)
+            h.combine(c.rect.height)
+        }
+
+        return h.finalize()
+    }
+
+    
     private func reconcilePeopleV2AndLegacy(in metadata: inout DmpmsMetadata) -> Bool {
         let store = DMPPIdentityStore.shared
         let photoEarliest = metadata.dateRange?.earliest
@@ -1533,6 +1714,8 @@ extension DMPPImageEditorView {
         return "\(band) \(decade)s"
     }
 
+    
+    
     // MARK: Crop math helper
 
     private func centeredRectForAspect(_ aspectString: String, imageSize: CGSize) -> RectNormalized {
@@ -1654,6 +1837,12 @@ private func dateValidationMessage(for raw: String) -> String? {
     }
 
     return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
+}
+// MARK: - File-scope helpers
+
+fileprivate func dmppIsSupportedImageURL(_ url: URL) -> Bool {
+    let ext = url.pathExtension.lowercased()
+    return ["jpg", "jpeg", "png", "heic", "tif", "tiff", "webp"].contains(ext)
 }
 
 // MARK: - Preview
