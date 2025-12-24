@@ -21,8 +21,6 @@ struct DMPPImageEditorView: View {
     @AppStorage("includeSubfolders") private var includeSubfolders: Bool = false
     @AppStorage("advanceToNextWithoutSidecar") private var advanceToNextWithoutSidecar: Bool = false
 
-
-
     // cp-2025-12-18-UNK1(UNKNOWN-STATE)
     @State private var showAddUnknownSheet: Bool = false
     @State private var unknownLabelDraft: String = ""
@@ -30,236 +28,275 @@ struct DMPPImageEditorView: View {
 
     @State private var loadedMetadataHash: Int? = nil
 
+    // Persisted folder + scoped access
+    @State private var lastFolderURL: URL? = nil
+    @State private var showContinueError: Bool = false
+    @State private var continueErrorMessage: String = ""
+    @State private var activeScopedFolderURL: URL? = nil
+    @State private var activeScopedFolderOK: Bool = false
+
+    private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
+    private let kLastFolderName = "dmpp.lastFolderName"
+    private let kLastIncludeSubfolders = "dmpp.lastIncludeSubfolders"
+    private let kLastUnpreppedOnly = "dmpp.lastUnpreppedOnly"
+
     private var isSaveEnabled: Bool {
         guard let vm else { return false }
-        // If we somehow don't have a baseline yet, allow save.
         guard let loadedMetadataHash else { return true }
         return metadataHash(vm.metadata) != loadedMetadataHash
     }
-
 
     // MARK: View
 
     var body: some View {
         VStack(spacing: 0) {
+            toolbarView
+            Divider()
+            mainContentView
+        }
+        .onAppear { loadPersistedLastFolder() }
+        .onDisappear { endScopedAccess() }
+        .alert("Can’t continue", isPresented: $showContinueError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(continueErrorMessage)
+        }
+    }
 
-            // MARK: Toolbar
+    // MARK: - Subviews
 
+    @ViewBuilder
+    private var toolbarView: some View {
+        HStack(spacing: 12) {
+
+            // ---------------------------------------------------------
+            // Start + Scope (left cluster)
+            // ---------------------------------------------------------
             HStack(spacing: 12) {
 
-                if let folderURL {
+                Button {
+                    chooseFolder()
+                } label: {
+                    Label {
+                        Text(folderURL?.lastPathComponent ?? "Choose Folder…")
+                            .font(.title2.bold())
+                    } icon: {
+                        Image(systemName: folderURL == nil ? "folder.badge.plus" : "folder")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .help(folderURL == nil ? "Choose a folder to begin" : "Change folder…")
+
+                // Show “Continue” only when no folder is currently loaded.
+                if folderURL == nil, canContinueLastFolder {
                     Button {
-                        chooseFolder()
+                        continueLastFolder()
                     } label: {
-                        Label {
-                            Text(folderURL.lastPathComponent)
-                                .font(.largeTitle.bold())
-                        } icon: {
-                            Image(systemName: "folder")
-                        }
+                        Label(lastFolderNameForUI, systemImage: "arrow.clockwise")
+                            .font(.title2.bold())
                     }
                     .buttonStyle(.borderedProminent)
-                    .help("Change folder…")
-                    
-                        Toggle("Include subfolders", isOn: $includeSubfolders)
-                            .toggleStyle(.checkbox)
-                            .font(.caption)
-                            .help("If enabled, Prep will scan this folder and all subfolders for pictures.")
-                        Toggle("Show only un-prepped pictures", isOn: $advanceToNextWithoutSidecar)
-                            .toggleStyle(.checkbox)
-                            .font(.caption)
-                            .help("If enabled, Prep will skip photos that already have crop or picture data saved for them")
-                   
-                } else {
-                    Button {
-                        chooseFolder()
-                    } label: {
-                        Label {
-                            Text("Choose Folder…")
-                                .font(.title2.bold())
-                        } icon: {
-                            Image(systemName: "folder.badge.plus")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .help("Choose a folder to begin")
+                    .help("Continue where you left off.")
                 }
 
-                Spacer()
+                if folderURL != nil {
+                    Toggle("Include subfolders", isOn: $includeSubfolders)
+                        .toggleStyle(.checkbox)
+                        .font(.callout)
+                        .help("Scan this folder and all subfolders for pictures.")
 
-                if let folderURL {
+                    Toggle("Show only unprepped pictures", isOn: $advanceToNextWithoutSidecar)
+                        .toggleStyle(.checkbox)
+                        .font(.callout)
+                        .help("Skip photos that already have saved prep data.")
+                }
+            }
+
+
+            Spacer(minLength: 16)
+
+            // Right cluster
+            if let folderURL {
+                let currentURL = vm?.imageURL
+                let filename = currentURL?.lastPathComponent ?? vm?.metadata.sourceFile ?? "—"
+                let positionText: String = {
+                    guard !imageURLs.isEmpty else { return "" }
+                    return "\(currentIndex + 1) of \(imageURLs.count)"
+                }()
+
+                VStack(alignment: .trailing, spacing: 2) {
                     Button {
-                        NSWorkspace.shared.open(folderURL)
+                        if let currentURL { revealInFinder(currentURL) }
                     } label: {
-                        Text(displayPathText)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+                        Text(filename)
+                            .font(.title3.weight(.semibold))
                             .lineLimit(1)
-                            .truncationMode(.head)
+                            .truncationMode(.middle)
                     }
                     .buttonStyle(.plain)
-                    .help(folderURL.path) // full path on hover
-                }
-            }
-            .onChange(of: includeSubfolders) { _, _ in
-                guard let folderURL else { return }
-                loadImages(from: folderURL)
-            }
+                    .help(currentURL?.path ?? filename)
 
-            .padding()
-            .background(.thinMaterial)
-
-            Divider()
-
-            // MARK: Main Content
-
-            if let vm {
-
-                HStack(spacing: 0) {
-
-                    // LEFT — Crops + Preview
-                    DMPPCropEditorPane(vm: vm)
-                        .frame(minWidth: 400)
-                        .padding()
-                        .background(Color(nsColor: .windowBackgroundColor))
-
-                    Divider()
-
-                    // RIGHT — Metadata Form
-                    DMPPMetadataFormPane(
-                        vm: vm,
-                        pinFavoritesToTop: $pinFavoritesToTop,
-                        showAllPeopleInChecklist: $showAllPeopleInChecklist,
-                        activeRowIndex: $activeRowIndex,
-                        showAddUnknownSheet: $showAddUnknownSheet,
-                        unknownLabelDraft: $unknownLabelDraft,
-                        addUnknownPersonRow: { label in
-                            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-
-                            let nextPos = (vm.metadata.peopleV2
-                                .filter { $0.rowIndex == activeRowIndex && $0.roleHint != "rowMarker" }
-                                .map(\.positionIndex)
-                                .max() ?? -1) + 1
-
-                            let newRow = DmpmsPersonInPhoto(
-                                identityID: nil,
-                                isUnknown: true,
-                                shortNameSnapshot: trimmed,
-                                displayNameSnapshot: trimmed,
-                                ageAtPhoto: nil,
-                                rowIndex: activeRowIndex,
-                                rowName: nil,
-                                positionIndex: nextPos,
-                                roleHint: "unknown"
-                            )
-
-                            vm.metadata.peopleV2.append(newRow)
-                            vm.recomputeAgesForCurrentImage()
-
-                            print("ADD UNKNOWN: file=\(vm.metadata.sourceFile) activeRowIndex=\(activeRowIndex) nextPos=\(nextPos) roleHint=\(String(describing: newRow.roleHint)) rowIndex=\(newRow.rowIndex) totalPeople=\(vm.metadata.peopleV2.count)")
-                            print("ADD UNKNOWN ROWS PRESENT: \(vm.metadata.peopleV2.map(\.rowIndex).sorted())")
-
-
-                            // Debug breadcrumb when you need it:
-                            // print("ADD UNKNOWN: activeRowIndex=\(activeRowIndex), nextPos=\(nextPos), roleHint=\(String(describing: newRow.roleHint)), rowIndex=\(newRow.rowIndex)")
-                        }
-                    )
-                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
-                    .padding()
-                }
-
-                // MARK: Bottom Nav Bar
-
-                HStack(spacing: 8) {
-
-                    if vm.selectedCrop != nil {
-                        Button(action: {
-                            vm.deleteSelectedCrop()
-                        }) {
-                            Text("Delete Crop")
+                    HStack(spacing: 10) {
+                        if !positionText.isEmpty {
+                            Text(positionText)
                                 .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.red)
-                                )
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button {
+                            NSWorkspace.shared.open(folderURL)
+                        } label: {
+                            Text(displayPathText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
                         }
                         .buttonStyle(.plain)
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white)
-                        )
-                        .padding(.top, -16)
-                        .padding(.leading, 16)
+                        .help(folderURL.path)
                     }
-
-                    Spacer(minLength: 8)
-
-                    Text("Edits are saved separately; your original photo is never changed.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity)
-
-                    Spacer(minLength: 8)
-
-                    Button("Save") {
-                        saveCurrentMetadata()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!isSaveEnabled)
-                    .keyboardShortcut("s", modifiers: [.command])
-                    .keyboardShortcut(.defaultAction) // optional, see note below
-                    .help(isSaveEnabled
-                          ? "Save crop and data for this picture (original picture is never changed)."
-                          : "No changes to save.")
-
-                    Button("Previous Picture") {
-                        goToPreviousImage()
-                    }
-                    .disabled(!canGoToPrevious)
-
-                    Button("Previous Crop") {
-                        vm.selectPreviousCrop()
-                    }
-                    .disabled(vm.metadata.virtualCrops.isEmpty)
-
-                    Button("Next Crop") {
-                        vm.selectNextCrop()
-                    }
-                    .disabled(vm.metadata.virtualCrops.isEmpty)
-
-                    Button("Next Picture") {
-                        goToNextImage()
-                    }
-                    .disabled(!canGoToNext)
-                    .help("Changes are saved automatically.")
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.thinMaterial)
-
-            } else {
-
-                // MARK: Empty State
-
-                VStack(spacing: 12) {
-                    Text("Choose a folder to begin")
-                        .font(.title2.weight(.semibold))
-                    Text("dMagy Picture Prep will scan the folder for images and let you step through them with default crops.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: 420)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onChange(of: includeSubfolders) { _, _ in
+            guard let folderURL else { return }
+            loadImages(from: folderURL)
+        }
+        .padding()
+        .background(.thinMaterial)
+    }
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        if let vm {
+            HStack(spacing: 0) {
+
+                // LEFT — Crops + Preview
+                DMPPCropEditorPane(vm: vm)
+                    .frame(minWidth: 400)
+                    .padding()
+                    .background(Color(nsColor: .windowBackgroundColor))
+
+                Divider()
+
+                // RIGHT — Metadata Form
+                DMPPMetadataFormPane(
+                    vm: vm,
+                    pinFavoritesToTop: $pinFavoritesToTop,
+                    showAllPeopleInChecklist: $showAllPeopleInChecklist,
+                    activeRowIndex: $activeRowIndex,
+                    showAddUnknownSheet: $showAddUnknownSheet,
+                    unknownLabelDraft: $unknownLabelDraft,
+                    addUnknownPersonRow: { label in
+                        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+
+                        let nextPos = nextPositionIndex(inRow: activeRowIndex)
+
+                        let newRow = DmpmsPersonInPhoto(
+                            identityID: nil,
+                            isUnknown: true,
+                            shortNameSnapshot: trimmed,
+                            displayNameSnapshot: trimmed,
+                            ageAtPhoto: nil,
+                            rowIndex: activeRowIndex,
+                            rowName: nil,
+                            positionIndex: nextPos,
+                            roleHint: "unknown"
+                        )
+
+                        vm.metadata.peopleV2.append(newRow)
+                        vm.recomputeAgesForCurrentImage()
+                    }
+                )
+                .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
+                .padding()
+            }
+
+            bottomBarView(vm: vm)
+
+        } else {
+            emptyStateView
+        }
+    }
+
+    @ViewBuilder
+    private func bottomBarView(vm: DMPPImageEditorViewModel) -> some View {
+        HStack(spacing: 8) {
+
+            if vm.selectedCrop != nil {
+                Button {
+                    vm.deleteSelectedCrop()
+                } label: {
+                    Text("Delete Crop")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.red)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white)
+                )
+                .padding(.top, -16)
+                .padding(.leading, 16)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("Edits are saved separately; your original photo is never changed.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity)
+
+            Spacer(minLength: 8)
+
+            Button("Save") { saveCurrentMetadata() }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isSaveEnabled)
+                .keyboardShortcut("s", modifiers: [.command])
+                .help(isSaveEnabled
+                      ? "Save crop and data for this picture (original picture is never changed)."
+                      : "No changes to save.")
+
+            Button("Previous Picture") { goToPreviousImage() }
+                .disabled(!canGoToPrevious)
+
+            Button("Previous Crop") { vm.selectPreviousCrop() }
+                .disabled(vm.metadata.virtualCrops.isEmpty)
+
+            Button("Next Crop") { vm.selectNextCrop() }
+                .disabled(vm.metadata.virtualCrops.isEmpty)
+
+            Button("Next Picture") { goToNextImage() }
+                .disabled(!canGoToNext)
+                .help("Changes are saved automatically.")
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+    }
+
+    @ViewBuilder
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Text("Choose a folder to begin")
+                .font(.title2.weight(.semibold))
+            Text("dMagy Picture Prep will scan the folder for images and let you step through them with default crops.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 420)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -278,25 +315,26 @@ struct DMPPCropEditorPane: View {
         DMPPUserPreferences.load().customCropPresets
     }
 
+    private var cropPickerSelection: Binding<String> {
+        Binding(
+            get: {
+                vm.selectedCropID
+                ?? vm.metadata.virtualCrops.first?.id
+                ?? ""
+            },
+            set: { newID in
+                vm.selectedCropID = newID
+            }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
             HStack(alignment: .center, spacing: 12) {
 
                 if !vm.metadata.virtualCrops.isEmpty {
-                    Picker(
-                        "Crops",
-                        selection: Binding(
-                            get: {
-                                vm.selectedCropID
-                                ?? vm.metadata.virtualCrops.first?.id
-                                ?? ""
-                            },
-                            set: { newID in
-                                vm.selectedCropID = newID
-                            }
-                        )
-                    ) {
+                    Picker("Crops", selection: cropPickerSelection) {
                         ForEach(vm.metadata.virtualCrops) { crop in
                             Text(crop.label).tag(crop.id)
                         }
@@ -361,9 +399,7 @@ struct DMPPCropEditorPane: View {
 
                     Divider()
 
-                    Button("Manage Custom Presets…") {
-                        openSettings()
-                    }
+                    Button("Manage Custom Presets…") { openSettings() }
                 }
                 .padding(.trailing, 73)
             }
@@ -417,9 +453,7 @@ struct DMPPCropEditorPane: View {
                             Text("Crop")
                                 .font(.caption)
 
-                            Button {
-                                vm.scaleSelectedCrop(by: 0.9)
-                            } label: {
+                            Button { vm.scaleSelectedCrop(by: 0.9) } label: {
                                 Image(systemName: "plus")
                             }
                             .buttonStyle(.borderedProminent)
@@ -446,9 +480,7 @@ struct DMPPCropEditorPane: View {
 
                             Spacer(minLength: 8)
 
-                            Button {
-                                vm.scaleSelectedCrop(by: 1.1)
-                            } label: {
+                            Button { vm.scaleSelectedCrop(by: 1.1) } label: {
                                 Image(systemName: "minus")
                             }
                             .buttonStyle(.borderedProminent)
@@ -466,625 +498,559 @@ struct DMPPCropEditorPane: View {
 // MARK: - Right Pane (Metadata)
 
 struct DMPPMetadataFormPane: View {
-    
+
     // MARK: Inputs
-    
+
     @Bindable var vm: DMPPImageEditorViewModel
-    
+
     @Binding var pinFavoritesToTop: Bool
     @Binding var showAllPeopleInChecklist: Bool
-    
+
     // Row context is owned by the EditorView (per-image), but edited here.
     @Binding var activeRowIndex: Int
-    
+
     @Binding var showAddUnknownSheet: Bool
     @Binding var unknownLabelDraft: String
-    
-    
-    
+
     var addUnknownPersonRow: (String) -> Void
-    
+
     // MARK: Env
-    
+
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
-    
+
     // MARK: Local State
-    
+
     @State private var showCaptureSnapshotSheet: Bool = false
     @State private var snapshotNoteDraft: String = ""
-    
+
     @State private var showResetPeopleConfirm: Bool = false
-    @State private var resetSnapshotNoteDraft: String = ""
-    
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
     @State private var dateWarning: String? = nil
-
     @State private var pendingResetAfterSnapshot: Bool = false
 
-    
     // MARK: View
-    
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                
-                // MARK: File
-                
-                GroupBox("File") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(vm.metadata.sourceFile)
-                            .font(.callout.monospaced())
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
+
+                titleAndDescriptionSection
+                dateSection
+                tagsSection
+                peopleSection
+
+                Spacer(minLength: 0)
+            }
+            .onAppear {
+                reloadAvailableTags()
+                activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
+                reloadAvailableTags()
+            }
+            .onChange(of: showAddUnknownSheet) { _, isShown in
+                guard isShown else { return }
+                if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    unknownLabelDraft = "Unknown"
                 }
-                
-                // MARK: Description
-                
-                GroupBox("Title and Description") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Title")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            TextField("", text: $vm.metadata.title)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Description")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            TextField("", text: $vm.metadata.description, axis: .vertical)
-                                .lineLimit(2...6)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                    }
-                }
-                
-                // MARK: Date / Era
-                
-                GroupBox("Date Taken or Era") {
-                    VStack(alignment: .leading, spacing: 6) {
-           
-                        
-                        TextField(
-                            "",
-                            text: Binding(
-                                get: { vm.metadata.dateTaken },
-                                set: { vm.updateDateTaken($0) }
-                            )
-                        )
+            }
+        }
+        .sheet(isPresented: $showAddUnknownSheet) { addUnknownSheet }
+        .sheet(isPresented: $showCaptureSnapshotSheet) { captureSnapshotSheet }
+    }
+
+    // MARK: Sections
+
+    private var titleAndDescriptionSection: some View {
+        GroupBox("Title and Description") {
+            VStack(alignment: .leading, spacing: 8) {
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Title")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: $vm.metadata.title)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: .infinity)
-                        .onChange(of: vm.metadata.dateTaken) { _, newValue in
-                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
-                            dateWarning = dateValidationMessage(for: trimmed)
-                            vm.recomputeAgesForCurrentImage()
-                        }
-                        
-                        if let dateWarning, !dateWarning.isEmpty {
-                            Text(dateWarning)
-                                .font(.caption2)
-                                .foregroundStyle(.red)
-                        } else {
-                            Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
                 }
-                .onAppear {
-                    vm.recomputeAgesForCurrentImage()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Description")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: $vm.metadata.description, axis: .vertical)
+                        .lineLimit(2...6)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: .infinity)
                 }
-                .onChange(of: vm.metadata.sourceFile) { _, _ in
-                    vm.recomputeAgesForCurrentImage()
-                }
-                
-                // MARK: Tags
-                
-                GroupBox("Tags") {
-                    VStack(alignment: .leading, spacing: 8) {
-                 
-                        
-                        if availableTags.isEmpty {
-                            Text("No tags defined. Use Settings to add tags.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            let columns = [
-                                GridItem(.flexible(), alignment: .leading),
-                                GridItem(.flexible(), alignment: .leading)
-                            ]
-                            
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                                ForEach(availableTags, id: \.self) { tag in
-                                    Toggle(
-                                        isOn: Binding(
-                                            get: { vm.metadata.tags.contains(tag) },
-                                            set: { isOn in
-                                                if isOn {
-                                                    if !vm.metadata.tags.contains(tag) { vm.metadata.tags.append(tag) }
-                                                } else {
-                                                    vm.metadata.tags.removeAll { $0 == tag }
-                                                }
-                                            }
-                                        )
-                                    ) {
-                                        Text(tag)
-                                    }
-                                    .toggleStyle(.checkbox)
-                                }
-                            }
-                        }
-                        
-                        Button("Add / Edit tags…") { openSettings() }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                            .tint(.accentColor)
-                            .padding(.top, 4)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
-                }
-                
-                // MARK: People
-                
-                GroupBox("People") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        
-                        // Summary (always visible)
-                        VStack(alignment: .leading, spacing: 6) {
-                            
-                            Text("Check people in this photo left to right, row by row")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            let sortedPeople = vm.metadata.peopleV2.sorted { lhs, rhs in
-                                if lhs.rowIndex == rhs.rowIndex {
-                                    return lhs.positionIndex < rhs.positionIndex
-                                } else {
-                                    return lhs.rowIndex < rhs.rowIndex
-                                }
-                            }
-                            
-                            if sortedPeople.isEmpty {
-                                Text("None yet.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                // Show people on separate lines by rowIndex (reverse order)
-                                let nonMarkers = sortedPeople.filter { $0.roleHint != "rowMarker" }
-                                let peopleByRow = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
-                                let rowIndexes = peopleByRow.keys.sorted(by: >)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    ForEach(rowIndexes, id: \.self) { (r: Int) in
-                                        let rowPeople = (peopleByRow[r] ?? []).sorted { $0.positionIndex < $1.positionIndex }
-                                        
-                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                            Text("\(rowLabel(for: r)):")
-                                                .font(.callout.weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                                .frame(width: 42, alignment: .leading) // tweak width to taste
-                                            //    .frame(width: 43, alignment: .trailing) // tweak width to taste
-                                            
-                                            Text(peopleLineAttributed(rowPeople: rowPeople))
-                                                .font(.callout) // bigger than caption
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    
-                                    
-                                }
-                            }
-                            
-                            // -------------------------------------------------
-                            // Primary actions (always visible)
-                            // -------------------------------------------------
-                            HStack(spacing: 10) {
-                                
-                                Button("Add one-off person…") {
-                                    unknownLabelDraft = "One-off person"
-                                    showAddUnknownSheet = true
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
-                                
-                                Button("Start next row") {
-                                    let before = activeRowIndex
-                                    let maxRow = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
-                                    let base = max(before, maxRow)
-                                    activeRowIndex = base + 1
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.regular)
-                                
-                                Spacer()
-                            }
-                            .padding(.top, 6)
-                            
-                            Divider()
-                                .padding(.vertical, 6)
-                            
-                            // -------------------------------------------------
-                            // Advanced (collapsed by default): snapshots + reset
-                            // -------------------------------------------------
-                            DisclosureGroup("Advanced") {
-                                
-                                VStack(alignment: .leading, spacing: 10) {
-                                    
-                                    // Reset (moved to Advanced)
-                                    HStack {
-                                        Button(role: .destructive) {
-                                            resetSnapshotNoteDraft = "Before reset \(shortNowStamp())"
-                                            showResetPeopleConfirm = true
-                                        } label: {
-                                            Text("Reset people…")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        
-                                        Spacer()
-                                    }
-                                    .alert("Reset people?", isPresented: $showResetPeopleConfirm) {
-
-                                        Button("Save") {
-                                            pendingResetAfterSnapshot = true
-                                            snapshotNoteDraft = "Before reset \(shortNowStamp())"
-                                            showCaptureSnapshotSheet = true
-                                        }
-
-                                        Button("Skip", role: .destructive) {
-                                            performResetPeople(identityStore: .shared, captureSnapshot: false)
-                                            activeRowIndex = 0
-                                        }
-
-                                    } message: {
-                                        Text("This will clear the current People list for this photo (including one-offs and row markers). Do you want to save a snapshot for later?")
-                                    }
-
-
-                                    Divider()
-                                        .padding(.vertical, 4)
-                                    
-                                    // Snapshots
-                                    HStack(spacing: 10) {
-                                        Text("Snapshots (\(vm.metadata.peopleV2Snapshots.count))")
-                                            .font(.caption.bold())
-                                            .foregroundStyle(.secondary)
-                                        
-                                        Spacer()
-                                        
-                                        Button("Capture snapshot…") {
-                                            pendingResetAfterSnapshot = false
-                                            snapshotNoteDraft = ""
-                                            showCaptureSnapshotSheet = true
-                                        }
-
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                    }
-                                    
-                                    if vm.metadata.peopleV2Snapshots.isEmpty {
-                                        Text("No snapshots yet. Capture one before making big changes.")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        
-                                        // newest first (inline; avoids local `let snapshots = ...`)
-                                        let ordered = vm.metadata.peopleV2Snapshots.sorted { $0.createdAtISO8601 > $1.createdAtISO8601 }
-                                        
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            ForEach(ordered) { snap in
-
-                                                VStack(alignment: .leading, spacing: 8) {
-
-                                                    // Title row: Timestamp + actions
-                                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-
-                                                        Text(snap.createdAtISO8601)
-                                                            .font(.callout.weight(.semibold))
-                                                            .foregroundStyle(.secondary)
-
-                                                        Spacer()
-
-                                                        Button("Restore") {
-                                                            restoreSnapshot(id: snap.id, identityStore: DMPPIdentityStore.shared)
-                                                            activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
-                                                        }
-                                                        .buttonStyle(.borderedProminent)
-                                                        .controlSize(.small)
-
-                                                        Button(role: .destructive) {
-                                                            deleteSnapshot(id: snap.id)
-                                                        } label: {
-                                                            Text("Delete")
-                                                        }
-                                                        .buttonStyle(.bordered)
-                                                        .controlSize(.small)
-                                                    }
-
-                                                    // People list (FULL, multi-line)
-                                                    let nonMarkers = snap.peopleV2.filter { $0.roleHint != "rowMarker" }
-                                                    let grouped = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
-                                                    let rowIndexes = grouped.keys.sorted(by: >)
-
-                                                    if rowIndexes.isEmpty {
-                                                        Text("No people recorded in this snapshot.")
-                                                            .font(.caption2)
-                                                            .foregroundStyle(.secondary)
-                                                    } else {
-                                                        VStack(alignment: .leading, spacing: 2) {
-                                                            ForEach(rowIndexes, id: \.self) { r in
-                                                                let rowPeople = (grouped[r] ?? []).sorted { $0.positionIndex < $1.positionIndex }
-
-                                                                // Build the same “name (age)” string you use elsewhere
-                                                                let line = rowPeople
-                                                                    .map { person -> String in
-                                                                        if let identityID = person.identityID {
-                                                                            let live = vm.ageTextByIdentityID[identityID] ?? ""
-                                                                            if !live.isEmpty { return "\(person.shortNameSnapshot) (\(live))" }
-                                                                        }
-                                                                        if let snapAge = person.ageAtPhoto, !snapAge.isEmpty {
-                                                                            return "\(person.shortNameSnapshot) (\(snapAge))"
-                                                                        }
-                                                                        return person.shortNameSnapshot
-                                                                    }
-                                                                    .joined(separator: ", ")
-
-                                                                Text("\(rowLabel(for: r)): \(line)")
-                                                                    .font(.caption2)
-                                                                    .foregroundStyle(.secondary)
-                                                                    .fixedSize(horizontal: false, vertical: true) // allow wrapping
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // Note (editable, BELOW the people list)
-                                                    TextField(
-                                                        "",
-                                                        text: Binding(
-                                                            get: { snap.note },
-                                                            set: { newValue in
-                                                                updateSnapshotNote(id: snap.id, note: newValue)
-                                                            }
-                                                        )
-                                                    )
-                                                    .textFieldStyle(.roundedBorder)
-
-                                                }
-                                            }
-
-                                        }
-                                    }
-                                }
-                                .padding(.top, 2)
-                            }
-                            .font(.caption)
-                            
-                            // Impossible-age warning (kept, but no standalone `let`)
-                            if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
-                                Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.red)
-                                    .padding(.top, 2)
-                            }
-                            
-                            
-                            
-                            
-                            Divider()
-                                .padding(.vertical, 4)
-                            
-                            // Checklist
-                            let availablePeople: [DMPPIdentityStore.PersonSummary] =
-                            showAllPeopleInChecklist
-                            ? identityStore.peopleSortedForUI
-                            : identityStore.peopleAliveDuring(photoRange: vm.metadata.dateRange)
-                            
-                            let favoriteAvailable = availablePeople.filter { $0.isFavorite }
-                            let othersAvailable   = availablePeople.filter { !$0.isFavorite }
-                            
-                            let availableAll = (favoriteAvailable + othersAvailable)
-                                .sorted { a, b in
-                                    a.shortName.localizedCaseInsensitiveCompare(b.shortName) == .orderedAscending
-                                }
-                            
-                            if availableAll.isEmpty {
-                                Text("No identities defined yet. Open People Manager to add some.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                
-                                let ordered: [DMPPIdentityStore.PersonSummary] = {
-                                    guard pinFavoritesToTop else { return availableAll }
-                                    let favs = availableAll.filter { $0.isFavorite }
-                                    let non  = availableAll.filter { !$0.isFavorite }
-                                    return favs + non
-                                }()
-                                
-                                let half = (ordered.count + 1) / 2
-                                let leftColumn  = Array(ordered.prefix(half))
-                                let rightColumn = Array(ordered.dropFirst(half))
-                                
-                                HStack(alignment: .top, spacing: 24) {
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        ForEach(leftColumn) { person in
-                                            Toggle(identityStore.checklistLabel(for: person), isOn: bindingForPerson(person))
-                                                .toggleStyle(.checkbox)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        ForEach(rightColumn) { person in
-                                            Toggle(identityStore.checklistLabel(for: person), isOn: bindingForPerson(person))
-                                                .toggleStyle(.checkbox)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                
-                                HStack {
-                                    Toggle("Show all people", isOn: $showAllPeopleInChecklist)
-                                        .toggleStyle(.switch)
-                                        .font(.caption)
-                                    
-                                    Toggle("Pin favorites to top", isOn: $pinFavoritesToTop)
-                                        .toggleStyle(.switch)
-                                        .font(.caption)
-                                }
-                                .padding(.top, 6)
-                            }
-                            
-                            HStack(spacing: 8) {
-                                Button("Open People Manager…") { openWindow(id: "People-Manager") }
-                                    .buttonStyle(.link)
-                                    .font(.caption)
-                                    .tint(.accentColor)
-                                
-                                Spacer()
-                            }
-                            .padding(.top, 4)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                    }
-                    .sheet(isPresented: $showAddUnknownSheet) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            
-                            Text("Add one-off person")
-                                .font(.headline)
-                            
-                            Text("Adds a label for this photo only (not added to People Manager).")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            TextField("", text: $unknownLabelDraft)
-                                .textFieldStyle(.roundedBorder)
-                            
-                            Text("Examples: “Billy Joel”, “Wedding guest”, “Unknown man in red jacket”.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            
-                            HStack {
-                                Spacer()
-                                
-                                Button("Cancel") {
-                                    showAddUnknownSheet = false
-                                }
-                                
-                                Button("Add") {
-                                    let trimmed = unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    guard !trimmed.isEmpty else { return }
-                                    
-                                    addUnknownPersonRow(trimmed)
-                                    showAddUnknownSheet = false
-                                }
-                                .keyboardShortcut(.defaultAction)
-                                .disabled(unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
-                        }
-                        .padding()
-                        .frame(minWidth: 420)
-                    }
-                    
-                    .sheet(isPresented: $showCaptureSnapshotSheet) {
-                        VStack(alignment: .leading, spacing: 12) {
-
-                            Text(pendingResetAfterSnapshot ? "Save snapshot before reset" : "Capture snapshot")
-                                .font(.headline)
-
-                            Text(
-                                pendingResetAfterSnapshot
-                                ? "Optional note. After saving, your People list will be cleared."
-                                : "This saves the current People list into the dmpms.json so you can restore it later."
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                            TextField("", text: $snapshotNoteDraft)
-                                .textFieldStyle(.roundedBorder)
-                      
-
-                            HStack {
-                                Spacer()
-
-                                Button("Cancel") {
-                                    showCaptureSnapshotSheet = false
-                                    pendingResetAfterSnapshot = false
-                                }
-
-                                Button("Save") {
-                                    capturePeopleSnapshot(note: snapshotNoteDraft)
-                                    showCaptureSnapshotSheet = false
-
-                                    if pendingResetAfterSnapshot {
-                                        pendingResetAfterSnapshot = false
-                                        performResetPeople(identityStore: .shared, captureSnapshot: false)
-                                        activeRowIndex = 0
-                                    }
-                                }
-                                .keyboardShortcut(.defaultAction)
-                            }
-                        }
-                        .padding()
-                        .frame(minWidth: 520)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                
-                
-                .padding()
-                .onAppear {
-                    reloadAvailableTags()
-                    // Per-photo row context: default to the last row used in this photo
-                    activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
-                    reloadAvailableTags()
-                }
-                .onChange(of: showAddUnknownSheet) { _, isShown in
-                    guard isShown else { return }
-                    if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        unknownLabelDraft = "Unknown"
-                    }
-                }
-                
-            } // end ScrollView
-        } // end body
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+        }
     }
-                // MARK: - Helpers (UI/People Pane)
 
-                private func reloadAvailableTags() {
-                    availableTags = DMPPUserPreferences.load().availableTags
+    private var dateSection: some View {
+        GroupBox("Date Taken or Era") {
+            VStack(alignment: .leading, spacing: 6) {
+
+                TextField(
+                    "",
+                    text: Binding(
+                        get: { vm.metadata.dateTaken },
+                        set: { vm.updateDateTaken($0) }
+                    )
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+                .onChange(of: vm.metadata.dateTaken) { _, newValue in
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
+                    dateWarning = dateValidationMessage(for: trimmed)
+                    vm.recomputeAgesForCurrentImage()
                 }
 
-                private func shortNowStamp() -> String {
-                    let f = DateFormatter()
-                    f.locale = Locale(identifier: "en_US_POSIX")
-                    f.dateFormat = "yyyy-MM-dd HH:mm"
-                    return f.string(from: Date())
+                if let dateWarning, !dateWarning.isEmpty {
+                    Text(dateWarning)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-    
-    private func performResetPeople(identityStore: DMPPIdentityStore, captureSnapshot: Bool) {
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .onAppear { vm.recomputeAgesForCurrentImage() }
+        .onChange(of: vm.metadata.sourceFile) { _, _ in
+            vm.recomputeAgesForCurrentImage()
+        }
+    }
 
+    private var tagsSection: some View {
+        GroupBox("Tags") {
+            VStack(alignment: .leading, spacing: 8) {
+
+                if availableTags.isEmpty {
+                    Text("No tags defined. Use Settings to add tags.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    let columns = [
+                        GridItem(.flexible(), alignment: .leading),
+                        GridItem(.flexible(), alignment: .leading)
+                    ]
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                        ForEach(availableTags, id: \.self) { tag in
+                            Toggle(tag, isOn: bindingForTag(tag))
+                                .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+
+                Button("Add / Edit tags…") { openSettings() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .tint(.accentColor)
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var peopleSection: some View {
+        GroupBox("People") {
+            VStack(alignment: .leading, spacing: 8) {
+
+                Text("Check people in this photo left to right, row by row")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                peopleSummaryBlock
+
+                HStack(spacing: 10) {
+                    Button("Add one-off person…") {
+                        unknownLabelDraft = "One-off person"
+                        showAddUnknownSheet = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Button("Start next row") {
+                        let before = activeRowIndex
+                        let maxRow = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
+                        activeRowIndex = max(before, maxRow) + 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Spacer()
+                }
+                .padding(.top, 6)
+
+                Divider().padding(.vertical, 6)
+
+                DisclosureGroup("Advanced") {
+                    advancedPeopleBlock
+                        .padding(.top, 2)
+                }
+                .font(.caption)
+
+                if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
+                    Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .padding(.top, 2)
+                }
+
+                Divider().padding(.vertical, 4)
+
+                checklistBlock
+
+                HStack(spacing: 8) {
+                    Button("Open People Manager…") { openWindow(id: "People-Manager") }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .tint(.accentColor)
+
+                    Spacer()
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: Sub-blocks
+
+    @ViewBuilder
+    private var peopleSummaryBlock: some View {
+        let rows = peopleRowsForSummary()
+
+        if rows.isEmpty {
+            Text("None yet.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(rows, id: \.rowIndex) { row in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(rowLabel(for: row.rowIndex)):")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 42, alignment: .leading)
+
+                        Text(peopleLineAttributed(rowPeople: row.people))
+                            .font(.callout)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    private var advancedPeopleBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+
+            HStack {
+                Button(role: .destructive) {
+                    showResetPeopleConfirm = true
+                } label: {
+                    Text("Reset people…")
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .alert("Reset people?", isPresented: $showResetPeopleConfirm) {
+                Button("Save") {
+                    pendingResetAfterSnapshot = true
+                    snapshotNoteDraft = "Before reset \(shortNowStamp())"
+                    showCaptureSnapshotSheet = true
+                }
+
+                Button("Skip", role: .destructive) {
+                    performResetPeople(captureSnapshot: false)
+                    activeRowIndex = 0
+                }
+            } message: {
+                Text("This will clear the current People list for this photo (including one-offs and row markers). Do you want to save a snapshot for later?")
+            }
+
+            Divider().padding(.vertical, 4)
+
+            HStack(spacing: 10) {
+                Text("Snapshots (\(vm.metadata.peopleV2Snapshots.count))")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Capture snapshot…") {
+                    pendingResetAfterSnapshot = false
+                    snapshotNoteDraft = ""
+                    showCaptureSnapshotSheet = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if vm.metadata.peopleV2Snapshots.isEmpty {
+                Text("No snapshots yet. Capture one before making big changes.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(orderedSnapshots) { snap in
+                        snapshotRow(snap)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func snapshotRow(_ snap: DmpmsPeopleSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(snap.createdAtISO8601)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Restore") {
+                    restoreSnapshot(id: snap.id)
+                    activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button(role: .destructive) {
+                    deleteSnapshot(id: snap.id)
+                } label: {
+                    Text("Delete")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            let rows = peopleRowsForSnapshot(snap)
+            if rows.isEmpty {
+                Text("No people recorded in this snapshot.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(rows, id: \.rowIndex) { row in
+                        Text("\(rowLabel(for: row.rowIndex)): \(row.line)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            TextField(
+                "",
+                text: Binding(
+                    get: { snap.note },
+                    set: { updateSnapshotNote(id: snap.id, note: $0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    @ViewBuilder
+    private var checklistBlock: some View {
+        let ordered = orderedChecklistPeople()
+
+        if ordered.isEmpty {
+            Text("No identities defined yet. Open People Manager to add some.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else {
+            let half = (ordered.count + 1) / 2
+            let leftColumn = Array(ordered.prefix(half))
+            let rightColumn = Array(ordered.dropFirst(half))
+
+            HStack(alignment: .top, spacing: 24) {
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(leftColumn) { person in
+                        Toggle(isOn: bindingForPerson(person)) {
+                            HStack(spacing: 6) {
+                                Text(identityStore.checklistLabel(for: person))
+                                if person.kind == "pet" {
+                                    Image(systemName: "pawprint.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityLabel("Pet")
+                                }
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(rightColumn) { person in
+                        Toggle(isOn: bindingForPerson(person)) {
+                            HStack(spacing: 6) {
+                                Text(identityStore.checklistLabel(for: person))
+                                if person.kind == "pet" {
+                                    Image(systemName: "pawprint.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityLabel("Pet")
+                                }
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack {
+                Toggle("Show all people", isOn: $showAllPeopleInChecklist)
+                    .toggleStyle(.switch)
+                    .font(.caption)
+
+                Toggle("Pin favorites to top", isOn: $pinFavoritesToTop)
+                    .toggleStyle(.switch)
+                    .font(.caption)
+            }
+            .padding(.top, 6)
+        }
+    }
+
+
+
+    // MARK: Sheets
+
+    private var addUnknownSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add one-off person")
+                .font(.headline)
+
+            Text("Adds a label for this photo only (not added to People Manager).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("", text: $unknownLabelDraft)
+                .textFieldStyle(.roundedBorder)
+
+            Text("Examples: “Billy Joel”, “Wedding guest”, “Unknown man in red jacket”.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") { showAddUnknownSheet = false }
+
+                Button("Add") {
+                    let trimmed = unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+
+                    addUnknownPersonRow(trimmed)
+                    showAddUnknownSheet = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding()
+        .frame(minWidth: 420)
+    }
+
+    private var captureSnapshotSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+
+            Text(pendingResetAfterSnapshot ? "Save snapshot before reset" : "Capture snapshot")
+                .font(.headline)
+
+            Text(
+                pendingResetAfterSnapshot
+                ? "Optional note. After saving, your People list will be cleared."
+                : "This saves the current People list into the dmpms.json so you can restore it later."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            TextField("", text: $snapshotNoteDraft)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    showCaptureSnapshotSheet = false
+                    pendingResetAfterSnapshot = false
+                }
+
+                Button("Save") {
+                    capturePeopleSnapshot(note: snapshotNoteDraft)
+                    showCaptureSnapshotSheet = false
+
+                    if pendingResetAfterSnapshot {
+                        pendingResetAfterSnapshot = false
+                        performResetPeople(captureSnapshot: false)
+                        activeRowIndex = 0
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(minWidth: 520)
+    }
+}
+
+// MARK: - Helpers (Metadata Pane)
+
+private extension DMPPMetadataFormPane {
+
+    var identityStore: DMPPIdentityStore { .shared }
+
+    func reloadAvailableTags() {
+        availableTags = DMPPUserPreferences.load().availableTags
+    }
+
+    func bindingForTag(_ tag: String) -> Binding<Bool> {
+        Binding(
+            get: { vm.metadata.tags.contains(tag) },
+            set: { isOn in
+                if isOn {
+                    if !vm.metadata.tags.contains(tag) { vm.metadata.tags.append(tag) }
+                } else {
+                    vm.metadata.tags.removeAll { $0 == tag }
+                }
+            }
+        )
+    }
+
+    func shortNowStamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f.string(from: Date())
+    }
+
+    func performResetPeople(captureSnapshot: Bool) {
         if captureSnapshot {
             let note = "Before reset \(shortNowStamp())"
             capturePeopleSnapshot(note: note)
@@ -1095,168 +1061,213 @@ struct DMPPMetadataFormPane: View {
         vm.recomputeAgesForCurrentImage()
     }
 
+    func capturePeopleSnapshot(note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stamp = ISO8601DateFormatter().string(from: Date())
 
+        let snapshot = DmpmsPeopleSnapshot(
+            id: UUID().uuidString,
+            createdAtISO8601: stamp,
+            note: trimmed, // allow blank
+            peopleV2: vm.metadata.peopleV2
+        )
 
-    
-                private func capturePeopleSnapshot(note: String) {
-                    let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let stamp = ISO8601DateFormatter().string(from: Date())
-
-                    let snapshot = DmpmsPeopleSnapshot(
-                        id: UUID().uuidString,
-                        createdAtISO8601: stamp,
-                        note: trimmed, // allow blank
-                        peopleV2: vm.metadata.peopleV2
-                    )
-
-                    vm.metadata.peopleV2Snapshots.append(snapshot)
-                }
-
-                private func peopleLineAttributed(rowPeople: [DmpmsPersonInPhoto]) -> AttributedString {
-                    var line = AttributedString("")
-
-                    for (idx, person) in rowPeople.enumerated() {
-
-                        // Name (emphasize “managed” identities)
-                        var namePart = AttributedString(person.shortNameSnapshot)
-
-                        if !person.isUnknown && person.identityID != nil {
-                            namePart.inlinePresentationIntent = .stronglyEmphasized
-                            namePart.foregroundColor = .primary
-                        } else {
-                            // One-off person: readable, visually distinct
-                            namePart.foregroundColor = .secondary
-                        }
-
-                        line.append(namePart)
-
-                        // Age suffix — keep attached using NBSP so it won’t wrap mid-token
-                        let suffix: String = {
-                            if let identityID = person.identityID {
-                                let live = vm.ageTextByIdentityID[identityID] ?? ""
-                                if !live.isEmpty { return "\u{00A0}(\(live))" }
-                            }
-                            if let snap = person.ageAtPhoto, !snap.isEmpty {
-                                return "\u{00A0}(\(snap))"
-                            }
-                            return ""
-                        }()
-
-                        if !suffix.isEmpty {
-                            line.append(AttributedString(suffix))
-                        }
-
-                        if idx < rowPeople.count - 1 {
-                            line.append(AttributedString(", "))
-                        }
-                    }
-
-                    return line
-                }
-
-
-
-                private func restoreSnapshot(id: String, identityStore: DMPPIdentityStore) {
-                    guard let snap = vm.metadata.peopleV2Snapshots.first(where: { $0.id == id }) else { return }
-                    vm.metadata.peopleV2 = snap.peopleV2
-                    vm.reconcilePeopleV2Identities(identityStore: identityStore)
-                    vm.recomputeAgesForCurrentImage()
-                }
-
-                private func deleteSnapshot(id: String) {
-                    vm.metadata.peopleV2Snapshots.removeAll { $0.id == id }
-                }
-
-                private func updateSnapshotNote(id: String, note: String) {
-                    let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard let idx = vm.metadata.peopleV2Snapshots.firstIndex(where: { $0.id == id }) else { return }
-                    vm.metadata.peopleV2Snapshots[idx].note = trimmed
-                }
-
-                private func rowLabel(for rowIndex: Int) -> String {
-                    switch rowIndex {
-                    case 0: return "Front"
-                    default: return "Row \(rowIndex + 1)"
-                    }
-                }
-
-                private func nextPositionIndex(inRow rowIndex: Int) -> Int {
-                    let inRow = vm.metadata.peopleV2.filter { $0.rowIndex == rowIndex && $0.roleHint != "rowMarker" }
-                    return (inRow.map(\.positionIndex).max() ?? -1) + 1
-                }
-
-                // MARK: - Identity helpers (People checklist)
-
-                private var identityStore: DMPPIdentityStore { .shared }
-
-                private func bindingForPerson(_ person: DMPPIdentityStore.PersonSummary) -> Binding<Bool> {
-                    Binding<Bool>(
-                        get: {
-                            vm.metadata.peopleV2.contains(where: { row in
-                                guard let iid = row.identityID,
-                                      let ident = identityStore.identity(forIdentityID: iid) else {
-                                    return row.shortNameSnapshot == person.shortName
-                                }
-
-                                let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines))
-                                    .flatMap { $0.isEmpty ? nil : $0 }
-
-                                let groupID = pid ?? ident.id
-                                return groupID == person.id
-                            })
-                        },
-                        set: { newValue in
-                            if newValue {
-                                let alreadySelected = vm.metadata.peopleV2.contains(where: { row in
-                                    guard let iid = row.identityID,
-                                          let ident = identityStore.identity(forIdentityID: iid) else { return false }
-                                    let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-                                    let groupID = pid ?? ident.id
-                                    return groupID == person.id
-                                })
-
-                                if !alreadySelected {
-                                    let versions = identityStore.identityVersions(forPersonID: person.id)
-                                    let photoEarliest = vm.metadata.dateRange?.earliest
-                                    let chosen = identityStore.bestIdentityForPhoto(
-                                        versions: versions,
-                                        photoEarliestYMD: photoEarliest
-                                    )
-
-                                    let nextPos = nextPositionIndex(inRow: activeRowIndex)
-
-                                    let newRow = DmpmsPersonInPhoto(
-                                        identityID: chosen.id,
-                                        isUnknown: false,
-                                        shortNameSnapshot: chosen.shortName,
-                                        displayNameSnapshot: chosen.fullName,
-                                        ageAtPhoto: nil,
-                                        rowIndex: activeRowIndex,
-                                        rowName: nil,
-                                        positionIndex: nextPos,
-                                        roleHint: nil
-                                    )
-
-                                    vm.metadata.peopleV2.append(newRow)
-                                }
-                            } else {
-                                vm.metadata.peopleV2.removeAll { row in
-                                    guard let iid = row.identityID,
-                                          let ident = identityStore.identity(forIdentityID: iid) else { return false }
-                                    let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
-                                    let groupID = pid ?? ident.id
-                                    return groupID == person.id
-                                }
-                            }
-
-                            vm.reconcilePeopleV2Identities(identityStore: identityStore)
-                            vm.recomputeAgesForCurrentImage()
-                        }
-                    )
-                }
-
+        vm.metadata.peopleV2Snapshots.append(snapshot)
     }
 
+    var orderedSnapshots: [DmpmsPeopleSnapshot] {
+        vm.metadata.peopleV2Snapshots.sorted { $0.createdAtISO8601 > $1.createdAtISO8601 }
+    }
+
+    func restoreSnapshot(id: String) {
+        guard let snap = vm.metadata.peopleV2Snapshots.first(where: { $0.id == id }) else { return }
+        vm.metadata.peopleV2 = snap.peopleV2
+        vm.reconcilePeopleV2Identities(identityStore: identityStore)
+        vm.recomputeAgesForCurrentImage()
+    }
+
+    func deleteSnapshot(id: String) {
+        vm.metadata.peopleV2Snapshots.removeAll { $0.id == id }
+    }
+
+    func updateSnapshotNote(id: String, note: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let idx = vm.metadata.peopleV2Snapshots.firstIndex(where: { $0.id == id }) else { return }
+        vm.metadata.peopleV2Snapshots[idx].note = trimmed
+    }
+
+    func rowLabel(for rowIndex: Int) -> String {
+        switch rowIndex {
+        case 0: return "Front"
+        default: return "Row \(rowIndex + 1)"
+        }
+    }
+
+    func nextPositionIndex(inRow rowIndex: Int) -> Int {
+        let inRow = vm.metadata.peopleV2.filter { $0.rowIndex == rowIndex && $0.roleHint != "rowMarker" }
+        return (inRow.map(\.positionIndex).max() ?? -1) + 1
+    }
+
+    func peopleLineAttributed(rowPeople: [DmpmsPersonInPhoto]) -> AttributedString {
+        var line = AttributedString("")
+
+        for (idx, person) in rowPeople.enumerated() {
+
+            var namePart = AttributedString(person.shortNameSnapshot)
+
+            if !person.isUnknown && person.identityID != nil {
+                namePart.inlinePresentationIntent = .stronglyEmphasized
+                namePart.foregroundColor = .primary
+            } else {
+                namePart.foregroundColor = .secondary
+            }
+
+            line.append(namePart)
+
+            let suffix: String = {
+                if let identityID = person.identityID {
+                    let live = vm.ageTextByIdentityID[identityID] ?? ""
+                    if !live.isEmpty { return "\u{00A0}(\(live))" }
+                }
+                if let snap = person.ageAtPhoto, !snap.isEmpty {
+                    return "\u{00A0}(\(snap))"
+                }
+                return ""
+            }()
+
+            if !suffix.isEmpty {
+                line.append(AttributedString(suffix))
+            }
+
+            if idx < rowPeople.count - 1 {
+                line.append(AttributedString(", "))
+            }
+        }
+
+        return line
+    }
+
+    // Summary rows for current photo (non-markers), newest row first
+    func peopleRowsForSummary() -> [(rowIndex: Int, people: [DmpmsPersonInPhoto])] {
+        let sortedPeople = vm.metadata.peopleV2.sorted {
+            if $0.rowIndex == $1.rowIndex { return $0.positionIndex < $1.positionIndex }
+            return $0.rowIndex < $1.rowIndex
+        }
+
+        let nonMarkers = sortedPeople.filter { $0.roleHint != "rowMarker" }
+        let grouped = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
+        let rowIndexes = grouped.keys.sorted(by: >)
+
+        return rowIndexes.map { r in
+            let rowPeople = (grouped[r] ?? []).sorted { $0.positionIndex < $1.positionIndex }
+            return (rowIndex: r, people: rowPeople)
+        }
+    }
+
+    func peopleRowsForSnapshot(_ snap: DmpmsPeopleSnapshot) -> [(rowIndex: Int, line: String)] {
+        let nonMarkers = snap.peopleV2.filter { $0.roleHint != "rowMarker" }
+        let grouped = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
+        let rowIndexes = grouped.keys.sorted(by: >)
+
+        return rowIndexes.map { r in
+            let rowPeople = (grouped[r] ?? []).sorted { $0.positionIndex < $1.positionIndex }
+            let line = rowPeople
+                .map { person -> String in
+                    if let identityID = person.identityID {
+                        let live = vm.ageTextByIdentityID[identityID] ?? ""
+                        if !live.isEmpty { return "\(person.shortNameSnapshot) (\(live))" }
+                    }
+                    if let snapAge = person.ageAtPhoto, !snapAge.isEmpty {
+                        return "\(person.shortNameSnapshot) (\(snapAge))"
+                    }
+                    return person.shortNameSnapshot
+                }
+                .joined(separator: ", ")
+            return (rowIndex: r, line: line)
+        }
+    }
+
+    func orderedChecklistPeople() -> [DMPPIdentityStore.PersonSummary] {
+        let availablePeople: [DMPPIdentityStore.PersonSummary] =
+            showAllPeopleInChecklist
+            ? identityStore.peopleSortedForUI
+            : identityStore.peopleAliveDuring(photoRange: vm.metadata.dateRange)
+
+        guard !availablePeople.isEmpty else { return [] }
+
+        // Base alpha sort
+        let alpha = availablePeople.sorted {
+            $0.shortName.localizedCaseInsensitiveCompare($1.shortName) == .orderedAscending
+        }
+
+        guard pinFavoritesToTop else { return alpha }
+
+        let favs = alpha.filter { $0.isFavorite }
+        let non = alpha.filter { !$0.isFavorite }
+        return favs + non
+    }
+
+    func groupID(forIdentityID iid: String) -> String? {
+        guard let ident = identityStore.identity(forIdentityID: iid) else { return nil }
+        let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+        return pid ?? ident.id
+    }
+
+    func bindingForPerson(_ person: DMPPIdentityStore.PersonSummary) -> Binding<Bool> {
+        Binding(
+            get: {
+                vm.metadata.peopleV2.contains(where: { row in
+                    if let iid = row.identityID, let gid = groupID(forIdentityID: iid) {
+                        return gid == person.id
+                    }
+                    return row.shortNameSnapshot == person.shortName
+                })
+            },
+            set: { newValue in
+                if newValue {
+                    let alreadySelected = vm.metadata.peopleV2.contains(where: { row in
+                        guard let iid = row.identityID, let gid = groupID(forIdentityID: iid) else { return false }
+                        return gid == person.id
+                    })
+
+                    if !alreadySelected {
+                        let versions = identityStore.identityVersions(forPersonID: person.id)
+                        let photoEarliest = vm.metadata.dateRange?.earliest
+                        let chosen = identityStore.bestIdentityForPhoto(
+                            versions: versions,
+                            photoEarliestYMD: photoEarliest
+                        )
+
+                        let nextPos = nextPositionIndex(inRow: activeRowIndex)
+
+                        let newRow = DmpmsPersonInPhoto(
+                            identityID: chosen.id,
+                            isUnknown: false,
+                            shortNameSnapshot: chosen.shortName,
+                            displayNameSnapshot: chosen.fullName,
+                            ageAtPhoto: nil,
+                            rowIndex: activeRowIndex,
+                            rowName: nil,
+                            positionIndex: nextPos,
+                            roleHint: nil
+                        )
+
+                        vm.metadata.peopleV2.append(newRow)
+                    }
+                } else {
+                    vm.metadata.peopleV2.removeAll { row in
+                        guard let iid = row.identityID, let gid = groupID(forIdentityID: iid) else { return false }
+                        return gid == person.id
+                    }
+                }
+
+                vm.reconcilePeopleV2Identities(identityStore: identityStore)
+                vm.recomputeAgesForCurrentImage()
+            }
+        )
+    }
+}
 
 // MARK: - Navigation + Sidecar Helpers
 
@@ -1276,6 +1287,25 @@ extension DMPPImageEditorView {
         }
     }
 
+    // MARK: Security-scoped access
+
+    private func beginScopedAccess(to folder: URL) -> Bool {
+        if activeScopedFolderURL == folder, activeScopedFolderOK { return true }
+        endScopedAccess()
+
+        let ok = folder.startAccessingSecurityScopedResource()
+        activeScopedFolderURL = folder
+        activeScopedFolderOK = ok
+        return ok
+    }
+
+    private func endScopedAccess() {
+        if let url = activeScopedFolderURL, activeScopedFolderOK {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeScopedFolderURL = nil
+        activeScopedFolderOK = false
+    }
 
     // MARK: Folder picking
 
@@ -1303,10 +1333,15 @@ extension DMPPImageEditorView {
         return nil
     }
 
-    
     private func loadImages(from folder: URL) {
-        // Save current image metadata before switching folders / re-scanning
+        // Save current image metadata before switching folders / re-scanning.
         saveCurrentMetadata()
+
+        guard beginScopedAccess(to: folder) else {
+            continueErrorMessage = "Prep can’t access that folder. Please choose it again."
+            showContinueError = true
+            return
+        }
 
         folderURL = folder
 
@@ -1314,12 +1349,14 @@ extension DMPPImageEditorView {
             ? recursiveImageURLs(in: folder)
             : immediateImageURLs(in: folder)
 
-        // Sort by relative path so subfolders feel stable/expected
+        // Sort by relative path so subfolders feel stable/expected.
         let basePath = folder.path
         imageURLs = found.sorted {
             $0.path.replacingOccurrences(of: basePath + "/", with: "")
                 < $1.path.replacingOccurrences(of: basePath + "/", with: "")
         }
+
+        persistLastFolder(folder)
 
         if imageURLs.isEmpty {
             vm = nil
@@ -1342,41 +1379,8 @@ extension DMPPImageEditorView {
         )) ?? []
 
         return urls.filter { dmppIsSupportedImageURL($0) }
-
     }
 
-    private var displayPathText: String {
-        guard let folderURL else { return "" }
-
-        // If includeSubfolders is on, show root + relative folder of current image (if any).
-        if includeSubfolders,
-           imageURLs.indices.contains(currentIndex) {
-
-            let imageURL = imageURLs[currentIndex]
-            let parent = imageURL.deletingLastPathComponent()
-
-            // If the image is inside the selected folder (or a subfolder), show relative path.
-            if parent.path.hasPrefix(folderURL.path) {
-                let rel = parent.path
-                    .replacingOccurrences(of: folderURL.path, with: "")
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-                if rel.isEmpty {
-                    return folderURL.lastPathComponent
-                } else {
-                    // Use a friendly separator
-                    return "\(folderURL.lastPathComponent) ▸ \(rel.replacingOccurrences(of: "/", with: " ▸ "))"
-                }
-            }
-        }
-
-        // Default: last 3 path components
-        let parts = folderURL.pathComponents
-        let tail = parts.suffix(3).joined(separator: " / ")
-        return tail
-    }
-
-    
     private func recursiveImageURLs(in folder: URL) -> [URL] {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.isRegularFileKey]
@@ -1389,7 +1393,6 @@ extension DMPPImageEditorView {
 
         var results: [URL] = []
         for case let url as URL in enumerator {
-            // avoid counting directories (enumerator returns both)
             let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
             guard isFile else { continue }
             guard dmppIsSupportedImageURL(url) else { continue }
@@ -1398,6 +1401,116 @@ extension DMPPImageEditorView {
         return results
     }
 
+    // MARK: Persistence (bookmark + toggles)
+
+    private func persistLastFolder(_ url: URL) {
+        let defaults = UserDefaults.standard
+
+        defaults.set(includeSubfolders, forKey: kLastIncludeSubfolders)
+        defaults.set(advanceToNextWithoutSidecar, forKey: kLastUnpreppedOnly)
+        defaults.set(url.lastPathComponent, forKey: kLastFolderName)
+
+        do {
+            let data = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            defaults.set(data, forKey: kLastFolderBookmark)
+            lastFolderURL = url
+        } catch {
+            print("dMPP: Failed to persist folder bookmark: \(error)")
+            lastFolderURL = nil
+        }
+    }
+
+    private func loadPersistedLastFolder() {
+        let defaults = UserDefaults.standard
+
+        includeSubfolders = defaults.bool(forKey: kLastIncludeSubfolders)
+        advanceToNextWithoutSidecar = defaults.bool(forKey: kLastUnpreppedOnly)
+
+        guard let data = defaults.data(forKey: kLastFolderBookmark) else {
+            lastFolderURL = nil
+            return
+        }
+
+        var stale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+            lastFolderURL = url
+            if stale { persistLastFolder(url) }
+        } catch {
+            print("dMPP: Failed to resolve folder bookmark: \(error)")
+            lastFolderURL = nil
+        }
+    }
+
+    // MARK: Last-folder “Continue” helpers
+
+    private var lastFolderNameForUI: String {
+        UserDefaults.standard.string(forKey: kLastFolderName)
+        ?? lastFolderURL?.lastPathComponent
+        ?? "Continue"
+    }
+
+    private var canContinueLastFolder: Bool {
+        guard let url = lastFolderURL else { return false }
+
+        // Quick existence check
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+            return false
+        }
+
+        // Optional: verify we can actually scope it (so button only shows when it will work)
+        let ok = url.startAccessingSecurityScopedResource()
+        if ok { url.stopAccessingSecurityScopedResource() }
+        return ok
+    }
+
+    private func continueLastFolder() {
+        guard let url = lastFolderURL else { return }
+        loadImages(from: url) // loadImages handles scoping + error message
+    }
+
+    
+    // MARK: UI helpers
+
+    private var displayPathText: String {
+        guard let folderURL else { return "" }
+
+        if includeSubfolders, imageURLs.indices.contains(currentIndex) {
+            let imageURL = imageURLs[currentIndex]
+            let parent = imageURL.deletingLastPathComponent()
+
+            if parent.path.hasPrefix(folderURL.path) {
+                let rel = parent.path
+                    .replacingOccurrences(of: folderURL.path, with: "")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+                if rel.isEmpty {
+                    return folderURL.lastPathComponent
+                } else {
+                    return "\(folderURL.lastPathComponent) ▸ \(rel.replacingOccurrences(of: "/", with: " ▸ "))"
+                }
+            }
+        }
+
+        let parts = folderURL.pathComponents
+        return parts.suffix(3).joined(separator: " / ")
+    }
+
+    private func nextPositionIndex(inRow rowIndex: Int) -> Int {
+        guard let vm else { return 0 }
+        let inRow = vm.metadata.peopleV2.filter { $0.rowIndex == rowIndex && $0.roleHint != "rowMarker" }
+        return (inRow.map(\.positionIndex).max() ?? -1) + 1
+    }
 
     // MARK: Row sync (per-image)
 
@@ -1405,16 +1518,12 @@ extension DMPPImageEditorView {
     private func syncActiveRowIndexFromCurrentPhoto() {
         guard let editorVM = self.vm else {
             activeRowIndex = 0
-            print("ROW SYNC: vm=nil -> activeRowIndex=0")
             return
         }
 
         let maxRow = editorVM.metadata.peopleV2.map(\.rowIndex).max() ?? 0
-        print("ROW SYNC: file=\(editorVM.metadata.sourceFile) peopleV2.count=\(editorVM.metadata.peopleV2.count) maxRow=\(maxRow) -> activeRowIndex=\(maxRow)")
-
         activeRowIndex = maxRow
     }
-
 
     // MARK: Image navigation
 
@@ -1435,15 +1544,9 @@ extension DMPPImageEditorView {
         newVM.recomputeAgesForCurrentImage()
 
         vm = newVM
-
-        // Baseline for dirty tracking (after reconciliation)
         loadedMetadataHash = metadataHash(newVM.metadata)
-
-        // Critical: row context is per-image
         syncActiveRowIndexFromCurrentPhoto()
     }
-
-
 
     private func goToPreviousImage() {
         let newIndex = currentIndex - 1
@@ -1463,33 +1566,26 @@ extension DMPPImageEditorView {
         }
     }
 
-
     // MARK: Sidecar Read/Write
 
     private func sidecarURL(for imageURL: URL) -> URL {
         imageURL.appendingPathExtension("dmpms.json")
     }
 
-    private func saveCurrentMetadata() {
-        guard let vm else {
-            print("dMPP: saveCurrentMetadata() — no VM, nothing to save")
-            return
-        }
-
-        var metadataToSave = vm.metadata
-
-        // --- peopleV2 cleanup before save ---
+    /// Single source of truth: normalize peopleV2 (remove missing IDs, choose best identity version),
+    /// then sync legacy people[] from peopleV2 when needed.
+    private func normalizePeople(in metadata: inout DmpmsMetadata) {
         let store = DMPPIdentityStore.shared
-        let photoEarliest = metadataToSave.dateRange?.earliest
+        let photoEarliest = metadata.dateRange?.earliest
 
-        metadataToSave.peopleV2.removeAll { row in
+        metadata.peopleV2.removeAll { row in
             guard let id = row.identityID else { return false }
             return store.identity(withID: id) == nil
         }
 
-        for i in metadataToSave.peopleV2.indices {
+        for i in metadata.peopleV2.indices {
             guard
-                let currentID = metadataToSave.peopleV2[i].identityID,
+                let currentID = metadata.peopleV2[i].identityID,
                 let currentIdentity = store.identity(withID: currentID)
             else { continue }
 
@@ -1502,26 +1598,27 @@ extension DMPPImageEditorView {
                 photoEarliestYMD: photoEarliest
             )
 
-            metadataToSave.peopleV2[i].identityID = chosen.id
-            metadataToSave.peopleV2[i].shortNameSnapshot = chosen.shortName
-            metadataToSave.peopleV2[i].displayNameSnapshot = chosen.fullName
-
-            metadataToSave.peopleV2[i].ageAtPhoto = ageDescription(
+            metadata.peopleV2[i].identityID = chosen.id
+            metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
+            metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
+            metadata.peopleV2[i].ageAtPhoto = ageDescription(
                 birthDateString: chosen.birthDate,
-                range: metadataToSave.dateRange
+                range: metadata.dateRange
             )
         }
 
-        metadataToSave.syncLegacyPeopleFromPeopleV2IfNeeded()
+        metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
+    }
+
+    private func saveCurrentMetadata() {
+        guard let vm else { return }
+
+        var metadataToSave = vm.metadata
+        normalizePeople(in: &metadataToSave)
         vm.metadata = metadataToSave
 
         let url = sidecarURL(for: vm.imageURL)
-
-        // Precompute what "saved" would mean
         let newBaseline = metadataHash(metadataToSave)
-
-        print("dMPP: Attempting to save metadata for \(metadataToSave.sourceFile) to:")
-        print("      \(url.path)")
 
         do {
             let encoder = JSONEncoder()
@@ -1530,10 +1627,7 @@ extension DMPPImageEditorView {
             let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
 
-            // Only now: mark clean
             loadedMetadataHash = newBaseline
-
-            print("dMPP: ✅ Saved metadata successfully.")
         } catch {
             let nsError = error as NSError
             print("dMPP: ❌ Failed to save metadata for \(metadataToSave.sourceFile)")
@@ -1543,8 +1637,6 @@ extension DMPPImageEditorView {
         }
     }
 
-
-
     private func metadataHash(_ m: DmpmsMetadata) -> Int {
         var h = Hasher()
 
@@ -1552,10 +1644,8 @@ extension DMPPImageEditorView {
         h.combine(m.description)
         h.combine(m.dateTaken)
 
-        // Tags: stable order
         for t in m.tags.sorted() { h.combine(t) }
 
-        // People: stable order, exclude derived ageAtPhoto (prevents churn)
         let peopleSorted = m.peopleV2.sorted {
             if $0.rowIndex != $1.rowIndex { return $0.rowIndex < $1.rowIndex }
             if $0.positionIndex != $1.positionIndex { return $0.positionIndex < $1.positionIndex }
@@ -1570,10 +1660,9 @@ extension DMPPImageEditorView {
             h.combine(p.rowIndex)
             h.combine(p.positionIndex)
             h.combine(p.roleHint)
-            // DO NOT include p.ageAtPhoto here
+            // intentionally exclude ageAtPhoto (derived)
         }
 
-        // Crops: stable order
         let cropsSorted = m.virtualCrops.sorted { $0.id < $1.id }
         for c in cropsSorted {
             h.combine(c.id)
@@ -1588,49 +1677,6 @@ extension DMPPImageEditorView {
         return h.finalize()
     }
 
-    
-    private func reconcilePeopleV2AndLegacy(in metadata: inout DmpmsMetadata) -> Bool {
-        let store = DMPPIdentityStore.shared
-        let photoEarliest = metadata.dateRange?.earliest
-
-        var changed = false
-
-        let beforeCount = metadata.peopleV2.count
-        metadata.peopleV2.removeAll { row in
-            guard let id = row.identityID else { return false }
-            return store.identity(withID: id) == nil
-        }
-        if metadata.peopleV2.count != beforeCount { changed = true }
-
-        for i in metadata.peopleV2.indices {
-            guard
-                let currentID = metadata.peopleV2[i].identityID,
-                let currentIdentity = store.identity(withID: currentID)
-            else { continue }
-
-            let pid = currentIdentity.personID ?? currentIdentity.id
-            let versions = store.identityVersions(forPersonID: pid)
-            guard !versions.isEmpty else { continue }
-
-            let chosen = store.bestIdentityForPhoto(versions: versions, photoEarliestYMD: photoEarliest)
-
-            if metadata.peopleV2[i].identityID != chosen.id { changed = true }
-            metadata.peopleV2[i].identityID = chosen.id
-            metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
-            metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
-            metadata.peopleV2[i].ageAtPhoto = ageDescription(
-                birthDateString: chosen.birthDate,
-                range: metadata.dateRange
-            )
-        }
-
-        let beforePeople = metadata.people
-        metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
-        if metadata.people != beforePeople { changed = true }
-
-        return changed
-    }
-
     private func loadMetadata(for imageURL: URL) -> DmpmsMetadata {
         let sidecar = sidecarURL(for: imageURL)
         let fm = FileManager.default
@@ -1641,8 +1687,7 @@ extension DMPPImageEditorView {
                 var metadata = try JSONDecoder().decode(DmpmsMetadata.self, from: data)
 
                 metadata.sourceFile = imageURL.lastPathComponent
-                _ = reconcilePeopleV2AndLegacy(in: &metadata)
-
+                normalizePeople(in: &metadata)
                 return metadata
             } catch {
                 print("dMPP: Failed to read metadata from \(sidecar.lastPathComponent): \(error)")
@@ -1714,9 +1759,7 @@ extension DMPPImageEditorView {
         return "\(band) \(decade)s"
     }
 
-    
-    
-    // MARK: Crop math helper
+    // MARK: Crop math helper (kept)
 
     private func centeredRectForAspect(_ aspectString: String, imageSize: CGSize) -> RectNormalized {
         let parts = aspectString.split(separator: ":")
@@ -1730,7 +1773,6 @@ extension DMPPImageEditorView {
 
         let targetAR = w / h
         let imageAR = Double(imageSize.width / max(imageSize.height, 1))
-
         let k = targetAR / imageAR
 
         let widthNorm: Double
@@ -1838,11 +1880,16 @@ private func dateValidationMessage(for raw: String) -> String? {
 
     return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
 }
+
 // MARK: - File-scope helpers
 
 fileprivate func dmppIsSupportedImageURL(_ url: URL) -> Bool {
     let ext = url.pathExtension.lowercased()
     return ["jpg", "jpeg", "png", "heic", "tif", "tiff", "webp"].contains(ext)
+}
+
+private func revealInFinder(_ url: URL) {
+    NSWorkspace.shared.activateFileViewerSelecting([url])
 }
 
 // MARK: - Preview

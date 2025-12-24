@@ -23,7 +23,7 @@ struct dMagy_Picture_PrepApp: App {
         }
 
         // [APP-PEOPLE] Dedicated People Manager window
-        WindowGroup(id: "People-Manager") {
+        WindowGroup("Details", id: "People-Manager") {
             
             DMPPPeopleManagerView()
                 .environmentObject(identityStore)

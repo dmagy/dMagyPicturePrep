@@ -99,9 +99,8 @@ final class DMPPIdentityStore: ObservableObject {
         // Optional: write back the migrated structure so it stays clean next run
         save()
     }
-    // cp-2025-12-18-30(ALIVE-FILTER)
 
-    // cp-2025-12-18-ALIVE-RANGE
+    // MARK: - Alive filter (Option B: Death is an event)
 
     /// Return people who could plausibly be alive during the photo range.
     /// - If birth/death is unknown, we keep the person (inclusive, not exclusionary).
@@ -119,28 +118,26 @@ final class DMPPIdentityStore: ObservableObject {
         guard let p0 = photoEarliest, let p1 = photoLatest else {
             return peopleSortedForUI
         }
+
         // cp-2025-12-18-DEBUG-ANNA
         let annas = peopleSortedForUI.filter { $0.shortName.lowercased().contains("anna") }
         print("DEBUG peopleSortedForUI annas count=\(annas.count)")
         for p in annas {
             let pid = p.id
             let b = p.birthDate ?? ""
-            let d = p.versions.first?.deathDate ?? ""
-            print("DEBUG anna shortName=\(p.shortName) id=\(pid) birth=\(b) death=\(d) versions=\(p.versions.count)")
+            let d = deathEventDate(from: p.versions) ?? ""
+            print("DEBUG anna shortName=\(p.shortName) id=\(pid) birth=\(b) deathEvent=\(d) versions=\(p.versions.count)")
         }
 
         return peopleSortedForUI.filter { person in
 
-            // Person-level birth/death (you propagate these, so person.birthDate is fine).
+            // Person-level birth (propagated)
             let (b0, _) = LooseYMD.birthRange(person.birthDate)
-            let (_, d1) = LooseYMD.birthRange(person.versions.first?.deathDate ?? nil) // fuzzy same grammar
 
-            // Interpret ranges:
-            // - birth: [b0...b1] (unknown => open)
-            // - death: [d0...d1] (unknown => open)
-            // We'll use:
-            //   earliestPossibleAlive = b0
-            //   latestPossibleAlive   = d1   (or nil if unknown)
+            // Option B: death comes from the Death event date
+            let deathDateString = deathEventDate(from: person.versions)
+            let (_, d1) = LooseYMD.birthRange(deathDateString)
+
             let earliestAlive = b0
             let latestAlive   = d1
 
@@ -155,8 +152,16 @@ final class DMPPIdentityStore: ObservableObject {
         }
     }
 
+    private func deathEventDate(from versions: [DmpmsIdentity]) -> String? {
+        let deaths = versions.filter { normalize($0.idReason) == "death" }
+        guard !deaths.isEmpty else { return nil }
+        let best = deaths.max(by: { sortKey(for: $0.idDate) < sortKey(for: $1.idDate) })
+        let s = (best?.idDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
+    }
 
-    
+    // MARK: - Shared fields propagation
+
     private func propagateSharedFieldsAcrossIdentityVersions() {
         let groups = Dictionary(grouping: identities, by: { $0.personID ?? $0.id })
 
@@ -174,7 +179,8 @@ final class DMPPIdentityStore: ObservableObject {
             // Person-level fields to keep in sync across ALL versions
             let sharedShortName  = primary.shortName
             let sharedBirthDate  = primary.birthDate
-            let sharedDeathDate  = primary.deathDate
+            let sharedDeathDate  = primary.deathDate   // legacy; keep propagated for backward compat
+            let sharedKind       = normalizeKind(primary.kind)
             let sharedFavorite   = primary.isFavorite
             let sharedNotes      = primary.notes
 
@@ -186,14 +192,14 @@ final class DMPPIdentityStore: ObservableObject {
                 var copy = v
                 copy.personID   = personID
 
-                // existing shared fields
+                // shared fields
                 copy.shortName  = sharedShortName
                 copy.birthDate  = sharedBirthDate
-                copy.deathDate = sharedDeathDate
+                copy.deathDate  = sharedDeathDate
+                copy.kind       = sharedKind
                 copy.isFavorite = sharedFavorite
                 copy.notes      = sharedNotes
 
-                // shared fields
                 copy.preferredName = sharedPreferred
                 copy.aliases       = sharedAliases
 
@@ -231,6 +237,7 @@ final class DMPPIdentityStore: ObservableObject {
         let preferredName: String?
         let aliases: [String]
         let birthDate: String?
+        let kind: String
         let isFavorite: Bool
         let notes: String?
 
@@ -240,17 +247,11 @@ final class DMPPIdentityStore: ObservableObject {
 
     // MARK: - Checklist labels (People section)
 
-    private var shortNameCounts: [String: Int] {
-        Dictionary(grouping: peopleSortedForUI, by: { $0.shortName.lowercased() })
-            .mapValues { $0.count }
-    }
-
     /// Returns a label for the People checklist.
     /// - If `shortName` is unique: "Anna"
     /// - If duplicated: "Anna (b. 1942)"
     /// - If duplicated but birth year missing: "Anna (b. ? #A1B2)"
     func checklistLabel(for person: PersonSummary) -> String {
-        // Count duplicates by shortName (case-insensitive)
         let counts = Dictionary(grouping: peopleSortedForUI, by: { $0.shortName.lowercased() })
             .mapValues { $0.count }
 
@@ -302,11 +303,12 @@ final class DMPPIdentityStore: ObservableObject {
                 .filter { !$0.isEmpty }
 
             return PersonSummary(
-                id: personID,                 // now guaranteed non-empty
+                id: personID,
                 shortName: displayShort,
                 preferredName: preferredClean,
                 aliases: aliasesClean,
                 birthDate: birth,
+                kind: normalizeKind(representative.kind),
                 isFavorite: representative.isFavorite,
                 notes: representative.notes,
                 versions: sortedVersions
@@ -317,7 +319,6 @@ final class DMPPIdentityStore: ObservableObject {
             $0.shortName.localizedCaseInsensitiveCompare($1.shortName) == .orderedAscending
         }
     }
-
 
     var favoritePeople: [PersonSummary] {
         peopleSortedForUI.filter { $0.isFavorite }
@@ -350,6 +351,9 @@ final class DMPPIdentityStore: ObservableObject {
         // Ensure personID exists
         let pid = (incoming.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
         incoming.personID = pid ?? incoming.id
+
+        // Normalize kind
+        incoming.kind = normalizeKind(incoming.kind)
 
         if let idx = identities.firstIndex(where: { $0.id == incoming.id }) {
             identities[idx] = incoming
@@ -401,6 +405,8 @@ final class DMPPIdentityStore: ObservableObject {
             middleName: nil,
             surname: "",
             birthDate: "",
+            deathDate: nil,
+            kind: "human",
             idDate: "",
             idReason: "Birth",
             isFavorite: false,
@@ -431,6 +437,9 @@ final class DMPPIdentityStore: ObservableObject {
         new.idReason = "Marriage"   // default; user can change
         new.idDate = ""
 
+        // ensure kind normalized
+        new.kind = normalizeKind(new.kind)
+
         identities.append(new)
         propagateSharedFieldsAcrossIdentityVersions()
         identities = identitiesSortedForUI
@@ -444,6 +453,11 @@ final class DMPPIdentityStore: ObservableObject {
 
     private func normalize(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizeKind(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return (s == "pet") ? "pet" : "human"
     }
 
     private func identityVersionsInternalSorted(_ versions: [DmpmsIdentity]) -> [DmpmsIdentity] {

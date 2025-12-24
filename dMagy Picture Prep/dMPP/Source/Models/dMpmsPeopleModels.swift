@@ -36,7 +36,12 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
     var birthDate: String?
 
     /// Death date of the person (same grammar as dMPMS).
+    /// NOTE: Option B: Death is an event. This field is legacy/optional; filtering should use the Death event date.
     var deathDate: String?
+
+    /// Kind of being. Defaults to human.
+    /// Missing/unknown decodes as "human" for migration safety.
+    var kind: String
 
     /// Person-level favorite flag.
     var isFavorite: Bool
@@ -81,6 +86,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         surname: String,
         birthDate: String? = nil,
         deathDate: String? = nil,
+        kind: String = "human",
         idDate: String,
         idReason: String,
         isFavorite: Bool = false,
@@ -96,6 +102,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         self.surname = surname
         self.birthDate = birthDate
         self.deathDate = deathDate
+        self.kind = Self.normalizeKind(kind)
         self.idDate = idDate
         self.idReason = idReason
         self.isFavorite = isFavorite
@@ -108,6 +115,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         case id, personID
         case shortName, preferredName, aliases
         case birthDate, deathDate
+        case kind
         case isFavorite, notes
         case givenName, middleName, surname
         case idDate, idReason
@@ -124,7 +132,10 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
 
         birthDate = try c.decodeIfPresent(String.self, forKey: .birthDate)
-        deathDate = try c.decodeIfPresent(String.self, forKey: .deathDate) // IMPORTANT
+        deathDate = try c.decodeIfPresent(String.self, forKey: .deathDate) // legacy/optional
+
+        let rawKind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "human"
+        kind = Self.normalizeKind(rawKind)
 
         isFavorite = try c.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         notes = try c.decodeIfPresent(String.self, forKey: .notes)
@@ -150,6 +161,8 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         try c.encodeIfPresent(birthDate, forKey: .birthDate)
         try c.encodeIfPresent(deathDate, forKey: .deathDate)
 
+        try c.encode(Self.normalizeKind(kind), forKey: .kind)
+
         try c.encode(isFavorite, forKey: .isFavorite)
         try c.encodeIfPresent(notes, forKey: .notes)
 
@@ -160,7 +173,15 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         try c.encode(idDate, forKey: .idDate)
         try c.encode(idReason, forKey: .idReason)
     }
+
+    // MARK: - Kind normalization
+
+    private static func normalizeKind(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return (s == "pet") ? "pet" : "human"
+    }
 }
+
 
 
 

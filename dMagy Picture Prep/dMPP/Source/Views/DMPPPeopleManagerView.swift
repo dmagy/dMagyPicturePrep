@@ -18,6 +18,10 @@ struct DMPPPeopleManagerView: View {
 
     @State private var refreshToken = UUID()   // used to force List refresh after edits
 
+    // Delete confirmation
+    @State private var showDeleteConfirm: Bool = false
+    @State private var deleteTargetPersonID: String? = nil
+
     // Default event suggestions for additional identity versions.
     // (Birth is handled by the birth identity block.)
     private let eventSuggestions = [
@@ -53,19 +57,17 @@ struct DMPPPeopleManagerView: View {
         } detail: {
             detailEditor
         }
-        .frame(minWidth: 900, minHeight: 500)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    let newPersonID = identityStore.addPerson()
-                    selectedPersonID = newPersonID
-                    loadDrafts(for: newPersonID)
-                    refreshToken = UUID()
-                } label: {
-                    Label("New Person", systemImage: "plus")
-                }
-                .help("Create a new person (birth identity first)")
+        .frame(minWidth: 910, idealWidth: 910, minHeight: 500)
+        .alert("Delete person?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) { }
+
+            Button("Delete", role: .destructive) {
+                guard let pid = deleteTargetPersonID else { return }
+                deletePerson(personID: pid)
+                deleteTargetPersonID = nil
             }
+        } message: {
+            Text("This permanently deletes the person and all their identity versions. This can’t be undone.")
         }
         .onAppear {
             identityStore.load()
@@ -98,6 +100,8 @@ struct DMPPPeopleManagerView: View {
                 ForEach(filteredPeople) { person in
                     let versions = identityStore.identityVersions(forPersonID: person.id)
                     let current = versions.last ?? versions.first
+                    let deathDate = deathEventDate(from: versions)
+                    let isPet = isPetPerson(versions)
 
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: person.isFavorite ? "star.fill" : "star")
@@ -115,15 +119,12 @@ struct DMPPPeopleManagerView: View {
                                         .foregroundStyle(.secondary)
                                 }
 
-                                if let death = person.versions.first?.deathDate {
-                                    let deathClean = death.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !deathClean.isEmpty {
-                                        Text("(d. \(deathClean))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
+                                // Option B: Death is an event; display from Death event date
+                                if let deathDate, !deathDate.isEmpty {
+                                    Text("(d. \(deathDate))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
-
 
                                 Spacer()
 
@@ -135,9 +136,19 @@ struct DMPPPeopleManagerView: View {
                             }
 
                             if let current {
-                                Text(current.fullName)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+
+                                HStack(spacing: 4) {
+                                    Text(current.fullName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    if isPet {
+                                        Image(systemName: "pawprint.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .accessibilityLabel("Pet")
+                                    }
+                                }
 
                                 // Show latest event (if not Birth)
                                 if !current.idReason.isEmpty,
@@ -166,35 +177,36 @@ struct DMPPPeopleManagerView: View {
                 }
             }
 
-            HStack {
-                Button(role: .destructive) {
-                    deleteSelectedPerson()
-                } label: {
-                    Label("Delete person", systemImage: "trash")
-                }
-                .disabled(selectedPersonID == nil)
+            // Add person moved to bottom of list view
+            Button {
+                createNewPerson()
+            } label: {
+                Label("Add person", systemImage: "plus")
             }
+            .buttonStyle(.borderedProminent)
+            .help("Create a new person (birth identity first)")
             .padding(.top, 4)
-
         }
         .padding()
     }
 
     private var filteredPeople: [DMPPIdentityStore.PersonSummary] {
-        let all = identityStore.peopleSortedForUI
+        // Force deterministic ordering (even when names tie)
+        let basePeople = identityStore.peopleSortedForUI.sorted(by: peopleSort)
 
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return all }
+        guard !trimmed.isEmpty else { return basePeople }
 
         let needle = trimmed.lowercased()
 
-        return all.filter { person in
+        // Filtering preserves the incoming order, so no re-sort needed
+        return basePeople.filter { person in
             // Person-level fields
             if person.shortName.lowercased().contains(needle) { return true }
             if let notes = person.notes?.lowercased(), notes.contains(needle) { return true }
             if let birth = person.birthDate?.lowercased(), birth.contains(needle) { return true }
 
-            // Any identity version fields
+            // Any identity version fields (Death is covered by idReason/idDate)
             let versions = identityStore.identityVersions(forPersonID: person.id)
             return versions.contains { v in
                 v.fullName.lowercased().contains(needle)
@@ -204,7 +216,7 @@ struct DMPPPeopleManagerView: View {
                 || v.idReason.lowercased().contains(needle)
                 || v.idDate.lowercased().contains(needle)
                 || (v.notes?.lowercased().contains(needle) ?? false)
-                || (v.deathDate?.lowercased().contains(needle) ?? false)
+                || v.kind.lowercased().contains(needle)
             }
         }
     }
@@ -217,7 +229,7 @@ struct DMPPPeopleManagerView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No person selected")
                         .font(.headline)
-                    Text("Select a person on the left, or click “New person” to add one.")
+                    Text("Select a person on the left, or use “Add person” to create one.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -265,6 +277,16 @@ struct DMPPPeopleManagerView: View {
                     }
 
                     HStack {
+                        // Delete moved here, left of Add event, with spacer in between
+                        Button(role: .destructive) {
+                            deleteTargetPersonID = selectedPersonID
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("Delete person", systemImage: "trash")
+                        }
+                        .disabled(selectedPersonID == nil)
+                        .buttonStyle(.bordered)
+
                         Spacer()
 
                         Button("Add event…") {
@@ -292,7 +314,7 @@ struct DMPPPeopleManagerView: View {
     private var birthEditorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
 
-            // LINE 1: Short name + Birth date + Death date + Favorite
+            // LINE 1: Short name + Birth date + Kind + Favorite
             HStack(alignment: .top, spacing: 12) {
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -300,7 +322,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Short name", text: bindingBirth(\.shortName))
-                        .frame(width: 180)
+                        .frame(width: 160)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -308,16 +330,21 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("YYYY-MM-DD", text: optionalBindingBirth(\.birthDate))
-                        .frame(width: 120)
+                        .frame(width: 160)
                 }
 
-                // cp-2025-12-18-34(DEATHDATE-UI)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Death Date")
+                    Text("Kind")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("YYYY-MM-DD", text: optionalBindingBirth(\.deathDate))
-                        .frame(width: 120)
+
+                    Picker("Kind", selection: kindBindingBirth()) {
+                        Text("Human").tag("human")
+                        Text("Pet").tag("pet")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 120, alignment: .leading)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -343,7 +370,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("e.g., Betty", text: optionalBindingBirth(\.preferredName))
-                        .frame(width: 180)
+                        .frame(width: 160)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -351,6 +378,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Comma-separated (e.g., Elizabeth, Betty Ann)", text: aliasesBindingBirth())
+                        .frame(width: 320)
                 }
 
                 Spacer()
@@ -363,9 +391,11 @@ struct DMPPPeopleManagerView: View {
                     .foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     TextField("Given", text: bindingBirth(\.givenName))
+                        .frame(width: 160)
                     TextField("Middle", text: optionalBindingBirth(\.middleName))
-                        .frame(width: 140)
+                        .frame(width: 160)
                     TextField("Surname", text: bindingBirth(\.surname))
+                        .frame(width: 160)
                 }
             }
         }
@@ -397,6 +427,7 @@ struct DMPPPeopleManagerView: View {
                                     Text("—").tag("")
                                     ForEach(eventSuggestions, id: \.self) { suggestion in
                                         Text(suggestion).tag(suggestion)
+                                            .frame(width: 150)
                                     }
                                 }
                                 .labelsHidden()
@@ -425,17 +456,21 @@ struct DMPPPeopleManagerView: View {
                                     .foregroundStyle(.secondary)
 
                                 TextField("YYYY-MM-DD", text: $identity.idDate)
-                                    .frame(width: 120)
+                                    .frame(width: 155)
                             }
 
-                            Spacer()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
 
-                            Button(role: .destructive) {
-                                removeAdditionalIdentity(id: identity.id)
-                            } label: {
-                                Label("Remove", systemImage: "trash")
+                                Button(role: .destructive) {
+                                    removeAdditionalIdentity(id: identity.id)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                                .buttonStyle(.bordered)
                             }
-                            .buttonStyle(.bordered)
                         }
 
                         // cp-2025-12-18-34(DEATH-NO-RENAME)
@@ -451,6 +486,7 @@ struct DMPPPeopleManagerView: View {
 
                                 HStack(spacing: 6) {
                                     TextField("Given", text: $identity.givenName)
+                                        .frame(width: 155)
 
                                     TextField(
                                         "Middle",
@@ -459,9 +495,10 @@ struct DMPPPeopleManagerView: View {
                                             set: { identity.middleName = $0.isEmpty ? nil : $0 }
                                         )
                                     )
-                                    .frame(width: 140)
+                                    .frame(width: 155)
 
                                     TextField("Surname", text: $identity.surname)
+                                        .frame(width: 155)
                                 }
                             }
                         } else if isDeath {
@@ -479,6 +516,13 @@ struct DMPPPeopleManagerView: View {
     }
 
     // MARK: - Actions
+
+    private func createNewPerson() {
+        let newPersonID = identityStore.addPerson()
+        selectedPersonID = newPersonID
+        loadDrafts(for: newPersonID)
+        refreshToken = UUID()
+    }
 
     private func loadDrafts(for personID: String) {
         let versions = identityStore.identityVersions(forPersonID: personID)
@@ -509,19 +553,43 @@ struct DMPPPeopleManagerView: View {
         refreshToken = UUID()
     }
 
+    private func peopleSort(_ a: DMPPIdentityStore.PersonSummary,
+                            _ b: DMPPIdentityStore.PersonSummary) -> Bool {
+        let nameA = a.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameB = b.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let c = nameA.localizedCaseInsensitiveCompare(nameB)
+        if c != .orderedSame { return c == .orderedAscending }
+
+        let bdA = (a.birthDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let bdB = (b.birthDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if bdA != bdB { return bdA < bdB }
+
+        // Final deterministic tie-breaker (prevents “two Annas swap places”)
+        return a.id < b.id
+    }
+
     private func addIdentityVersion(for personID: String) {
         _ = identityStore.addIdentityVersion(forPersonID: personID)
         loadDrafts(for: personID)
         refreshToken = UUID()
     }
 
-    private func deleteSelectedPerson() {
-        guard let pid = selectedPersonID else { return }
+    private func deletePerson(personID pid: String) {
         identityStore.deletePerson(personID: pid)
-        selectedPersonID = nil
-        draftBirth = nil
-        draftAdditional = []
+
         refreshToken = UUID()
+
+        // Auto-select a remaining person
+        let remaining = filteredPeople
+        if let first = remaining.first {
+            selectedPersonID = first.id
+            loadDrafts(for: first.id)
+        } else {
+            selectedPersonID = nil
+            draftBirth = nil
+            draftAdditional = []
+        }
     }
 
     private func saveAllDrafts(for personID: String) {
@@ -593,6 +661,41 @@ struct DMPPPeopleManagerView: View {
                 draftBirth?.aliases = cleaned
             }
         )
+    }
+
+    private func kindBindingBirth() -> Binding<String> {
+        Binding<String>(
+            get: {
+                let raw = (draftBirth?.kind ?? "human")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                return (raw == "pet") ? "pet" : "human"
+            },
+            set: { newValue in
+                draftBirth?.kind = (newValue == "pet") ? "pet" : "human"
+            }
+        )
+    }
+
+    // MARK: - Death as event helper (Option B)
+
+    private func deathEventDate(from versions: [DmpmsIdentity]) -> String? {
+        // If multiple Death events exist, prefer the latest by sortable date key.
+        let deaths = versions.filter { $0.idReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "death" }
+        guard !deaths.isEmpty else { return nil }
+
+        let best = deaths.max(by: { sortKeyLocal($0.idDate) < sortKeyLocal($1.idDate) })
+        let s = (best?.idDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
+    }
+
+    // MARK: - Kind helpers
+
+    private func isPetPerson(_ versions: [DmpmsIdentity]) -> Bool {
+        let birth = versions.first(where: { $0.idReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "birth" })
+            ?? versions.first
+        let raw = (birth?.kind ?? "human").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return raw == "pet"
     }
 
     // MARK: - Local helper
