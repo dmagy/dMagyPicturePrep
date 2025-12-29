@@ -2,7 +2,7 @@
 //  DMPPUserPreferences.swift
 //  dMagy Picture Prep
 //
-//  dMPP-2025-11-30-PREF1 — User preferences (crop + future metadata)
+//  dMPP-2025-11-30-PREF1 — User preferences (crop + metadata)
 //
 
 import Foundation
@@ -63,16 +63,53 @@ struct DMPPUserPreferences: Codable, Equatable {
         DMPPUserPreferences.reservedDoNotDisplayTag
     ]
 
-    // MARK: - Future metadata defaults
+    // MARK: - Location preferences (NEW)
 
-    /// Placeholder for future metadata defaults (title/date/tag behavior, etc.)
-    /// Add fields here later as needed.
-    // struct MetadataDefaults: Codable, Equatable {
-    //     var defaultDatePattern: String?
-    //     var autoTagFromFolder: Bool
-    // }
-    //
-    // var metadataDefaults: MetadataDefaults? = nil
+    /// User-defined locations used by the Location dropdown.
+    /// Examples: "Ashcroft" / "Our Family House" / address fields.
+    var userLocations: [DMPPUserLocation] = []
+
+    // MARK: - Location helpers
+
+    /// Sorted for dropdown UI (shortName alpha, then city/state).
+    var userLocationsSortedForUI: [DMPPUserLocation] {
+        userLocations.sorted { a, b in
+            let aName = a.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let bName = b.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let primary = aName.localizedCaseInsensitiveCompare(bName)
+            if primary != .orderedSame { return primary == .orderedAscending }
+
+            let aCity = (a.city ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let bCity = (b.city ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let secondary = aCity.localizedCaseInsensitiveCompare(bCity)
+            if secondary != .orderedSame { return secondary == .orderedAscending }
+
+            let aState = (a.state ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let bState = (b.state ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return aState.localizedCaseInsensitiveCompare(bState) == .orderedAscending
+        }
+    }
+
+    /// Finds a saved user location that matches a DmpmsLocation by normalized address key.
+    /// Use this after reverse-geocoding to auto-fill shortName/description.
+    func matchingUserLocation(for loc: DmpmsLocation?) -> DMPPUserLocation? {
+        guard let loc else { return nil }
+
+        func norm(_ s: String?) -> String {
+            (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+
+        let key = [
+            norm(loc.streetAddress),
+            norm(loc.city),
+            norm(loc.state),
+            norm(loc.country)
+        ].joined(separator: "|")
+
+        guard !key.replacingOccurrences(of: "|", with: "").isEmpty else { return nil }
+        return userLocations.first(where: { $0.matchKey == key })
+    }
+
 
     // MARK: - Persistence
 
@@ -88,16 +125,31 @@ struct DMPPUserPreferences: Codable, Equatable {
             return prefs
         }
 
-        do {
-            var prefs = try JSONDecoder().decode(DMPPUserPreferences.self, from: data)
-            prefs.ensureReservedTag()
-            return prefs
-        } catch {
-            print("dMPP: Failed to decode DMPPUserPreferences, using defaults. Error: \(error)")
-            var prefs = DMPPUserPreferences()
+        // 1) Try current schema
+        if var prefs = try? JSONDecoder().decode(DMPPUserPreferences.self, from: data) {
             prefs.ensureReservedTag()
             return prefs
         }
+
+        // 2) Try legacy schema(s) and migrate forward (best-effort)
+        if let legacy = try? JSONDecoder().decode(LegacyPrefsV1.self, from: data) {
+            var prefs = DMPPUserPreferences()
+
+            prefs.defaultCropPresets = legacy.defaultCropPresets
+            prefs.customCropPresets = legacy.customCropPresets
+            prefs.availableTags = legacy.availableTags
+            prefs.userLocations = legacy.userLocations.map { $0.asCurrent }
+
+            prefs.ensureReservedTag()
+            prefs.save() // write back migrated schema
+            return prefs
+        }
+
+        // 3) Total failure → defaults
+        print("dMPP: Failed to decode DMPPUserPreferences, using defaults.")
+        var prefs = DMPPUserPreferences()
+        prefs.ensureReservedTag()
+        return prefs
     }
 
     /// Save preferences to UserDefaults and broadcast a change notification.
@@ -125,19 +177,39 @@ struct DMPPUserPreferences: Codable, Equatable {
         // Insert the canonical version at the front.
         availableTags.insert(Self.reservedDoNotDisplayTag, at: 0)
     }
+
+
+
+    /// Find a user location that matches an auto-resolved location (address fields).
+    /// Uses the matchKey normalization from DMPPUserLocation.
+    func matchUserLocation(to resolved: DmpmsLocation) -> DMPPUserLocation? {
+        let key = [
+            norm(resolved.streetAddress),
+            norm(resolved.city),
+            norm(resolved.state),
+            norm(resolved.country)
+        ].joined(separator: "|")
+
+        return userLocations.first(where: { $0.matchKey == key })
+    }
+
+    private func norm(_ s: String?) -> String {
+        (s ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
 }
 
 // MARK: - Effective defaults
 
 extension DMPPUserPreferences {
-    static let mandatoryTagName = "Do Not Display";
+    static let mandatoryTagName = "Do Not Display"
+
     /// Returns the active default crop presets, with safety rules:
     /// - If the user disables all presets, we fall back to `.original` only
     ///   so they can still use dMPP just for metadata.
     /// - Duplicates are removed while preserving order.
     var effectiveDefaultCropPresets: [CropPresetID] {
-        // If the user turned everything off, treat this as "metadata only",
-        // but still create an Original (full image) crop.
         let base: [CropPresetID] =
             defaultCropPresets.isEmpty ? [.original] : defaultCropPresets
 
@@ -151,6 +223,40 @@ extension DMPPUserPreferences {
             }
         }
         return result
+    }
+}
+
+// MARK: - Legacy migrations
+
+/// Legacy prefs format (kept minimal): same key, older Location ID shape, etc.
+private struct LegacyPrefsV1: Codable {
+    var defaultCropPresets: [DMPPUserPreferences.CropPresetID] = [.landscape16x9, .portrait8x10]
+    var customCropPresets: [DMPPUserPreferences.CustomCropPreset] = []
+    var availableTags: [String] = [DMPPUserPreferences.reservedDoNotDisplayTag]
+
+    var userLocations: [LegacyUserLocation] = []
+}
+
+/// Older location shape that might exist from earlier experiments.
+private struct LegacyUserLocation: Codable {
+    var id: String
+    var shortName: String
+    var description: String?
+    var streetAddress: String?
+    var city: String?
+    var state: String?
+    var country: String?
+
+    var asCurrent: DMPPUserLocation {
+        DMPPUserLocation(
+            id: UUID(), // legacy string IDs aren’t worth preserving long-term
+            shortName: shortName,
+            description: description,
+            streetAddress: streetAddress,
+            city: city,
+            state: state,
+            country: country
+        )
     }
 }
 

@@ -112,7 +112,6 @@ struct DMPPImageEditorView: View {
                 }
             }
 
-
             Spacer(minLength: 16)
 
             // Right cluster
@@ -528,6 +527,11 @@ struct DMPPMetadataFormPane: View {
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
     @State private var dateWarning: String? = nil
     @State private var pendingResetAfterSnapshot: Bool = false
+    
+    // cp-2025-12-26-LOC-UI2(STATE)
+    @State private var userLocations: [DMPPUserLocation] = []
+    @State private var selectedUserLocationID: UUID? = nil
+
 
     // MARK: View
 
@@ -539,15 +543,18 @@ struct DMPPMetadataFormPane: View {
                 dateSection
                 tagsSection
                 peopleSection
+                locationSection
 
                 Spacer(minLength: 0)
             }
             .onAppear {
                 reloadAvailableTags()
+                reloadUserLocations()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
             }
             .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
                 reloadAvailableTags()
+                reloadUserLocations()
             }
             .onChange(of: showAddUnknownSheet) { _, isShown in
                 guard isShown else { return }
@@ -633,6 +640,129 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
+    // cp-2025-12-26-LOC-UI2(SECTION)
+    // cp-2025-12-26-LOC-UI2(SECTION)
+    private var locationSection: some View {
+        GroupBox("Location") {
+            VStack(alignment: .leading, spacing: 10) {
+
+                // GPS readout (read-only)
+                if let gps = vm.metadata.gps {
+                    Text("GPS: \(gps.latitude), \(gps.longitude)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("GPS: (none)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Saved-location picker
+                HStack(spacing: 10) {
+                    Picker("Saved", selection: $selectedUserLocationID) {
+                        Text("—").tag(UUID?.none)
+
+                        ForEach(userLocations) { loc in
+                            Text(loc.shortName.trimmingCharacters(in: .whitespacesAndNewlines))
+
+                                .tag(Optional(loc.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("Fill missing") { applySelectedUserLocation(fillOnly: true) }
+                        .buttonStyle(.bordered)
+                        .disabled(selectedUserLocation == nil)
+
+                    Button("Overwrite") { applySelectedUserLocation(fillOnly: false) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selectedUserLocation == nil)
+                }
+
+
+                // Show the saved description (if a saved one is selected)
+                if let loc = selectedUserLocation {
+                    let desc = (loc.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !desc.isEmpty {
+                        Text(desc)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+
+                Divider().padding(.vertical, 2)
+
+                // Per-photo editable fields
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Short Name")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Ashcroft", text: bindingLocation(\.shortName))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Description")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Our Family House", text: bindingLocation(\.description))
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Street Address")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("1418 Ashcroft Dr", text: bindingLocation(\.streetAddress))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("City")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Longmont", text: bindingLocation(\.city))
+                            .frame(width: 160)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("State")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Colorado", text: bindingLocation(\.state))
+                            .frame(width: 160)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Country")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("United States", text: bindingLocation(\.country))
+                            .frame(width: 200)
+                    }
+
+                    Spacer()
+
+                    Button("Clear") { vm.metadata.location = nil }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
+
     private var tagsSection: some View {
         GroupBox("Tags") {
             VStack(alignment: .leading, spacing: 8) {
@@ -655,7 +785,7 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
 
-                Button("Add / Edit tags…") { openSettings() }
+                Button("Add / Edit tags in Settings") { openSettings() }
                     .buttonStyle(.link)
                     .font(.caption)
                     .tint(.accentColor)
@@ -716,7 +846,7 @@ struct DMPPMetadataFormPane: View {
                 checklistBlock
 
                 HStack(spacing: 8) {
-                    Button("Open People Manager…") { openWindow(id: "People-Manager") }
+                    Button("Add / Edit People in People Manager…") { openWindow(id: "People-Manager") }
                         .buttonStyle(.link)
                         .font(.caption)
                         .tint(.accentColor)
@@ -937,8 +1067,6 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
-
-
     // MARK: Sheets
 
     private var addUnknownSheet: some View {
@@ -1026,6 +1154,142 @@ private extension DMPPMetadataFormPane {
 
     var identityStore: DMPPIdentityStore { .shared }
 
+    // cp-2025-12-26-LOC-UI2(BINDINGS)
+    func bindingLocation(_ keyPath: WritableKeyPath<DmpmsLocation, String?>) -> Binding<String> {
+        Binding<String>(
+            get: { vm.metadata.location?[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if vm.metadata.location == nil {
+                    vm.metadata.location = DmpmsLocation()
+                }
+
+                vm.metadata.location?[keyPath: keyPath] = trimmed.isEmpty ? nil : trimmed
+
+                // If user clears everything, drop back to nil
+                if let loc = vm.metadata.location {
+                    let allEmpty =
+                        (loc.streetAddress?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) &&
+                        (loc.city?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) &&
+                        (loc.state?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) &&
+                        (loc.country?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+                    if allEmpty { vm.metadata.location = nil }
+                }
+            }
+        )
+    }
+
+    // cp-2025-12-26-LOC-UI2(MAPS+FILL)
+
+    private func fillLocationFromGPS(overwrite: Bool) {
+        guard let gps = vm.metadata.gps else { return }
+
+        // If not overwriting, only fill when empty
+        if !overwrite, vm.metadata.location != nil { return }
+
+        Task {
+            if let loc = await DMPPPhotoLocationReader.reverseGeocode(gps) {
+                let prefs = DMPPUserPreferences.load()
+                let match = prefs.matchingUserLocation(for: loc)
+
+                await MainActor.run {
+                    // Re-check at apply time to avoid races (user may have edited while geocoding).
+                    if !overwrite, vm.metadata.location != nil { return }
+
+                    // Apply the resolved location
+                    vm.metadata.location = loc
+
+                    // If the resolved address matches one of the user's saved locations,
+                    // carry over the friendly shortName + description.
+                    if let match {
+                        // Only set these if empty unless overwrite requested
+                        if overwrite || (vm.metadata.location?.shortName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                            vm.metadata.location?.shortName = match.shortName
+                        }
+                        if overwrite || (vm.metadata.location?.description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                            vm.metadata.location?.description = match.description
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+
+    // cp-2025-12-26-LOC-UI2(HELPERS)
+
+    func reloadUserLocations() {
+        userLocations = DMPPUserPreferences.load().userLocationsSortedForUI
+    }
+
+    var selectedUserLocation: DMPPUserLocation? {
+        guard let id = selectedUserLocationID else { return nil }
+        return userLocations.first(where: { $0.id == id })
+    }
+
+    func applySelectedUserLocation(fillOnly: Bool) {
+        guard let loc = selectedUserLocation else { return }
+
+        if vm.metadata.location == nil { vm.metadata.location = DmpmsLocation() }
+
+        func set(_ kp: WritableKeyPath<DmpmsLocation, String?>, _ value: String?) {
+            let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+
+            if fillOnly {
+                let existing = (vm.metadata.location?[keyPath: kp] ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard existing.isEmpty else { return }
+            }
+
+            vm.metadata.location?[keyPath: kp] = trimmed
+        }
+
+        set(\.shortName,      loc.shortName)
+        set(\.description,    loc.description)
+        set(\.streetAddress,  loc.streetAddress)
+        set(\.city,           loc.city)
+        set(\.state,          loc.state)
+        set(\.country,        loc.country)
+    }
+
+
+
+    private func mapsURL() -> URL? {
+        // Prefer GPS if present (most precise)
+        if let gps = vm.metadata.gps {
+            return URL(string: "http://maps.apple.com/?ll=\(gps.latitude),\(gps.longitude)")
+        }
+
+        // Fall back to typed address
+        guard let loc = vm.metadata.location else { return nil }
+
+        let parts = [
+            loc.streetAddress,
+            loc.city,
+            loc.state,
+            loc.country
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+        guard !parts.isEmpty else { return nil }
+
+        let qRaw = parts.joined(separator: ", ")
+        guard let q = qRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+
+        return URL(string: "http://maps.apple.com/?q=\(q)")
+    }
+
+    private func openInMaps() {
+        guard let url = mapsURL() else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    
     func reloadAvailableTags() {
         availableTags = DMPPUserPreferences.load().availableTags
     }
@@ -1479,7 +1743,6 @@ extension DMPPImageEditorView {
         loadImages(from: url) // loadImages handles scoping + error message
     }
 
-    
     // MARK: UI helpers
 
     private var displayPathText: String {
@@ -1535,7 +1798,15 @@ extension DMPPImageEditorView {
         currentIndex = index
         let url = imageURLs[index]
 
-        let metadata = loadMetadata(for: url)
+        // Load sidecar first (mutable so we can hydrate)
+        var metadata = loadMetadata(for: url)
+
+        // cp-2025-12-26-LOC(HYDRATE-ON-LOAD)
+        // Only when loading a photo and only if the metadata.location field is empty.
+        if let gps = DMPPPhotoLocationReader.readGPS(from: url) {
+            metadata.gps = gps
+        }
+
         let newVM = DMPPImageEditorViewModel(imageURL: url, metadata: metadata)
 
         newVM.wireAgeRefresh()
@@ -1546,6 +1817,22 @@ extension DMPPImageEditorView {
         vm = newVM
         loadedMetadataHash = metadataHash(newVM.metadata)
         syncActiveRowIndexFromCurrentPhoto()
+
+        // Optional async reverse-geocode (only if location is still empty).
+        if metadata.location == nil, let gps = metadata.gps {
+            Task {
+                if let loc = await DMPPPhotoLocationReader.reverseGeocode(gps) {
+                    await MainActor.run {
+                        // Don’t stomp if user already typed something
+                        if self.vm?.metadata.location == nil {
+                            self.vm?.metadata.location = loc
+                            // NOTE: We intentionally do NOT update loadedMetadataHash here,
+                            // so Save becomes enabled and/or auto-save-on-next will persist it.
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func goToPreviousImage() {
@@ -1643,6 +1930,24 @@ extension DMPPImageEditorView {
         h.combine(m.title)
         h.combine(m.description)
         h.combine(m.dateTaken)
+
+        // Location/GPS MUST affect save-dirty state
+        if let gps = m.gps {
+            h.combine(gps.latitude)
+            h.combine(gps.longitude)
+            h.combine(gps.altitudeMeters ?? 0)
+        } else {
+            h.combine("no-gps")
+        }
+
+        if let loc = m.location {
+            h.combine(loc.streetAddress ?? "")
+            h.combine(loc.city ?? "")
+            h.combine(loc.state ?? "")
+            h.combine(loc.country ?? "")
+        } else {
+            h.combine("no-location")
+        }
 
         for t in m.tags.sorted() { h.combine(t) }
 

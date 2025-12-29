@@ -20,6 +20,7 @@ struct dMagy_Picture_PrepApp: App {
         // [APP-SETTINGS] Settings window (you already have this; keep as-is if different)
         Settings {
             DMPPCropPreferencesView()
+                .environmentObject(identityStore)
         }
 
         // [APP-PEOPLE] Dedicated People Manager window

@@ -5,7 +5,7 @@
 
 import Foundation
 
-// dMPMS-2025-12-XX-M3 — Core metadata models (+ human-facing notice + date ranges + peopleV2)
+// dMPMS-2025-12-XX-M3 — Core metadata models (+ human-facing notice + date ranges + peopleV2 + location)
 
 /* [DMPMS-DATERANGE] Machine-friendly date range derived from `dateTaken`. */
 struct DmpmsDateRange: Codable, Hashable {
@@ -13,9 +13,6 @@ struct DmpmsDateRange: Codable, Hashable {
     var earliest: String
     /// Latest possible date this photo could reasonably be from (YYYY-MM-DD).
     var latest: String
-    
-
-
 
     /// Build a DmpmsDateRange from a human-entered `dateTaken` string.
     /// Supported patterns:
@@ -104,7 +101,6 @@ struct DmpmsDateRange: Codable, Hashable {
         return nil
     }
 
-
     private static func lastDayOfMonth(year: Int, month: Int) -> Int {
         var comps = DateComponents()
         comps.year = year
@@ -149,6 +145,12 @@ struct DmpmsMetadata: Codable, Hashable {
     /// Nil if parsing fails or the format is too fuzzy.
     var dateRange: DmpmsDateRange? = nil
 
+    /// Raw GPS coordinates captured from the file (if present).
+    var gps: DmpmsGPS? = nil
+
+    /// Editable human-readable location snapshot (address parts).
+    var location: DmpmsLocation? = nil
+
     var tags: [String] = []
 
     /// Legacy flat list of people names.
@@ -159,7 +161,7 @@ struct DmpmsMetadata: Codable, Hashable {
     /// Each entry represents a specific person in this photo
     /// (identity ID, display name snapshot, age-at-photo, row/position, etc.).
     var peopleV2: [DmpmsPersonInPhoto] = []
-    
+
     // cp-2025-12-19-PS2(METADATA-ADD-SNAPSHOTS)
     var peopleV2Snapshots: [DmpmsPeopleSnapshot] = []
 
@@ -177,10 +179,12 @@ struct DmpmsMetadata: Codable, Hashable {
         case description
         case dateTaken
         case dateRange
+        case gps
+        case location
         case tags
         case people
         case peopleV2
-        case peopleV2Snapshots   // <-- add this
+        case peopleV2Snapshots
         case virtualCrops
         case history
     }
@@ -195,9 +199,12 @@ struct DmpmsMetadata: Codable, Hashable {
         description: String = "",
         dateTaken: String = "",
         dateRange: DmpmsDateRange? = nil,
+        gps: DmpmsGPS? = nil,
+        location: DmpmsLocation? = nil,
         tags: [String] = [],
         people: [String] = [],
         peopleV2: [DmpmsPersonInPhoto] = [],
+        peopleV2Snapshots: [DmpmsPeopleSnapshot] = [],
         virtualCrops: [VirtualCrop] = [],
         history: [HistoryEvent] = []
     ) {
@@ -208,9 +215,12 @@ struct DmpmsMetadata: Codable, Hashable {
         self.description = description
         self.dateTaken = dateTaken
         self.dateRange = dateRange
+        self.gps = gps
+        self.location = location
         self.tags = tags
         self.people = people
         self.peopleV2 = peopleV2
+        self.peopleV2Snapshots = peopleV2Snapshots
         self.virtualCrops = virtualCrops
         self.history = history
     }
@@ -231,6 +241,9 @@ struct DmpmsMetadata: Codable, Hashable {
         dateTaken   = try container.decode(String.self, forKey: .dateTaken)
 
         dateRange   = try? container.decode(DmpmsDateRange.self, forKey: .dateRange)
+
+        gps = try? container.decode(DmpmsGPS.self, forKey: .gps)
+        location = try? container.decode(DmpmsLocation.self, forKey: .location)
 
         tags   = try container.decode([String].self, forKey: .tags)
         people = try container.decode([String].self, forKey: .people)
@@ -254,6 +267,10 @@ struct DmpmsMetadata: Codable, Hashable {
         try c.encode(description, forKey: .description)
         try c.encode(dateTaken, forKey: .dateTaken)
         try c.encodeIfPresent(dateRange, forKey: .dateRange)
+
+        try c.encodeIfPresent(gps, forKey: .gps)
+        try c.encodeIfPresent(location, forKey: .location)
+
         try c.encode(tags, forKey: .tags)
 
         try c.encode(people, forKey: .people)
@@ -265,8 +282,6 @@ struct DmpmsMetadata: Codable, Hashable {
         try c.encode(virtualCrops, forKey: .virtualCrops)
         try c.encode(history, forKey: .history)
     }
-
-
 }
 
 /* [DMPMS-HISTORY] Simple history event. */
@@ -277,6 +292,7 @@ struct HistoryEvent: Codable, Hashable {
     var newName: String? = nil
     var cropID: String? = nil
 }
+
 // MARK: - People sync helpers
 
 extension DmpmsMetadata {
@@ -304,3 +320,26 @@ extension DmpmsMetadata {
         self.people = sorted.map { $0.shortNameSnapshot }
     }
 }
+
+// MARK: - Location models
+
+struct DmpmsGPS: Codable, Hashable {
+    var latitude: Double
+    var longitude: Double
+    var altitudeMeters: Double? = nil
+}
+
+struct DmpmsLocation: Codable, Hashable {
+    /// Optional friendly label used in UI (e.g., "Ashcroft", "Ames", "1st Lutheran")
+    var shortName: String? = nil
+
+    /// Optional longer description (e.g., "Our Family House", "Innovation Center")
+    var description: String? = nil
+
+    /// Human-entered address fields
+    var streetAddress: String? = nil   // e.g., "1418 Ashcroft Dr"
+    var city: String? = nil
+    var state: String? = nil
+    var country: String? = nil
+}
+

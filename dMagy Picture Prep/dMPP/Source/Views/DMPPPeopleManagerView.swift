@@ -6,7 +6,20 @@ import SwiftUI
 /// Uses the shared `DMPPIdentityStore` singleton as its backing store.
 struct DMPPPeopleManagerView: View {
 
+    // cp-2025-12-29-01(PEOPLE-HOST-MODE)
+    enum Host {
+        case window        // standalone People Manager window
+        case settingsTab   // embedded in Settings TabView
+    }
+
+    let host: Host
+
+    init(host: Host = .window) {
+        self.host = host
+    }
+
     // Shared store – NOT a Binding, not @Bindable.
+    // (Keeping singleton here avoids environment-object wiring churn.)
     private let identityStore = DMPPIdentityStore.shared
 
     @State private var searchText: String = ""
@@ -50,41 +63,68 @@ struct DMPPPeopleManagerView: View {
     ]
 
     var body: some View {
-        NavigationSplitView {
-            leftPane
-                .id(refreshToken)
-                .navigationSplitViewColumnWidth(min: 320, ideal: 320, max: 320) // fixed
-        } detail: {
-            detailEditor
-        }
-        .frame(minWidth: 910, idealWidth: 910, minHeight: 500)
-        .alert("Delete person?", isPresented: $showDeleteConfirm) {
-            Button("Cancel", role: .cancel) { }
+        contentView
+            .alert("Delete person?", isPresented: $showDeleteConfirm) {
+                Button("Cancel", role: .cancel) { }
 
-            Button("Delete", role: .destructive) {
-                guard let pid = deleteTargetPersonID else { return }
-                deletePerson(personID: pid)
-                deleteTargetPersonID = nil
+                Button("Delete", role: .destructive) {
+                    guard let pid = deleteTargetPersonID else { return }
+                    deletePerson(personID: pid)
+                    deleteTargetPersonID = nil
+                }
+            } message: {
+                Text("This permanently deletes the person and all their identity versions. This can’t be undone.")
             }
-        } message: {
-            Text("This permanently deletes the person and all their identity versions. This can’t be undone.")
-        }
-        .onAppear {
-            identityStore.load()
+            .onAppear {
+                identityStore.load()
 
-            // If nothing is selected yet, preselect first person.
-            if selectedPersonID == nil, let first = filteredPeople.first {
-                selectedPersonID = first.id
-                loadDrafts(for: first.id)
+                // If nothing is selected yet, preselect first person.
+                if selectedPersonID == nil, let first = filteredPeople.first {
+                    selectedPersonID = first.id
+                    loadDrafts(for: first.id)
+                }
             }
-        }
-        .onChange(of: selectedPersonID) { _, newValue in
-            if let pid = newValue {
-                loadDrafts(for: pid)
-            } else {
-                draftBirth = nil
-                draftAdditional = []
+            .onChange(of: selectedPersonID) { _, newValue in
+                if let pid = newValue {
+                    loadDrafts(for: pid)
+                } else {
+                    draftBirth = nil
+                    draftAdditional = []
+                }
             }
+    }
+
+    // MARK: - Host containers
+
+    // cp-2025-12-29-01(PEOPLE-CONTAINER-SWITCH)
+    @ViewBuilder
+    private var contentView: some View {
+        switch host {
+        case .window:
+            NavigationSplitView {
+                leftPane
+                    .id(refreshToken)
+                    .navigationSplitViewColumnWidth(min: 320, ideal: 320, max: 320) // fixed
+            } detail: {
+                detailEditor
+            }
+            .navigationSplitViewStyle(.balanced)
+            .frame(minWidth: 910, idealWidth: 910, minHeight: 500)
+
+        case .settingsTab:
+            // IMPORTANT:
+            // NavigationSplitView inside a TabView/Settings can cause toolbar/tab hit-testing weirdness
+            // and “tab strip shifts right”. Use HSplitView instead when embedded.
+            HSplitView {
+                leftPane
+                    .id(refreshToken)
+                    .frame(minWidth: 300, idealWidth: 320, maxWidth: 360)
+
+                detailEditor
+                    .frame(minWidth: 420, maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, 8)
         }
     }
 
@@ -321,7 +361,7 @@ struct DMPPPeopleManagerView: View {
                     Text("Short name")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("Short name", text: bindingBirth(\.shortName))
+                    TextField( "Short name", text: bindingBirth(\.shortName))
                         .frame(width: 160)
                 }
 
@@ -733,5 +773,5 @@ struct DMPPPeopleManagerView: View {
 }
 
 #Preview {
-    DMPPPeopleManagerView()
+    DMPPPeopleManagerView(host: .window)
 }

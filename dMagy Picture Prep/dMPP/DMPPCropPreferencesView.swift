@@ -1,5 +1,7 @@
 import SwiftUI
 
+// cp-2025-12-29-02(SETTINGS-TABS-HOSTFIX)
+
 struct DMPPCropPreferencesView: View {
 
     /// User-level preferences (loaded from UserDefaults).
@@ -49,6 +51,52 @@ struct DMPPCropPreferencesView: View {
             .tabItem {
                 Label("Crops", systemImage: "crop")
             }
+            // =====================================================
+            // LOCATIONS TAB
+            // =====================================================
+            VStack(alignment: .leading, spacing: 16) {
+
+                // Header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Locations")
+                        .font(.title2.bold())
+                    Text("Manage saved locations that you can quickly apply to photos.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
+
+                Divider()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        locationsSection
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: .topLeading)
+            .tabItem {
+                Label("Locations", systemImage: "mappin.and.ellipse")
+            }
+            
+            // =====================================================
+            // PEOPLE TAB
+            // =====================================================
+
+            // IMPORTANT:
+            // When embedded in Settings’ TabView, use the .settingsTab host so
+            // we *don’t* run a NavigationSplitView inside the TabView.
+            // That’s what was causing the tab strip to “shift right” and mis-route clicks.
+            DMPPPeopleManagerView(host: .settingsTab)
+                .tabItem {
+                    Label("People", systemImage: "person.2")
+                }
 
             // =====================================================
             // TAGS TAB
@@ -83,7 +131,11 @@ struct DMPPCropPreferencesView: View {
             .tabItem {
                 Label("Tags", systemImage: "tag")
             }
+
+          
         }
+        // Let the user resize; don't clamp maxWidth.
+        .frame(minWidth: 520, idealWidth: 800, minHeight: 760, idealHeight: 860)
         .onChange(of: prefs) { _, newValue in
             newValue.save()
         }
@@ -310,6 +362,122 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
+    // MARK: - Locations section (Locations tab)
+
+    private var locationsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+
+            Text("Saved locations appear in the Location dropdown in the editor.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if prefs.userLocations.isEmpty {
+                Text("No saved locations yet. Click “Add Location”.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+
+                    ForEach($prefs.userLocations) { $loc in
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 10) {
+
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Short Name")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        TextField("", text: $loc.shortName)
+                                            .textFieldStyle(.roundedBorder)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Description")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        TextField("", text: nonOptional($loc.description))
+                                            .textFieldStyle(.roundedBorder)
+                                    }
+
+                                    Spacer()
+
+                                    Button(role: .destructive) {
+                                        deleteUserLocation($loc.wrappedValue)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+
+                                    .buttonStyle(.borderless)
+                                    .help("Delete location")
+                                }
+
+                                VStack(alignment: .leading, spacing: 10) {
+
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Street Address")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            TextField("", text: nonOptional($loc.streetAddress))
+                                                .textFieldStyle(.roundedBorder)
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("City")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            TextField("", text: nonOptional($loc.city))
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 100)
+                                        }
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("State")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            TextField("", text: nonOptional($loc.state))
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 50)
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Country")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            TextField("", text: nonOptional($loc.country))
+                                                .textFieldStyle(.roundedBorder)
+                                                .frame(width: 100)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    addBlankUserLocation()
+                } label: {
+                    Label("Add Location", systemImage: "plus")
+                }
+
+                Button(role: .destructive) {
+                    prefs.userLocations.removeAll()
+                } label: {
+                    Text("Clear All")
+                }
+                .disabled(prefs.userLocations.isEmpty)
+
+                Spacer()
+            }
+            .padding(.top, 6)
+        }
+    }
+
     // MARK: - Helpers
 
     private func addBlankCustomPreset() {
@@ -325,5 +493,32 @@ struct DMPPCropPreferencesView: View {
 
     private func deleteCustomPreset(_ preset: DMPPUserPreferences.CustomCropPreset) {
         prefs.customCropPresets.removeAll { $0.id == preset.id }
+    }
+
+    private func addBlankUserLocation() {
+        let newLoc = DMPPUserLocation(
+            id: UUID(),
+            shortName: "New location",
+            description: nil,
+            streetAddress: nil,
+            city: nil,
+            state: nil,
+            country: nil
+        )
+        prefs.userLocations.append(newLoc)
+    }
+
+    private func deleteUserLocation(_ loc: DMPPUserLocation) {
+        prefs.userLocations.removeAll { $0.id == loc.id }
+    }
+
+    private func nonOptional(_ binding: Binding<String?>) -> Binding<String> {
+        Binding<String>(
+            get: { binding.wrappedValue ?? "" },
+            set: { newValue in
+                let t = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                binding.wrappedValue = t.isEmpty ? nil : t
+            }
+        )
     }
 }

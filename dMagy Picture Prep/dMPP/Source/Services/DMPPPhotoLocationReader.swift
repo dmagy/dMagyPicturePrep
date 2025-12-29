@@ -1,151 +1,95 @@
-//
-//  DMPPPhotoLocationReader.swift
-//  dMagy Picture Prep
-//
-//  cp-2025-12-26-LOC(READER-MKRG-1)
-//
-
 import Foundation
 import CoreLocation
 import ImageIO
-import MapKit
+
+// cp-2025-12-26-LOC(READER-V3-CLGEOCODER)
 
 enum DMPPPhotoLocationReader {
 
-    // MARK: - GPS read (from file metadata)
+    // MARK: - GPS from image file (EXIF/GPS via ImageIO)
 
     static func readGPS(from fileURL: URL) -> DmpmsGPS? {
-        guard
-            let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any],
-            let gps = props[kCGImagePropertyGPSDictionary as String] as? [String: Any]
+        guard let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any]
         else {
             return nil
         }
 
-        func double(_ key: CFString) -> Double? {
-            let k = key as String
-            if let n = gps[k] as? NSNumber { return n.doubleValue }
-            if let d = gps[k] as? Double { return d }
-            if let s = gps[k] as? String { return Double(s) }
-            return nil
-        }
-
-        func string(_ key: CFString) -> String? {
-            let k = key as String
-            if let s = gps[k] as? String { return s }
-            return nil
-        }
-
-        guard
-            let latRaw = double(kCGImagePropertyGPSLatitude),
-            let lonRaw = double(kCGImagePropertyGPSLongitude)
+        // Required
+        guard let latRaw = gps[kCGImagePropertyGPSLatitude] as? Double,
+              let lonRaw = gps[kCGImagePropertyGPSLongitude] as? Double
         else {
             return nil
         }
 
-        let latRef = (string(kCGImagePropertyGPSLatitudeRef) ?? "N").uppercased()
-        let lonRef = (string(kCGImagePropertyGPSLongitudeRef) ?? "E").uppercased()
+        let latRef = (gps[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased()
+        let lonRef = (gps[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased()
 
-        let lat = (latRef == "S") ? -abs(latRaw) : abs(latRaw)
-        let lon = (lonRef == "W") ? -abs(lonRaw) : abs(lonRaw)
+        let latitude  = (latRef == "S") ? -abs(latRaw) : abs(latRaw)
+        let longitude = (lonRef == "W") ? -abs(lonRaw) : abs(lonRaw)
 
-        let alt = double(kCGImagePropertyGPSAltitude)
+        // Optional altitude
+        var altitudeMeters: Double? = nil
+        if let alt = gps[kCGImagePropertyGPSAltitude] as? Double {
+            let altRef = gps[kCGImagePropertyGPSAltitudeRef] as? Int ?? 0 // 1 => below sea level
+            altitudeMeters = (altRef == 1) ? -abs(alt) : alt
+        }
 
-        return DmpmsGPS(latitude: lat, longitude: lon, altitudeMeters: alt)
+        return DmpmsGPS(latitude: latitude, longitude: longitude, altitudeMeters: altitudeMeters)
     }
 
-    // MARK: - Reverse geocode (Tahoe-friendly MapKit)
+    // MARK: - Reverse geocode to structured address pieces
 
+    /// Returns structured parts for your dMPMS location fields.
+    /// NOTE: CLGeocoder is deprecated in macOS 26; MapKit replacement still lacks structured parity.
     static func reverseGeocode(_ gps: DmpmsGPS) async -> DmpmsLocation? {
         let loc = CLLocation(latitude: gps.latitude, longitude: gps.longitude)
 
-        // Note: MKReverseGeocodingRequest(location:) is failable on macOS 26.
-        guard let request = MKReverseGeocodingRequest(location: loc) else {
+        do {
+            let placemarks = try await CLGeocoder().reverseGeocodeLocation(loc)
+            guard let pm = placemarks.first else { return nil }
+
+            let street = composeStreetAddress(subThoroughfare: pm.subThoroughfare,
+                                              thoroughfare: pm.thoroughfare)
+
+            let city = pm.locality?.trimmedNonEmpty
+            let state = pm.administrativeArea?.trimmedNonEmpty
+            let country = pm.country?.trimmedNonEmpty
+
+            // If we got nothing useful, return nil
+            if street == nil && city == nil && state == nil && country == nil {
+                return nil
+            }
+
+            return DmpmsLocation(
+                streetAddress: street,
+                city: city,
+                state: state,
+                country: country
+            )
+        } catch {
+            // If geocoding fails (offline, no permission, etc.), just return nil.
             return nil
         }
-
-        let items: [MKMapItem]? = await withCheckedContinuation { cont in
-            request.getMapItems { items, _ in
-                cont.resume(returning: items)
-            }
-        }
-
-        guard let item = items?.first else { return nil }
-
-        // Tahoe: placemark is deprecated; prefer addressRepresentations / address.
-        let full = item.addressRepresentations?.fullAddress?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        let short = item.addressRepresentations?.shortAddress?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-
-        let location = parseAddress(fullAddress: full, shortAddress: short)
-        return location
     }
 
-    // MARK: - Best-effort address parsing
+    private static func composeStreetAddress(subThoroughfare: String?, thoroughfare: String?) -> String? {
+        let num = subThoroughfare?.trimmedNonEmpty
+        let name = thoroughfare?.trimmedNonEmpty
 
-    private static func parseAddress(fullAddress: String?, shortAddress: String?) -> DmpmsLocation? {
-
-        // Prefer fullAddress; shortAddress is sometimes “City, State” only.
-        guard let text = (fullAddress?.isEmpty == false ? fullAddress : shortAddress),
-              !text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty
-        else {
-            return nil
+        switch (num, name) {
+        case (nil, nil): return nil
+        case (let n?, nil): return n
+        case (nil, let t?): return t
+        case (let n?, let t?): return "\(n) \(t)"
         }
+    }
+}
 
-        // Common Apple formatted address is multi-line:
-        // 1) street
-        // 2) city, state zip
-        // 3) country
-        let lines = text
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        var street: String? = nil
-        var city: String? = nil
-        var state: String? = nil
-        var country: String? = nil
-
-        if lines.count >= 1 { street = lines[0] }
-
-        if lines.count >= 2 {
-            // Try “City, ST 80501”
-            let line2 = lines[1]
-            if let comma = line2.firstIndex(of: ",") {
-                let left = String(line2[..<comma]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                let right = String(line2[line2.index(after: comma)...]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-
-                city = left.isEmpty ? nil : left
-
-                // State is usually first token of right side
-                let tokens = right.split(separator: " ").map(String.init)
-                if let first = tokens.first, !first.isEmpty {
-                    state = first
-                }
-            } else {
-                // No comma; leave it as “city-ish” fallback
-                city = line2.isEmpty ? nil : line2
-            }
-        }
-
-        if lines.count >= 3 {
-            country = lines.last
-        }
-
-        // If “fullAddress” is actually “City, State” only, street is wrong.
-        // If street has no digits and we only have 2 lines, assume it's not a street.
-        if lines.count == 2,
-           let s = street,
-           s.rangeOfCharacter(from: CharacterSet.decimalDigits) == nil {
-            // shift: treat line1 as city/state-ish, clear street
-            street = nil
-        }
-
-        return DmpmsLocation(
-            streetAddress: street,
-            city: city,
-            state: state,
-            country: country
-        )
+private extension String {
+    var trimmedNonEmpty: String? {
+        let t = trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
     }
 }
