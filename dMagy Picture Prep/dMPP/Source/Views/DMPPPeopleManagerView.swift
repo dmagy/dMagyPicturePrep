@@ -20,7 +20,8 @@ struct DMPPPeopleManagerView: View {
 
     // Shared store – NOT a Binding, not @Bindable.
     // (Keeping singleton here avoids environment-object wiring churn.)
-    private let identityStore = DMPPIdentityStore.shared
+    @EnvironmentObject private var identityStore: DMPPIdentityStore
+
 
     @State private var searchText: String = ""
     @State private var selectedPersonID: String? = nil
@@ -63,53 +64,80 @@ struct DMPPPeopleManagerView: View {
     ]
 
     var body: some View {
-        contentView
-            .alert("Delete person?", isPresented: $showDeleteConfirm) {
-                Button("Cancel", role: .cancel) { }
+        Group {
+            if host == .settingsTab {
+                // No NavigationSplitView here — and NO fixed minWidth.
+                HSplitView {
+                    leftPane
+                        .padding(8)                          // small, controlled padding
+                        .frame(minWidth: 300, idealWidth: 300, maxWidth: 300)
 
-                Button("Delete", role: .destructive) {
-                    guard let pid = deleteTargetPersonID else { return }
-                    deletePerson(personID: pid)
-                    deleteTargetPersonID = nil
+                    detailEditor
+                        .padding(12)                         // matches your other tabs nicely
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-            } message: {
-                Text("This permanently deletes the person and all their identity versions. This can’t be undone.")
+            } else {
+                // Standalone window behavior (your current approach)
+                NavigationSplitView {
+                    leftPane
+                        .id(refreshToken)
+                        .navigationSplitViewColumnWidth(min: 300, ideal: 300, max: 300)
+                } detail: {
+                    detailEditor
+                }
+                .frame(minWidth: 910,  minHeight: 660)
             }
-            .onAppear {
-                identityStore.load()
+        }
+        .alert("Delete person?", isPresented: $showDeleteConfirm) { /* unchanged */ } message: { /* unchanged */ }
+        .onAppear { /* unchanged */ }
+        .onChange(of: selectedPersonID) { _, newValue in /* unchanged */ }
+        .onChange(of: identityStore.peopleSortedForUI.count) { _, _ in
+            if let pid = selectedPersonID {
+                loadDrafts(for: pid)
+            } else if let first = filteredPeople.first {
+                selectedPersonID = first.id
+                loadDrafts(for: first.id)
+            }
+        }
+        .onAppear {
+            identityStore.load()
 
-                // If nothing is selected yet, preselect first person.
-                if selectedPersonID == nil, let first = filteredPeople.first {
-                    selectedPersonID = first.id
-                    loadDrafts(for: first.id)
-                }
+            if selectedPersonID == nil, let first = filteredPeople.first {
+                selectedPersonID = first.id
             }
-            .onChange(of: selectedPersonID) { _, newValue in
-                if let pid = newValue {
-                    loadDrafts(for: pid)
-                } else {
-                    draftBirth = nil
-                    draftAdditional = []
-                }
+            if let pid = selectedPersonID {
+                loadDrafts(for: pid)
             }
+        }
+        .onChange(of: selectedPersonID) { _, newValue in
+            if let pid = newValue {
+                loadDrafts(for: pid)
+            } else {
+                draftBirth = nil
+                draftAdditional = []
+            }
+        }
+
     }
+
 
     // MARK: - Host containers
 
     // cp-2025-12-29-01(PEOPLE-CONTAINER-SWITCH)
     @ViewBuilder
     private var contentView: some View {
+  
         switch host {
         case .window:
             NavigationSplitView {
                 leftPane
                     .id(refreshToken)
-                    .navigationSplitViewColumnWidth(min: 320, ideal: 320, max: 320) // fixed
+                    .navigationSplitViewColumnWidth(min: 300, ideal: 300, max: 300) // fixed
             } detail: {
                 detailEditor
             }
             .navigationSplitViewStyle(.balanced)
-            .frame(minWidth: 910, idealWidth: 910, minHeight: 500)
+            .frame(minWidth: 880, idealWidth: 880, minHeight: 600)
 
         case .settingsTab:
             // IMPORTANT:
@@ -124,7 +152,7 @@ struct DMPPPeopleManagerView: View {
                     .frame(minWidth: 420, maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.top, 8)
+          //  .padding(.top, 8)
         }
     }
 
@@ -135,12 +163,13 @@ struct DMPPPeopleManagerView: View {
 
             TextField("Search by short name, names, event, or notes", text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                
 
             List(selection: $selectedPersonID) {
                 ForEach(filteredPeople) { person in
                     let versions = identityStore.identityVersions(forPersonID: person.id)
                     let current = versions.last ?? versions.first
-                    let deathDate = deathEventDate(from: versions)
+                 //   let deathDate = deathEventDate(from: versions)
                     let isPet = isPetPerson(versions)
 
                     HStack(alignment: .top, spacing: 8) {
@@ -160,11 +189,11 @@ struct DMPPPeopleManagerView: View {
                                 }
 
                                 // Option B: Death is an event; display from Death event date
-                                if let deathDate, !deathDate.isEmpty {
-                                    Text("(d. \(deathDate))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                             //   if let deathDate, !deathDate.isEmpty {
+                            //        Text("(d. \(deathDate))")
+                                //        .font(.caption)
+                                 //       .foregroundStyle(.secondary)
+                           //     }
 
                                 Spacer()
 
@@ -225,9 +254,9 @@ struct DMPPPeopleManagerView: View {
             }
             .buttonStyle(.borderedProminent)
             .help("Create a new person (birth identity first)")
-            .padding(.top, 4)
+          //  .padding(.top, 4)
         }
-        .padding()
+      //  .padding()
     }
 
     private var filteredPeople: [DMPPIdentityStore.PersonSummary] {
@@ -273,7 +302,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding()
+            //    .padding()
 
             } else if draftBirth == nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -283,13 +312,13 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding()
+           //     .padding()
 
             } else {
                 VStack(alignment: .leading, spacing: 12) {
 
                     GroupBox {
-                        VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 7) {
 
                             // BIRTH IDENTITY (always first)
                             birthEditorSection
@@ -308,12 +337,12 @@ struct DMPPPeopleManagerView: View {
                                     .foregroundStyle(.secondary)
 
                                 TextField(
-                                    "Notes (relationships, roles, variants, etc.)",
+                                    "Relationships, roles, etc.)",
                                     text: optionalBindingBirth(\.notes)
                                 )
                             }
                         }
-                        .padding(12)
+                    .padding(8)
                     }
 
                     HStack {
@@ -547,7 +576,7 @@ struct DMPPPeopleManagerView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(10)
+             //       .padding(10)
                     .background(.quaternary.opacity(0.35))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }

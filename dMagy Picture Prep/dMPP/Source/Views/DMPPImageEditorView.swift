@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Observation
+import Foundation
 
 // dMPP-2025-11-21-NAV2+UI — Folder navigation + crops + dMPMS sidecar read/write
 
@@ -527,11 +528,10 @@ struct DMPPMetadataFormPane: View {
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
     @State private var dateWarning: String? = nil
     @State private var pendingResetAfterSnapshot: Bool = false
-    
+
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
-
 
     // MARK: View
 
@@ -550,11 +550,21 @@ struct DMPPMetadataFormPane: View {
             .onAppear {
                 reloadAvailableTags()
                 reloadUserLocations()
+                syncSavedLocationSelectionForCurrentPhoto()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
             }
             .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
                 reloadAvailableTags()
                 reloadUserLocations()
+                // Don’t auto-change selection here (preferences changed ≠ photo changed)
+            }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                // New photo loaded
+                syncSavedLocationSelectionForCurrentPhoto()
+            }
+            .onChange(of: gpsKey) { _, _ in
+                // GPS appeared/disappeared/changed
+                syncSavedLocationSelectionForCurrentPhoto()
             }
             .onChange(of: showAddUnknownSheet) { _, isShown in
                 guard isShown else { return }
@@ -641,7 +651,6 @@ struct DMPPMetadataFormPane: View {
     }
 
     // cp-2025-12-26-LOC-UI2(SECTION)
-    // cp-2025-12-26-LOC-UI2(SECTION)
     private var locationSection: some View {
         GroupBox("Location") {
             VStack(alignment: .leading, spacing: 10) {
@@ -663,23 +672,23 @@ struct DMPPMetadataFormPane: View {
                         Text("—").tag(UUID?.none)
 
                         ForEach(userLocations) { loc in
-                            Text(loc.shortName.trimmingCharacters(in: .whitespacesAndNewlines))
-
+                            Text(loc.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
                                 .tag(Optional(loc.id))
                         }
                     }
                     .labelsHidden()
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: selectedUserLocationID) { _, newValue in
+                        // Selection = overwrite (including clearing fields when saved loc has nils)
+                        guard newValue != nil else { return }
+                        applySelectedUserLocationOverwriteAll()
+                    }
 
-                    Button("Fill missing") { applySelectedUserLocation(fillOnly: true) }
-                        .buttonStyle(.bordered)
-                        .disabled(selectedUserLocation == nil)
-
-                    Button("Overwrite") { applySelectedUserLocation(fillOnly: false) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(selectedUserLocation == nil)
+                    Button("Reset") {
+                        resetLocationToGPS()
+                    }
+                    .buttonStyle(.bordered)
                 }
-
 
                 // Show the saved description (if a saved one is selected)
                 if let loc = selectedUserLocation {
@@ -690,7 +699,6 @@ struct DMPPMetadataFormPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
 
                 Divider().padding(.vertical, 2)
 
@@ -761,7 +769,6 @@ struct DMPPMetadataFormPane: View {
             .padding(.vertical, 8)
         }
     }
-
 
     private var tagsSection: some View {
         GroupBox("Tags") {
@@ -1154,6 +1161,22 @@ private extension DMPPMetadataFormPane {
 
     var identityStore: DMPPIdentityStore { .shared }
 
+    // A stable Equatable key so onChange compiles even if gps type isn’t Equatable.
+    var gpsKey: String {
+        guard let gps = vm.metadata.gps else { return "no-gps" }
+        return "\(gps.latitude)|\(gps.longitude)|\(gps.altitudeMeters ?? 0)"
+    }
+
+    // cp-2025-12-30(LOC-DROPDOWN-DEFAULT)
+    func syncSavedLocationSelectionForCurrentPhoto() {
+        // Requirement: if the photo has *no GPS*, dropdown should be blank.
+        guard vm.metadata.gps != nil else {
+            selectedUserLocationID = nil
+            return
+        }
+        // If there *is* GPS, do not force a selection.
+    }
+
     // cp-2025-12-26-LOC-UI2(BINDINGS)
     func bindingLocation(_ keyPath: WritableKeyPath<DmpmsLocation, String?>) -> Binding<String> {
         Binding<String>(
@@ -1204,7 +1227,6 @@ private extension DMPPMetadataFormPane {
                     // If the resolved address matches one of the user's saved locations,
                     // carry over the friendly shortName + description.
                     if let match {
-                        // Only set these if empty unless overwrite requested
                         if overwrite || (vm.metadata.location?.shortName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
                             vm.metadata.location?.shortName = match.shortName
                         }
@@ -1217,7 +1239,35 @@ private extension DMPPMetadataFormPane {
         }
     }
 
+    // cp-2025-12-30(LOC-APPLY-OVERWRITE)
+    func applySelectedUserLocationOverwriteAll() {
+        guard let loc = selectedUserLocation else { return }
 
+        if vm.metadata.location == nil { vm.metadata.location = DmpmsLocation() }
+
+        func normOrNil(_ s: String?) -> String? {
+            let t = (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+
+        // Overwrite *everything*, including clearing values where saved loc has nil/empty.
+        vm.metadata.location?.shortName = normOrNil(loc.shortName)
+        vm.metadata.location?.description = normOrNil(loc.description)
+        vm.metadata.location?.streetAddress = normOrNil(loc.streetAddress)
+        vm.metadata.location?.city = normOrNil(loc.city)
+        vm.metadata.location?.state = normOrNil(loc.state)
+        vm.metadata.location?.country = normOrNil(loc.country)
+    }
+
+    // cp-2025-12-30(LOC-RESET-GPS)
+    func resetLocationToGPS() {
+        // Clear user selection and wipe all location fields
+        selectedUserLocationID = nil
+        vm.metadata.location = nil
+
+        // Allow GPS to fill back in (if GPS exists)
+        fillLocationFromGPS(overwrite: true)
+    }
 
     // cp-2025-12-26-LOC-UI2(HELPERS)
 
@@ -1230,6 +1280,7 @@ private extension DMPPMetadataFormPane {
         return userLocations.first(where: { $0.id == id })
     }
 
+    // Kept (unused) in case you want it again later
     func applySelectedUserLocation(fillOnly: Bool) {
         guard let loc = selectedUserLocation else { return }
 
@@ -1255,8 +1306,6 @@ private extension DMPPMetadataFormPane {
         set(\.state,          loc.state)
         set(\.country,        loc.country)
     }
-
-
 
     private func mapsURL() -> URL? {
         // Prefer GPS if present (most precise)
@@ -1289,7 +1338,6 @@ private extension DMPPMetadataFormPane {
         NSWorkspace.shared.open(url)
     }
 
-    
     func reloadAvailableTags() {
         availableTags = DMPPUserPreferences.load().availableTags
     }
@@ -1801,8 +1849,7 @@ extension DMPPImageEditorView {
         // Load sidecar first (mutable so we can hydrate)
         var metadata = loadMetadata(for: url)
 
-        // cp-2025-12-26-LOC(HYDRATE-ON-LOAD)
-        // Only when loading a photo and only if the metadata.location field is empty.
+        // Hydrate GPS (if present)
         if let gps = DMPPPhotoLocationReader.readGPS(from: url) {
             metadata.gps = gps
         }
