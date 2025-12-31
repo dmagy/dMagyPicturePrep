@@ -3,6 +3,7 @@
 //  dMagy Picture Prep
 //
 //  dMPP-2025-11-30-PREF1 — User preferences (crop + metadata)
+//  cp-2025-12-30-TAGS2 — Add reserved "Flagged" tag (undeletable)
 //
 
 import Foundation
@@ -11,13 +12,30 @@ import Foundation
 /// Designed to be extendable (metadata defaults, UI options, etc.).
 struct DMPPUserPreferences: Codable, Equatable {
 
-    // MARK: - Constants
+    // MARK: - Constants (Reserved / undeletable tags)
 
     /// Canonical reserved tag used by dMagy apps to hide photos from slideshows.
     /// This tag is:
     /// - Always present in `availableTags`
     /// - Not renamable or deletable in Settings
     static let reservedDoNotDisplayTag = "Do Not Display"
+
+    /// Canonical reserved tag used by dMagy apps to mark photos for follow-up / review.
+    /// This tag is:
+    /// - Always present in `availableTags`
+    /// - Not renamable or deletable in Settings
+    static let reservedFlaggedTag = "Flagged"
+
+    /// Reserved tags in the order you want them to appear at the top of Settings + checkboxes.
+    static let reservedTagsInOrder: [String] = [
+        DMPPUserPreferences.reservedDoNotDisplayTag,
+        DMPPUserPreferences.reservedFlaggedTag
+    ]
+
+    static func isReservedTag(_ tag: String) -> Bool {
+        let t = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return reservedTagsInOrder.contains { $0.lowercased() == t }
+    }
 
     // MARK: - Crop presets
 
@@ -56,11 +74,12 @@ struct DMPPUserPreferences: Codable, Equatable {
     // MARK: - Tag preferences
 
     /// Tags offered as checkboxes in the editor.
-    /// - "Do Not Display" is mandatory and enforced via `ensureReservedTag()`.
+    /// - Reserved tags are mandatory and enforced via `ensureReservedTags()`.
     var availableTags: [String] = [
         "Halloween",
         "NSFW",
-        DMPPUserPreferences.reservedDoNotDisplayTag
+        DMPPUserPreferences.reservedDoNotDisplayTag,
+        DMPPUserPreferences.reservedFlaggedTag
     ]
 
     // MARK: - Location preferences (NEW)
@@ -110,7 +129,6 @@ struct DMPPUserPreferences: Codable, Equatable {
         return userLocations.first(where: { $0.matchKey == key })
     }
 
-
     // MARK: - Persistence
 
     private static let storageKey = "dmpp_userPreferences"
@@ -121,13 +139,13 @@ struct DMPPUserPreferences: Codable, Equatable {
         guard let data = defaults.data(forKey: storageKey) else {
             // Fresh defaults
             var prefs = DMPPUserPreferences()
-            prefs.ensureReservedTag()
+            prefs.ensureReservedTags()
             return prefs
         }
 
         // 1) Try current schema
         if var prefs = try? JSONDecoder().decode(DMPPUserPreferences.self, from: data) {
-            prefs.ensureReservedTag()
+            prefs.ensureReservedTags()
             return prefs
         }
 
@@ -140,7 +158,7 @@ struct DMPPUserPreferences: Codable, Equatable {
             prefs.availableTags = legacy.availableTags
             prefs.userLocations = legacy.userLocations.map { $0.asCurrent }
 
-            prefs.ensureReservedTag()
+            prefs.ensureReservedTags()
             prefs.save() // write back migrated schema
             return prefs
         }
@@ -148,7 +166,7 @@ struct DMPPUserPreferences: Codable, Equatable {
         // 3) Total failure → defaults
         print("dMPP: Failed to decode DMPPUserPreferences, using defaults.")
         var prefs = DMPPUserPreferences()
-        prefs.ensureReservedTag()
+        prefs.ensureReservedTags()
         return prefs
     }
 
@@ -165,20 +183,26 @@ struct DMPPUserPreferences: Codable, Equatable {
 
     // MARK: - Enforcement helpers
 
-    /// Ensure that the reserved "Do Not Display" tag:
-    /// - Exists exactly once
-    /// - Is in canonical form and appears at the top of `availableTags`.
-    mutating func ensureReservedTag() {
-        let lowerReserved = Self.reservedDoNotDisplayTag.lowercased()
+    /// Ensure that reserved tags:
+    /// - Exist exactly once each (case-insensitive)
+    /// - Are in canonical form
+    /// - Appear at the top of `availableTags` in `reservedTagsInOrder` order
+    mutating func ensureReservedTags() {
+        // Remove any variants (case-insensitive) of any reserved tag.
+        let reservedLower = Set(Self.reservedTagsInOrder.map { $0.lowercased() })
+        availableTags.removeAll { reservedLower.contains($0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
 
-        // Remove any variants (case-insensitive) of the reserved tag.
-        availableTags.removeAll { $0.lowercased() == lowerReserved }
-
-        // Insert the canonical version at the front.
-        availableTags.insert(Self.reservedDoNotDisplayTag, at: 0)
+        // Insert canonical versions at the front, in desired order.
+        for (idx, tag) in Self.reservedTagsInOrder.enumerated() {
+            availableTags.insert(tag, at: idx)
+        }
     }
 
-
+    /// Back-compat for older call sites.
+    /// (Some parts of the app may still call ensureReservedTag().)
+    mutating func ensureReservedTag() {
+        ensureReservedTags()
+    }
 
     /// Find a user location that matches an auto-resolved location (address fields).
     /// Uses the matchKey normalization from DMPPUserLocation.
@@ -203,7 +227,12 @@ struct DMPPUserPreferences: Codable, Equatable {
 // MARK: - Effective defaults
 
 extension DMPPUserPreferences {
-    static let mandatoryTagName = "Do Not Display"
+
+    /// Back-compat for older Settings UI that only knew about a single mandatory tag.
+    static let mandatoryTagName = DMPPUserPreferences.reservedDoNotDisplayTag
+
+    /// Use this for new UI logic (lock both).
+    static let mandatoryTagNames = DMPPUserPreferences.reservedTagsInOrder
 
     /// Returns the active default crop presets, with safety rules:
     /// - If the user disables all presets, we fall back to `.original` only
@@ -233,7 +262,6 @@ private struct LegacyPrefsV1: Codable {
     var defaultCropPresets: [DMPPUserPreferences.CropPresetID] = [.landscape16x9, .portrait8x10]
     var customCropPresets: [DMPPUserPreferences.CustomCropPreset] = []
     var availableTags: [String] = [DMPPUserPreferences.reservedDoNotDisplayTag]
-
     var userLocations: [LegacyUserLocation] = []
 }
 

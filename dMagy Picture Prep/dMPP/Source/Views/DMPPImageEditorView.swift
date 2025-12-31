@@ -453,11 +453,11 @@ struct DMPPCropEditorPane: View {
                             Text("Crop")
                                 .font(.caption)
 
-                            Button { vm.scaleSelectedCrop(by: 0.9) } label: {
-                                Image(systemName: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .help("Zoom in (smaller crop)")
+                         //   Button { vm.scaleSelectedCrop(by: 0.9) } label: {
+                         //       Image(systemName: "plus")
+                         //   }
+                         //   .buttonStyle(.borderedProminent)
+                         //   .help("Zoom in (smaller crop)")
 
                             Spacer(minLength: 8)
 
@@ -480,11 +480,11 @@ struct DMPPCropEditorPane: View {
 
                             Spacer(minLength: 8)
 
-                            Button { vm.scaleSelectedCrop(by: 1.1) } label: {
-                                Image(systemName: "minus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .help("Zoom out (larger crop)")
+                          //  Button { vm.scaleSelectedCrop(by: 1.1) } label: {
+                        //        Image(systemName: "minus")
+                        //    }
+                        //    .buttonStyle(.borderedProminent)
+                        //    .help("Zoom out (larger crop)")
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -546,6 +546,13 @@ struct DMPPMetadataFormPane: View {
                 locationSection
 
                 Spacer(minLength: 0)
+                Button("Edit tags, people, and locations in Settings") { openSettings() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .tint(.accentColor)
+                    .padding(.top, 4)
+            
+                
             }
             .onAppear {
                 reloadAvailableTags()
@@ -562,6 +569,10 @@ struct DMPPMetadataFormPane: View {
                 // New photo loaded
                 syncSavedLocationSelectionForCurrentPhoto()
             }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                selectedUserLocationID = nil
+            }
+
             .onChange(of: gpsKey) { _, _ in
                 // GPS appeared/disappeared/changed
                 syncSavedLocationSelectionForCurrentPhoto()
@@ -571,6 +582,7 @@ struct DMPPMetadataFormPane: View {
                 if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     unknownLabelDraft = "Unknown"
                 }
+                
             }
         }
         .sheet(isPresented: $showAddUnknownSheet) { addUnknownSheet }
@@ -666,13 +678,18 @@ struct DMPPMetadataFormPane: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Saved-location picker
-                HStack(spacing: 10) {
-                    Picker("Saved", selection: $selectedUserLocationID) {
+                // Saved-location picker (label on the left, no description shown under picker)
+                HStack(alignment: .center, spacing: 10) {
+
+                    Text("Saved locations:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("", selection: $selectedUserLocationID) {
                         Text("—").tag(UUID?.none)
 
                         ForEach(userLocations) { loc in
-                            Text(loc.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
+                            Text(loc.shortName.trimmingCharacters(in: .whitespacesAndNewlines))
                                 .tag(Optional(loc.id))
                         }
                     }
@@ -684,70 +701,84 @@ struct DMPPMetadataFormPane: View {
                         applySelectedUserLocationOverwriteAll()
                     }
 
-                    Button("Reset") {
+                    Button("Reset to GPS") {
                         resetLocationToGPS()
                     }
                     .buttonStyle(.bordered)
                 }
 
-                // Show the saved description (if a saved one is selected)
-                if let loc = selectedUserLocation {
-                    let desc = (loc.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !desc.isEmpty {
-                        Text(desc)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Divider().padding(.vertical, 2)
 
                 // Per-photo editable fields
-                HStack(spacing: 10) {
+
+                // Row 1: Short Name (read-only) + Open in Maps
+                HStack(alignment: .top, spacing: 10) {
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Short Name")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Ashcroft", text: bindingLocation(\.shortName))
+                        // Read-only display (no TextField)
+                        Text((vm.metadata.location?.shortName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? "—"
+                             : (vm.metadata.location?.shortName ?? "—"))
+                        .frame(width: 160, alignment: .leading)
+                        .foregroundStyle(.primary)
                     }
-
+                    Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Description")
+                        Text("")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Our Family House", text: bindingLocation(\.description))
+                        Button("Open in Maps") {
+                            openInMaps()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(mapsURL() == nil)
+                        .help(mapsURL() == nil ? "No GPS or address available to open in Maps." : "Open this location in Apple Maps.")
                     }
+
+                    
                 }
 
+                // Row 2: Description
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Description")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: bindingLocation(\.description))
+                }
+
+                // Row 3: Street Address
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Street Address")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: bindingLocation(\.streetAddress))
+                }
+
+                // Row 4: City / State / Country + Clear
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Street Address")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextField("1418 Ashcroft Dr", text: bindingLocation(\.streetAddress))
-                    }
-
                     VStack(alignment: .leading, spacing: 4) {
                         Text("City")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Longmont", text: bindingLocation(\.city))
+                        TextField("", text: bindingLocation(\.city))
                             .frame(width: 160)
                     }
-                }
 
-                HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("State")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Colorado", text: bindingLocation(\.state))
-                            .frame(width: 160)
+                        TextField("", text: bindingLocation(\.state))
+                            .frame(width: 40)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -755,8 +786,8 @@ struct DMPPMetadataFormPane: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("United States", text: bindingLocation(\.country))
-                            .frame(width: 200)
+                        TextField("", text: bindingLocation(\.country))
+                            .frame(width: 100)
                     }
 
                     Spacer()
@@ -770,10 +801,12 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
+
     private var tagsSection: some View {
         GroupBox("Tags") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
 
+                // Known tags (from Settings)
                 if availableTags.isEmpty {
                     Text("No tags defined. Use Settings to add tags.")
                         .font(.caption2)
@@ -792,16 +825,82 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
 
-                Button("Add / Edit tags in Settings") { openSettings() }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .tint(.accentColor)
-                    .padding(.top, 4)
+                // ---------------------------------------------------------
+                // Tags found in this file that are NOT in Settings
+                // ---------------------------------------------------------
+                let unknownTags = unknownTagsInCurrentFile()
+
+                if !unknownTags.isEmpty {
+                    Divider().padding(.vertical, 2)
+
+                    Text("Tags in this file not in Settings")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+
+                    // show as a simple list (read-only)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(unknownTags, id: \.self) { t in
+                            Text(t)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+     
+                }
+
+                // If you want the Settings link back, uncomment:
+                // Button("Add / Edit tags in Settings") { openSettings() }
+                //     .buttonStyle(.link)
+                //     .font(.caption)
+                //     .tint(.accentColor)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
     }
+
+    // MARK: - Missing tag helpers
+
+    private func unknownTagsInCurrentFile() -> [String] {
+        // Case-insensitive compare, but preserve file’s original casing
+        let knownLower = Set(availableTags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        let unknown = vm.metadata.tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !knownLower.contains($0.lowercased()) }
+
+        // de-dupe while preserving order
+        var seen = Set<String>()
+        var result: [String] = []
+        for t in unknown {
+            let k = t.lowercased()
+            if !seen.contains(k) {
+                seen.insert(k)
+                result.append(t)
+            }
+        }
+        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func addMissingTagsToPreferences(_ tags: [String]) {
+        var prefs = DMPPUserPreferences.load()
+
+        let existingLower = Set(prefs.availableTags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        for t in tags {
+            let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if !existingLower.contains(trimmed.lowercased()) {
+                prefs.availableTags.append(trimmed)
+            }
+        }
+
+        prefs.save()
+        NotificationCenter.default.post(name: .dmppPreferencesChanged, object: nil)
+    }
+
 
     private var peopleSection: some View {
         GroupBox("People") {
@@ -852,14 +951,14 @@ struct DMPPMetadataFormPane: View {
 
                 checklistBlock
 
-                HStack(spacing: 8) {
-                    Button("Add / Edit People in People Manager…") { openWindow(id: "People-Manager") }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .tint(.accentColor)
+          //      HStack(spacing: 8) {
+          //          Button("Add / Edit People in People Manager…") { openWindow(id: "People-Manager") }
+            //            .buttonStyle(.link)
+            //            .font(.caption)
+            //            .tint(.accentColor)
 
-                    Spacer()
-                }
+             //       Spacer()
+            //    }
                 .padding(.top, 4)
             }
             .padding(.horizontal, 8)
@@ -1308,30 +1407,32 @@ private extension DMPPMetadataFormPane {
     }
 
     private func mapsURL() -> URL? {
-        // Prefer GPS if present (most precise)
+        // 1) Prefer typed address fields (what the user sees/edited)
+        if let loc = vm.metadata.location {
+            let parts = [
+                loc.streetAddress,
+                loc.city,
+                loc.state,
+                loc.country
+            ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+            if !parts.isEmpty {
+                let qRaw = parts.joined(separator: ", ")
+                guard let q = qRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+                return URL(string: "http://maps.apple.com/?q=\(q)")
+            }
+        }
+
+        // 2) Fall back to GPS only if there is no usable address
         if let gps = vm.metadata.gps {
             return URL(string: "http://maps.apple.com/?ll=\(gps.latitude),\(gps.longitude)")
         }
 
-        // Fall back to typed address
-        guard let loc = vm.metadata.location else { return nil }
-
-        let parts = [
-            loc.streetAddress,
-            loc.city,
-            loc.state,
-            loc.country
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-
-        guard !parts.isEmpty else { return nil }
-
-        let qRaw = parts.joined(separator: ", ")
-        guard let q = qRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
-
-        return URL(string: "http://maps.apple.com/?q=\(q)")
+        return nil
     }
+
 
     private func openInMaps() {
         guard let url = mapsURL() else { return }

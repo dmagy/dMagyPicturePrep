@@ -172,6 +172,8 @@ struct DMPPCropPreferencesView: View {
         .onChange(of: prefs) { _, newValue in
             newValue.save()
         }
+    
+
     }
 
     // MARK: - Sections (Crops tab)
@@ -344,7 +346,7 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
-    // MARK: - Tags section (Tab)
+    // MARK: - Tags section (Tags tab)
 
     private var tagsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -353,8 +355,11 @@ struct DMPPCropPreferencesView: View {
                 .foregroundStyle(.secondary)
 
             ForEach(Array(prefs.availableTags.enumerated()), id: \.offset) { index, tag in
-                if tag == DMPPUserPreferences.mandatoryTagName {
-                    HStack {
+                let isReserved = DMPPUserPreferences.isReservedTag(tag)
+
+                HStack {
+                    if isReserved {
+                        // Locked: show text only (no editing), no delete
                         Text(tag)
                             .padding(.leading, 6)
 
@@ -362,10 +367,9 @@ struct DMPPCropPreferencesView: View {
 
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.secondary)
-                            .help("This tag is required and cannot be deleted.")
-                    }
-                } else {
-                    HStack {
+                            .help("This tag is required and cannot be renamed or deleted.")
+                    } else {
+                        // Editable
                         TextField(
                             "Tag",
                             text: Binding(
@@ -377,6 +381,9 @@ struct DMPPCropPreferencesView: View {
                         Spacer()
 
                         Button(role: .destructive) {
+                            // Extra safety: don’t delete reserved tags even if they somehow slip through.
+                            let current = prefs.availableTags[index]
+                            guard !DMPPUserPreferences.isReservedTag(current) else { return }
                             prefs.availableTags.remove(at: index)
                         } label: {
                             Image(systemName: "trash")
@@ -394,6 +401,7 @@ struct DMPPCropPreferencesView: View {
             }
         }
     }
+
 
     // MARK: - Locations section (Tab)
 

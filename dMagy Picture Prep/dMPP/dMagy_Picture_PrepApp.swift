@@ -34,9 +34,9 @@ struct dMagy_Picture_PrepApp: App {
         .defaultSize(width: 900, height: 650)
 
         // [APP-COMMANDS] People menu wiring
-        .commands {
-            PeopleCommands()
-        }
+     //   .commands {
+      //      PeopleCommands()
+      //  }
     }
 }
 
