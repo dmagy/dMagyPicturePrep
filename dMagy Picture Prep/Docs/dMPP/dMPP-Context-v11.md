@@ -461,19 +461,24 @@ Add a checkbox next to the folder picker to include images in subfolders during 
 
 ### High Priority
 
+* dMPMS “portable family archive
+* multiple headshots may be created for a single picture assigned individually for a person
+* investigate reorganizing Crops and add additional common crops
+* add notes field to Tags
+* clean up Settings UI
+
 
 ### Medium
+* filter options for reviewing flagged pictures
+* voice input for title and description
+* code review and optimization
 
-* Batch skip / batch actions
 
-* Optional required fields
-* External editor button
-* Folder-level tag defaults
 
 ### Longer-Term
 
 * Visual people layout overlays
-* Export tools
+* Import/export tool investigation
 * Keyboard-driven editor mode
 * Shared Swift Package between dMPP and dMPS
 

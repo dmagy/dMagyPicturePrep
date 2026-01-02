@@ -22,6 +22,8 @@ struct dMagy_Picture_PrepApp: App {
             DMPPCropPreferencesView()
                 .environmentObject(identityStore)
         }
+        .defaultSize(width: 980, height: 820)
+        .windowResizability(.contentMinSize)
 
         // [APP-PEOPLE] Dedicated People Manager window
         WindowGroup("Details", id: "People-Manager") {
@@ -32,9 +34,9 @@ struct dMagy_Picture_PrepApp: App {
         .defaultSize(width: 900, height: 650)
 
         // [APP-COMMANDS] People menu wiring
-        .commands {
-            PeopleCommands()
-        }
+     //   .commands {
+      //      PeopleCommands()
+      //  }
     }
 }
 

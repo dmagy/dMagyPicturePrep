@@ -734,27 +734,36 @@ extension DMPPImageEditorViewModel {
 
     // cp-2025-12-18-17(AGE-RECOMP)
 
+    // cp-2025-12-31(AGE-RECOMP-RANGE-FIX)
     func recomputeAgesForCurrentImage() {
 
         let dt = metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // If the user entered a specific month (YYYY-MM), treat it as end-of-month (single age).
-        let preferredSingleDate: Date? = {
-            // YYYY-MM-DD (exact)
-            if dt.count == 10 { return LooseYMD.parse(dt) }
+        let (photoStart, photoEnd): (Date?, Date?) = {
+            // 1) Prefer the user-entered dateTaken string
+            if !dt.isEmpty {
 
-            // YYYY-MM (month precision) => end-of-month
-            if dt.count == 7 { return LooseYMD.parseEndOfMonthIfMonthPrecision(dt) }
+                // Exact day (YYYY-MM-DD) => single point
+                if dt.count == 10, let d = LooseYMD.parse(dt) {
+                    return (d, d)
+                }
 
-            return nil
+                // Otherwise interpret as a range (YYYY, YYYY-MM, decade, "A to B", etc.)
+                return LooseYMD.parseRange(dt)
+            }
+
+            // 2) Fall back to metadata.dateRange if dateTaken is blank
+            if let r = metadata.dateRange {
+                let s = LooseYMD.parseRange(r.earliest).start
+                let e = LooseYMD.parseRange(r.latest).end
+                return (s, e)
+            }
+
+            return (nil, nil)
         }()
 
-        let earliestDate = LooseYMD.parse(metadata.dateRange?.earliest) ?? metadata.dateTakenDate
-        let latestDate   = LooseYMD.parse(metadata.dateRange?.latest)   ?? earliestDate
-
-        // Decide whether to show a single age or a range
-        let startForAge = preferredSingleDate ?? earliestDate
-        let endForAge   = preferredSingleDate ?? latestDate
+        let startForAge = photoStart
+        let endForAge   = photoEnd ?? photoStart
 
         var nextYears: [String: Int?] = [:]
         var nextText:  [String: String] = [:]
@@ -768,28 +777,20 @@ extension DMPPImageEditorViewModel {
                 continue
             }
 
-            // cp-2025-12-18-20(AGE-BIRTH-RANGE)
             let (b0, b1) = LooseYMD.birthRange(identity.birthDate)
 
-            // Use the most "range-generating" combination:
-            // youngest age = photo earliest - birth latest
-            // oldest age   = photo latest   - birth earliest
+            // youngest age = earliest photo - latest birth
+            // oldest age   = latest photo   - earliest birth
             let youngest = AgeAtPhoto.yearsOld(on: startForAge, birthDate: b1)
-            let oldest   = AgeAtPhoto.yearsOld(on: endForAge, birthDate: b0)
+            let oldest   = AgeAtPhoto.yearsOld(on: endForAge,   birthDate: b0)
 
-            let a0 = youngest
-            let a1 = oldest
+            nextYears[identityID] = youngest
 
-
-            nextYears[identityID] = a0
-
-            if let a0, let a1 {
+            if let a0 = youngest, let a1 = oldest {
                 if a0 == a1 {
                     nextText[identityID] = "\(a0)"
                 } else {
-                    let lo = min(a0, a1)
-                    let hi = max(a0, a1)
-                    nextText[identityID] = "\(lo)–\(hi)"
+                    nextText[identityID] = "\(min(a0, a1))–\(max(a0, a1))"
                 }
             } else {
                 nextText[identityID] = ""
@@ -799,6 +800,8 @@ extension DMPPImageEditorViewModel {
         agesByIdentityID = nextYears
         ageTextByIdentityID = nextText
     }
+
+
     // cp-2025-12-19-PS5(RESET-AND-RESTORE)
 
     /// Snapshots the current people list, then clears it.

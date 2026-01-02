@@ -1,6 +1,10 @@
 import SwiftUI
 import AppKit
 import Observation
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
 
 // dMPP-2025-11-21-NAV2+UI — Folder navigation + crops + dMPMS sidecar read/write
 
@@ -34,11 +38,18 @@ struct DMPPImageEditorView: View {
     @State private var continueErrorMessage: String = ""
     @State private var activeScopedFolderURL: URL? = nil
     @State private var activeScopedFolderOK: Bool = false
+    @State private var exportFolderURL: URL? = nil
+    @State private var showExportError: Bool = false
+    @State private var exportErrorMessage: String = ""
+
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
     private let kLastFolderName = "dmpp.lastFolderName"
     private let kLastIncludeSubfolders = "dmpp.lastIncludeSubfolders"
     private let kLastUnpreppedOnly = "dmpp.lastUnpreppedOnly"
+    private let kExportFolderBookmark = "dmpp.exportFolderBookmark"
+    private let kExportFolderName = "dmpp.exportFolderName"
+
 
     private var isSaveEnabled: Bool {
         guard let vm else { return false }
@@ -54,8 +65,16 @@ struct DMPPImageEditorView: View {
             Divider()
             mainContentView
         }
-        .onAppear { loadPersistedLastFolder() }
+        .onAppear {
+            loadPersistedLastFolder()
+            loadPersistedExportFolder()
+        }
         .onDisappear { endScopedAccess() }
+        .alert("Export failed", isPresented: $showExportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(exportErrorMessage)
+        }
         .alert("Can’t continue", isPresented: $showContinueError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -224,29 +243,61 @@ struct DMPPImageEditorView: View {
         HStack(spacing: 8) {
 
             if vm.selectedCrop != nil {
-                Button {
-                    vm.deleteSelectedCrop()
-                } label: {
-                    Text("Delete Crop")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.red)
-                        )
+                HStack(spacing: 10) {
+
+                    Button {
+                        vm.deleteSelectedCrop()
+                    } label: {
+                        Text("Delete Crop")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.red)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                    )
+                    .padding(.top, -24)
+                    .padding(.leading, 16)
+                    
+                    
+                    Button {
+                        exportSelectedCrop()
+                    } label: {
+                        Text("Export Crop")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.gray)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Export the current crop as a new image file")
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                    )
+                    .padding(.top, -24)
+                    .padding(.leading, 6)
                 }
-                .buttonStyle(.plain)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white)
-                )
-                .padding(.top, -16)
-                .padding(.leading, 16)
+             
             }
+
 
             Spacer(minLength: 8)
 
@@ -437,6 +488,10 @@ struct DMPPCropEditorPane: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(.secondary.opacity(0.3))
                     )
+                    .overlay(alignment: .bottomTrailing) {
+                        cropSizePill(nsImage: nsImage, cropRect: selectedCrop.rect)
+                            .padding(10)
+                    }
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.secondary.opacity(0.1))
@@ -446,17 +501,18 @@ struct DMPPCropEditorPane: View {
                         )
                 }
 
+
                 if vm.selectedCrop != nil {
                     GeometryReader { _ in
                         VStack(spacing: 8) {
                             Text("Crop")
                                 .font(.caption)
 
-                            Button { vm.scaleSelectedCrop(by: 0.9) } label: {
-                                Image(systemName: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .help("Zoom in (smaller crop)")
+                         //   Button { vm.scaleSelectedCrop(by: 0.9) } label: {
+                         //       Image(systemName: "plus")
+                         //   }
+                         //   .buttonStyle(.borderedProminent)
+                         //   .help("Zoom in (smaller crop)")
 
                             Spacer(minLength: 8)
 
@@ -479,11 +535,11 @@ struct DMPPCropEditorPane: View {
 
                             Spacer(minLength: 8)
 
-                            Button { vm.scaleSelectedCrop(by: 1.1) } label: {
-                                Image(systemName: "minus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .help("Zoom out (larger crop)")
+                          //  Button { vm.scaleSelectedCrop(by: 1.1) } label: {
+                        //        Image(systemName: "minus")
+                        //    }
+                        //    .buttonStyle(.borderedProminent)
+                        //    .help("Zoom out (larger crop)")
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -492,6 +548,56 @@ struct DMPPCropEditorPane: View {
             }
         }
     }
+    
+    private func cropSizePill(nsImage: NSImage, cropRect: RectNormalized) -> some View {
+        let px = cropPixelSize(nsImage: nsImage, cropRect: cropRect)
+        let wPx = px?.w ?? 0
+        let hPx = px?.h ?? 0
+
+        let wIn = Double(wPx) / 300.0
+        let hIn = Double(hPx) / 300.0
+
+        let pxLine = "\(wPx) × \(hPx) px"
+        let inLine = String(format: "max print size - %.1f × %.1f in", wIn, hIn)
+
+        return VStack(alignment: .trailing, spacing: 2) {
+            Text(pxLine)
+            Text(inLine)
+        }
+        .font(.caption2)
+        .foregroundStyle(.primary)
+        .monospacedDigit()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.secondary.opacity(0.25))
+        )
+    }
+
+    private func cropPixelSize(nsImage: NSImage, cropRect: RectNormalized) -> (w: Int, h: Int)? {
+        // Prefer true pixel dimensions (not points)
+        if let rep = nsImage.representations.first {
+            let imgW = rep.pixelsWide
+            let imgH = rep.pixelsHigh
+            if imgW > 0, imgH > 0 {
+                let w = max(0, Int((Double(imgW) * cropRect.width).rounded()))
+                let h = max(0, Int((Double(imgH) * cropRect.height).rounded()))
+                return (w, h)
+            }
+        }
+
+        // Fallback: points-based (less accurate, but better than nothing)
+        let imgW = Int(nsImage.size.width.rounded())
+        let imgH = Int(nsImage.size.height.rounded())
+        guard imgW > 0, imgH > 0 else { return nil }
+
+        let w = max(0, Int((Double(imgW) * cropRect.width).rounded()))
+        let h = max(0, Int((Double(imgH) * cropRect.height).rounded()))
+        return (w, h)
+    }
+
 }
 
 // MARK: - Right Pane (Metadata)
@@ -527,11 +633,10 @@ struct DMPPMetadataFormPane: View {
     @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
     @State private var dateWarning: String? = nil
     @State private var pendingResetAfterSnapshot: Bool = false
-    
+
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
-
 
     // MARK: View
 
@@ -546,21 +651,43 @@ struct DMPPMetadataFormPane: View {
                 locationSection
 
                 Spacer(minLength: 0)
+                Button("Edit tags, people, and locations in Settings") { openSettings() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .tint(.accentColor)
+                    .padding(.top, 4)
+            
+                
             }
             .onAppear {
                 reloadAvailableTags()
                 reloadUserLocations()
+                syncSavedLocationSelectionForCurrentPhoto()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
             }
             .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
                 reloadAvailableTags()
                 reloadUserLocations()
+                // Don’t auto-change selection here (preferences changed ≠ photo changed)
+            }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                // New photo loaded
+                syncSavedLocationSelectionForCurrentPhoto()
+            }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                selectedUserLocationID = nil
+            }
+
+            .onChange(of: gpsKey) { _, _ in
+                // GPS appeared/disappeared/changed
+                syncSavedLocationSelectionForCurrentPhoto()
             }
             .onChange(of: showAddUnknownSheet) { _, isShown in
                 guard isShown else { return }
                 if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     unknownLabelDraft = "Unknown"
                 }
+                
             }
         }
         .sheet(isPresented: $showAddUnknownSheet) { addUnknownSheet }
@@ -641,7 +768,6 @@ struct DMPPMetadataFormPane: View {
     }
 
     // cp-2025-12-26-LOC-UI2(SECTION)
-    // cp-2025-12-26-LOC-UI2(SECTION)
     private var locationSection: some View {
         GroupBox("Location") {
             VStack(alignment: .leading, spacing: 10) {
@@ -657,89 +783,107 @@ struct DMPPMetadataFormPane: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Saved-location picker
-                HStack(spacing: 10) {
-                    Picker("Saved", selection: $selectedUserLocationID) {
+                // Saved-location picker (label on the left, no description shown under picker)
+                HStack(alignment: .center, spacing: 10) {
+
+                    Text("Saved locations:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("", selection: $selectedUserLocationID) {
                         Text("—").tag(UUID?.none)
 
                         ForEach(userLocations) { loc in
                             Text(loc.shortName.trimmingCharacters(in: .whitespacesAndNewlines))
-
                                 .tag(Optional(loc.id))
                         }
                     }
                     .labelsHidden()
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button("Fill missing") { applySelectedUserLocation(fillOnly: true) }
-                        .buttonStyle(.bordered)
-                        .disabled(selectedUserLocation == nil)
-
-                    Button("Overwrite") { applySelectedUserLocation(fillOnly: false) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(selectedUserLocation == nil)
-                }
-
-
-                // Show the saved description (if a saved one is selected)
-                if let loc = selectedUserLocation {
-                    let desc = (loc.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !desc.isEmpty {
-                        Text(desc)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    .onChange(of: selectedUserLocationID) { _, newValue in
+                        // Selection = overwrite (including clearing fields when saved loc has nils)
+                        guard newValue != nil else { return }
+                        applySelectedUserLocationOverwriteAll()
                     }
-                }
 
+                    Button("Reset to GPS") {
+                        resetLocationToGPS()
+                    }
+                    .buttonStyle(.bordered)
+                }
 
                 Divider().padding(.vertical, 2)
 
                 // Per-photo editable fields
-                HStack(spacing: 10) {
+
+                // Row 1: Short Name (read-only) + Open in Maps
+                HStack(alignment: .top, spacing: 10) {
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Short Name")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Ashcroft", text: bindingLocation(\.shortName))
+                        // Read-only display (no TextField)
+                        Text((vm.metadata.location?.shortName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? "—"
+                             : (vm.metadata.location?.shortName ?? "—"))
+                        .frame(width: 160, alignment: .leading)
+                        .foregroundStyle(.primary)
                     }
-
+                    Spacer()
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Description")
+                        Text("")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Our Family House", text: bindingLocation(\.description))
+                        Button("Open in Maps") {
+                            openInMaps()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(mapsURL() == nil)
+                        .help(mapsURL() == nil ? "No GPS or address available to open in Maps." : "Open this location in Apple Maps.")
                     }
+
+                    
                 }
 
+                // Row 2: Description
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Description")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: bindingLocation(\.description))
+                }
+
+                // Row 3: Street Address
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Street Address")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    TextField("", text: bindingLocation(\.streetAddress))
+                }
+
+                // Row 4: City / State / Country + Clear
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Street Address")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        TextField("1418 Ashcroft Dr", text: bindingLocation(\.streetAddress))
-                    }
-
                     VStack(alignment: .leading, spacing: 4) {
                         Text("City")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Longmont", text: bindingLocation(\.city))
+                        TextField("", text: bindingLocation(\.city))
                             .frame(width: 160)
                     }
-                }
 
-                HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("State")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("Colorado", text: bindingLocation(\.state))
-                            .frame(width: 160)
+                        TextField("", text: bindingLocation(\.state))
+                            .frame(width: 40)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -747,8 +891,8 @@ struct DMPPMetadataFormPane: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        TextField("United States", text: bindingLocation(\.country))
-                            .frame(width: 200)
+                        TextField("", text: bindingLocation(\.country))
+                            .frame(width: 100)
                     }
 
                     Spacer()
@@ -765,8 +909,9 @@ struct DMPPMetadataFormPane: View {
 
     private var tagsSection: some View {
         GroupBox("Tags") {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
 
+                // Known tags (from Settings)
                 if availableTags.isEmpty {
                     Text("No tags defined. Use Settings to add tags.")
                         .font(.caption2)
@@ -785,16 +930,82 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
 
-                Button("Add / Edit tags in Settings") { openSettings() }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .tint(.accentColor)
-                    .padding(.top, 4)
+                // ---------------------------------------------------------
+                // Tags found in this file that are NOT in Settings
+                // ---------------------------------------------------------
+                let unknownTags = unknownTagsInCurrentFile()
+
+                if !unknownTags.isEmpty {
+                    Divider().padding(.vertical, 2)
+
+                    Text("Tags in this file not in Settings")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+
+                    // show as a simple list (read-only)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(unknownTags, id: \.self) { t in
+                            Text(t)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+     
+                }
+
+                // If you want the Settings link back, uncomment:
+                // Button("Add / Edit tags in Settings") { openSettings() }
+                //     .buttonStyle(.link)
+                //     .font(.caption)
+                //     .tint(.accentColor)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
     }
+
+    // MARK: - Missing tag helpers
+
+    private func unknownTagsInCurrentFile() -> [String] {
+        // Case-insensitive compare, but preserve file’s original casing
+        let knownLower = Set(availableTags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        let unknown = vm.metadata.tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !knownLower.contains($0.lowercased()) }
+
+        // de-dupe while preserving order
+        var seen = Set<String>()
+        var result: [String] = []
+        for t in unknown {
+            let k = t.lowercased()
+            if !seen.contains(k) {
+                seen.insert(k)
+                result.append(t)
+            }
+        }
+        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func addMissingTagsToPreferences(_ tags: [String]) {
+        var prefs = DMPPUserPreferences.load()
+
+        let existingLower = Set(prefs.availableTags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+
+        for t in tags {
+            let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if !existingLower.contains(trimmed.lowercased()) {
+                prefs.availableTags.append(trimmed)
+            }
+        }
+
+        prefs.save()
+        NotificationCenter.default.post(name: .dmppPreferencesChanged, object: nil)
+    }
+
 
     private var peopleSection: some View {
         GroupBox("People") {
@@ -845,14 +1056,14 @@ struct DMPPMetadataFormPane: View {
 
                 checklistBlock
 
-                HStack(spacing: 8) {
-                    Button("Add / Edit People in People Manager…") { openWindow(id: "People-Manager") }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .tint(.accentColor)
+          //      HStack(spacing: 8) {
+          //          Button("Add / Edit People in People Manager…") { openWindow(id: "People-Manager") }
+            //            .buttonStyle(.link)
+            //            .font(.caption)
+            //            .tint(.accentColor)
 
-                    Spacer()
-                }
+             //       Spacer()
+            //    }
                 .padding(.top, 4)
             }
             .padding(.horizontal, 8)
@@ -1154,6 +1365,22 @@ private extension DMPPMetadataFormPane {
 
     var identityStore: DMPPIdentityStore { .shared }
 
+    // A stable Equatable key so onChange compiles even if gps type isn’t Equatable.
+    var gpsKey: String {
+        guard let gps = vm.metadata.gps else { return "no-gps" }
+        return "\(gps.latitude)|\(gps.longitude)|\(gps.altitudeMeters ?? 0)"
+    }
+
+    // cp-2025-12-30(LOC-DROPDOWN-DEFAULT)
+    func syncSavedLocationSelectionForCurrentPhoto() {
+        // Requirement: if the photo has *no GPS*, dropdown should be blank.
+        guard vm.metadata.gps != nil else {
+            selectedUserLocationID = nil
+            return
+        }
+        // If there *is* GPS, do not force a selection.
+    }
+
     // cp-2025-12-26-LOC-UI2(BINDINGS)
     func bindingLocation(_ keyPath: WritableKeyPath<DmpmsLocation, String?>) -> Binding<String> {
         Binding<String>(
@@ -1204,7 +1431,6 @@ private extension DMPPMetadataFormPane {
                     // If the resolved address matches one of the user's saved locations,
                     // carry over the friendly shortName + description.
                     if let match {
-                        // Only set these if empty unless overwrite requested
                         if overwrite || (vm.metadata.location?.shortName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
                             vm.metadata.location?.shortName = match.shortName
                         }
@@ -1217,7 +1443,35 @@ private extension DMPPMetadataFormPane {
         }
     }
 
+    // cp-2025-12-30(LOC-APPLY-OVERWRITE)
+    func applySelectedUserLocationOverwriteAll() {
+        guard let loc = selectedUserLocation else { return }
 
+        if vm.metadata.location == nil { vm.metadata.location = DmpmsLocation() }
+
+        func normOrNil(_ s: String?) -> String? {
+            let t = (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+
+        // Overwrite *everything*, including clearing values where saved loc has nil/empty.
+        vm.metadata.location?.shortName = normOrNil(loc.shortName)
+        vm.metadata.location?.description = normOrNil(loc.description)
+        vm.metadata.location?.streetAddress = normOrNil(loc.streetAddress)
+        vm.metadata.location?.city = normOrNil(loc.city)
+        vm.metadata.location?.state = normOrNil(loc.state)
+        vm.metadata.location?.country = normOrNil(loc.country)
+    }
+
+    // cp-2025-12-30(LOC-RESET-GPS)
+    func resetLocationToGPS() {
+        // Clear user selection and wipe all location fields
+        selectedUserLocationID = nil
+        vm.metadata.location = nil
+
+        // Allow GPS to fill back in (if GPS exists)
+        fillLocationFromGPS(overwrite: true)
+    }
 
     // cp-2025-12-26-LOC-UI2(HELPERS)
 
@@ -1230,6 +1484,7 @@ private extension DMPPMetadataFormPane {
         return userLocations.first(where: { $0.id == id })
     }
 
+    // Kept (unused) in case you want it again later
     func applySelectedUserLocation(fillOnly: Bool) {
         guard let loc = selectedUserLocation else { return }
 
@@ -1256,40 +1511,39 @@ private extension DMPPMetadataFormPane {
         set(\.country,        loc.country)
     }
 
-
-
     private func mapsURL() -> URL? {
-        // Prefer GPS if present (most precise)
+        // 1) Prefer typed address fields (what the user sees/edited)
+        if let loc = vm.metadata.location {
+            let parts = [
+                loc.streetAddress,
+                loc.city,
+                loc.state,
+                loc.country
+            ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+            if !parts.isEmpty {
+                let qRaw = parts.joined(separator: ", ")
+                guard let q = qRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+                return URL(string: "http://maps.apple.com/?q=\(q)")
+            }
+        }
+
+        // 2) Fall back to GPS only if there is no usable address
         if let gps = vm.metadata.gps {
             return URL(string: "http://maps.apple.com/?ll=\(gps.latitude),\(gps.longitude)")
         }
 
-        // Fall back to typed address
-        guard let loc = vm.metadata.location else { return nil }
-
-        let parts = [
-            loc.streetAddress,
-            loc.city,
-            loc.state,
-            loc.country
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-
-        guard !parts.isEmpty else { return nil }
-
-        let qRaw = parts.joined(separator: ", ")
-        guard let q = qRaw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
-
-        return URL(string: "http://maps.apple.com/?q=\(q)")
+        return nil
     }
+
 
     private func openInMaps() {
         guard let url = mapsURL() else { return }
         NSWorkspace.shared.open(url)
     }
 
-    
     func reloadAvailableTags() {
         availableTags = DMPPUserPreferences.load().availableTags
     }
@@ -1537,6 +1791,195 @@ private extension DMPPMetadataFormPane {
 
 extension DMPPImageEditorView {
 
+    // MARK: - Export Crop
+
+    private func exportSelectedCrop() {
+        guard let vm else { return }
+        guard let crop = vm.selectedCrop else { return }
+
+        guard let destFolder = ensureExportFolder() else { return }
+
+        do {
+            try exportCrop(
+                sourceImageURL: vm.imageURL,
+                cropRect: crop.rect,
+                cropLabel: crop.label,
+                destinationFolder: destFolder
+            )
+        } catch {
+            exportErrorMessage = error.localizedDescription
+            showExportError = true
+        }
+    }
+
+    private func ensureExportFolder() -> URL? {
+        // If we already have a folder, use it
+        if let url = exportFolderURL, FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+
+        // Otherwise prompt once
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Export Folder"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        persistExportFolder(url)
+        exportFolderURL = url
+        return url
+    }
+
+    private func persistExportFolder(_ url: URL) {
+        let defaults = UserDefaults.standard
+        defaults.set(url.lastPathComponent, forKey: kExportFolderName)
+
+        do {
+            let data = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            defaults.set(data, forKey: kExportFolderBookmark)
+        } catch {
+            print("dMPP: Failed to persist export folder bookmark: \(error)")
+        }
+    }
+
+    private func loadPersistedExportFolder() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: kExportFolderBookmark) else {
+            exportFolderURL = nil
+            return
+        }
+
+        var stale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+            exportFolderURL = url
+            if stale { persistExportFolder(url) }
+        } catch {
+            print("dMPP: Failed to resolve export folder bookmark: \(error)")
+            exportFolderURL = nil
+        }
+    }
+
+    private func exportCrop(
+        sourceImageURL: URL,
+        cropRect: RectNormalized,
+        cropLabel: String,
+        destinationFolder: URL
+    ) throws {
+
+        // Security scope for destination folder
+        let gotScope = destinationFolder.startAccessingSecurityScopedResource()
+        defer { if gotScope { destinationFolder.stopAccessingSecurityScopedResource() } }
+
+        // Read original image via ImageIO (keeps true pixel dimensions)
+        guard let src = CGImageSourceCreateWithURL(sourceImageURL as CFURL, nil) else {
+            throw NSError(domain: "dMPP.Export", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not open source image."])
+        }
+        guard let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            throw NSError(domain: "dMPP.Export", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not decode source image."])
+        }
+
+        let imgW = cgImage.width
+        let imgH = cgImage.height
+
+        // Convert normalized crop rect -> pixel crop rect
+        // Assumption: RectNormalized origin is top-left. If your crops come out vertically flipped,
+        // change y to: Int(((1.0 - cropRect.y - cropRect.height) * Double(imgH)).rounded())
+        let x = Int((Double(imgW) * cropRect.x).rounded())
+        let y = Int((Double(imgH) * cropRect.y).rounded())
+        let w = Int((Double(imgW) * cropRect.width).rounded())
+        let h = Int((Double(imgH) * cropRect.height).rounded())
+
+        let cropBox = CGRect(x: x, y: y, width: w, height: h)
+            .intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+
+        guard cropBox.width > 1, cropBox.height > 1 else {
+            throw NSError(domain: "dMPP.Export", code: 3, userInfo: [NSLocalizedDescriptionKey: "Crop rectangle is empty."])
+        }
+
+        guard let cropped = cgImage.cropping(to: cropBox) else {
+            throw NSError(domain: "dMPP.Export", code: 4, userInfo: [NSLocalizedDescriptionKey: "Could not crop image."])
+        }
+
+        // Build destination filename: originalName — <cropLabel>.ext
+        let ext = sourceImageURL.pathExtension.isEmpty ? "jpg" : sourceImageURL.pathExtension
+        let base = sourceImageURL.deletingPathExtension().lastPathComponent
+
+        let cleanLabel = sanitizeForFilename(cropLabel.isEmpty ? "Crop" : cropLabel)
+        let outName = "\(base) — \(cleanLabel)"
+        var outURL = destinationFolder
+            .appendingPathComponent(outName)
+            .appendingPathExtension(ext)
+
+        outURL = uniqueURLIfNeeded(outURL)
+
+        // Match output type to original extension (best-effort)
+        guard let utType = UTType(filenameExtension: ext.lowercased()) else {
+            throw NSError(domain: "dMPP.Export", code: 5, userInfo: [NSLocalizedDescriptionKey: "Unknown file type: .\(ext)"])
+        }
+
+        // Create destination
+        guard let dest = CGImageDestinationCreateWithURL(outURL as CFURL, utType.identifier as CFString, 1, nil) else {
+            throw NSError(
+                domain: "dMPP.Export",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "This Mac can’t export .\(ext) files yet (no ImageIO encoder)."]
+            )
+        }
+
+        // Optional: quality for lossy formats
+        var options: [CFString: Any] = [:]
+        if utType.conforms(to: .jpeg) || utType.conforms(to: .heic) {
+            options[kCGImageDestinationLossyCompressionQuality] = 0.92
+        }
+
+        CGImageDestinationAddImage(dest, cropped, options as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+            throw NSError(domain: "dMPP.Export", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to write the exported image file."])
+        }
+    }
+
+    private func sanitizeForFilename(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bad = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+        let cleaned = trimmed
+            .components(separatedBy: bad)
+            .joined(separator: "-")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return cleaned.isEmpty ? "Crop" : cleaned
+    }
+
+    private func uniqueURLIfNeeded(_ url: URL) -> URL {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path) { return url }
+
+        let folder = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+
+        var i = 2
+        while true {
+            let candidate = folder
+                .appendingPathComponent("\(base) \(i)")
+                .appendingPathExtension(ext)
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+            i += 1
+        }
+    }
+
+    
     // MARK: Navigation flags
 
     private var canGoToPrevious: Bool {
@@ -1801,8 +2244,7 @@ extension DMPPImageEditorView {
         // Load sidecar first (mutable so we can hydrate)
         var metadata = loadMetadata(for: url)
 
-        // cp-2025-12-26-LOC(HYDRATE-ON-LOAD)
-        // Only when loading a photo and only if the metadata.location field is empty.
+        // Hydrate GPS (if present)
         if let gps = DMPPPhotoLocationReader.readGPS(from: url) {
             metadata.gps = gps
         }
@@ -1863,19 +2305,66 @@ extension DMPPImageEditorView {
     /// then sync legacy people[] from peopleV2 when needed.
     private func normalizePeople(in metadata: inout DmpmsMetadata) {
         let store = DMPPIdentityStore.shared
+
+        // Keep using dateRange.earliest for identity selection (existing behavior).
         let photoEarliest = metadata.dateRange?.earliest
 
+        // --- Helpers ---
+        func trimmed(_ s: String?) -> String? {
+            guard let s else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+
+        func makeDisplayName(given: String, middle: String?, surname: String) -> String {
+            if let m = trimmed(middle) {
+                return "\(given) \(m) \(surname)"
+            } else {
+                return "\(given) \(surname)"
+            }
+        }
+
+        func makeSortName(given: String, middle: String?, surname: String) -> String {
+            if let m = trimmed(middle) {
+                return "\(surname), \(given) \(m)"
+            } else {
+                return "\(surname), \(given)"
+            }
+        }
+
+        // --- Photo date range for age calculations (must match UI logic) ---
+        let dt = metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (photoStart, photoEnd): (Date?, Date?) = {
+            if !dt.isEmpty {
+                // Exact day => single point; otherwise range from the string
+                if dt.count == 10, let d = LooseYMD.parse(dt) { return (d, d) }
+                return LooseYMD.parseRange(dt)
+            }
+
+            // Fall back to dateRange if dateTaken is blank
+            if let r = metadata.dateRange {
+                let start = LooseYMD.parseRange(r.earliest).start
+                let end   = LooseYMD.parseRange(r.latest).end
+                return (start, end)
+            }
+
+            return (nil, nil)
+        }()
+
+        // --- Remove rows with missing identities ---
         metadata.peopleV2.removeAll { row in
             guard let id = row.identityID else { return false }
             return store.identity(withID: id) == nil
         }
 
+        // --- Normalize each row ---
         for i in metadata.peopleV2.indices {
             guard
                 let currentID = metadata.peopleV2[i].identityID,
                 let currentIdentity = store.identity(withID: currentID)
             else { continue }
 
+            // Group identities under a stable person key
             let pid = currentIdentity.personID ?? currentIdentity.id
             let versions = store.identityVersions(forPersonID: pid)
             guard !versions.isEmpty else { continue }
@@ -1885,17 +2374,46 @@ extension DMPPImageEditorView {
                 photoEarliestYMD: photoEarliest
             )
 
+            // Identity pointer for this photo
             metadata.peopleV2[i].identityID = chosen.id
+
+            // Stable person grouping id (prefer actual personID; fall back to pid)
+            metadata.peopleV2[i].personID = chosen.personID ?? pid
+
+            // Snapshots for resilience and fast UI
             metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
             metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
-            metadata.peopleV2[i].ageAtPhoto = ageDescription(
-                birthDateString: chosen.birthDate,
-                range: metadata.dateRange
+
+            // Structured snapshot so other apps can format names without parsing a full string
+            let given = chosen.givenName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let middle = trimmed(chosen.middleName)
+            let surname = chosen.surname.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let display = makeDisplayName(given: given, middle: middle, surname: surname)
+            let sort = makeSortName(given: given, middle: middle, surname: surname)
+
+            metadata.peopleV2[i].nameSnapshot = DmpmsNameSnapshot(
+                given: given,
+                middle: middle,
+                surname: surname,
+                display: display,
+                sort: sort
+            )
+
+            // Age snapshot computed with the same range-aware logic as UI
+            let (b0, b1) = LooseYMD.birthRange(chosen.birthDate)
+            metadata.peopleV2[i].ageAtPhoto = AgeAtPhoto.ageText(
+                photoStart: photoStart,
+                photoEnd: photoEnd,
+                birthStart: b0,
+                birthEnd: b1
             )
         }
 
         metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
     }
+
+
 
     private func saveCurrentMetadata() {
         guard let vm else { return }

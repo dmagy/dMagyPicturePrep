@@ -246,6 +246,54 @@ struct DmpmsPerson: Identifiable, Codable, Hashable {
         return identities.first
     }
 }
+// MARK: - Name snapshot (per-photo, optional)
+
+/// [DMPMS-NAME-SNAPSHOT]
+/// Optional structured name pieces captured at tag-time.
+/// Intended to let consumer apps format names without parsing `displayNameSnapshot`.
+struct DmpmsNameSnapshot: Codable, Hashable {
+
+    /// Given / first name (e.g., "Joshua")
+    var given: String?
+
+    /// Middle name(s) (e.g., "Walter")
+    var middle: String?
+
+    /// Surname / last name (e.g., "Magyar")
+    var surname: String?
+
+    /// Optional particles (e.g., "van", "de", "von") if you ever want them.
+    var particle: String?
+
+    /// Optional suffix (e.g., "Jr.", "III")
+    var suffix: String?
+
+    /// Optional pre-built display form (e.g., "Joshua Walter Magyar")
+    /// If present, consumers MAY prefer this over assembling from parts.
+    var display: String?
+
+    /// Optional pre-built sort form (e.g., "Magyar, Joshua Walter")
+    var sort: String?
+
+    init(
+        given: String? = nil,
+        middle: String? = nil,
+        surname: String? = nil,
+        particle: String? = nil,
+        suffix: String? = nil,
+        display: String? = nil,
+        sort: String? = nil
+    ) {
+        self.given = given
+        self.middle = middle
+        self.surname = surname
+        self.particle = particle
+        self.suffix = suffix
+        self.display = display
+        self.sort = sort
+    }
+}
+
 
 // MARK: - Per-photo people records
 
@@ -257,6 +305,10 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
     /// Unique per-photo person row ID.
     /// This is not the same as the identity ID.
     var id: String
+
+    /// Groups multiple identity versions under one person.
+    /// Optional because older sidecars won't have it.
+    var personID: String?
 
     /// Identity record this person refers to, if known.
     /// For unknown placeholders, this will be `nil` and `isUnknown == true`.
@@ -271,6 +323,10 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
 
     /// Human-facing display name snapshot (typically based on identity + photo date).
     var displayNameSnapshot: String
+
+    /// Optional structured name parts snapshot.
+    /// Consumer apps MAY use this to format name display without parsing.
+    var nameSnapshot: DmpmsNameSnapshot?
 
     /// Optional age snapshot (e.g., "3", "42", "late 30s").
     /// dMPP will compute this at tag-time based on `birthDate` and photo date/range.
@@ -294,10 +350,12 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
 
     init(
         id: String = UUID().uuidString,
+        personID: String? = nil,
         identityID: String? = nil,
         isUnknown: Bool = false,
         shortNameSnapshot: String,
         displayNameSnapshot: String,
+        nameSnapshot: DmpmsNameSnapshot? = nil,
         ageAtPhoto: String? = nil,
         rowIndex: Int = 0,
         rowName: String? = nil,
@@ -305,15 +363,81 @@ struct DmpmsPersonInPhoto: Codable, Hashable, Identifiable {
         roleHint: String? = nil
     ) {
         self.id = id
+        self.personID = personID
         self.identityID = identityID
         self.isUnknown = isUnknown
         self.shortNameSnapshot = shortNameSnapshot
         self.displayNameSnapshot = displayNameSnapshot
+        self.nameSnapshot = nameSnapshot
         self.ageAtPhoto = ageAtPhoto
         self.rowIndex = rowIndex
         self.rowName = rowName
         self.positionIndex = positionIndex
         self.roleHint = roleHint
+    }
+
+    // MARK: - Migration safety for older JSON
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case personID
+        case identityID
+        case isUnknown
+        case shortNameSnapshot
+        case displayNameSnapshot
+        case nameSnapshot
+        case ageAtPhoto
+        case rowIndex
+        case rowName
+        case positionIndex
+        case roleHint
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        personID = try c.decodeIfPresent(String.self, forKey: .personID)
+        identityID = try c.decodeIfPresent(String.self, forKey: .identityID)
+
+        isUnknown = try c.decodeIfPresent(Bool.self, forKey: .isUnknown) ?? false
+
+        // If an older sidecar is missing these (or has empty), keep decoding safe.
+        shortNameSnapshot = try c.decodeIfPresent(String.self, forKey: .shortNameSnapshot) ?? ""
+        displayNameSnapshot = try c.decodeIfPresent(String.self, forKey: .displayNameSnapshot) ?? ""
+
+        nameSnapshot = try c.decodeIfPresent(DmpmsNameSnapshot.self, forKey: .nameSnapshot)
+
+        ageAtPhoto = try c.decodeIfPresent(String.self, forKey: .ageAtPhoto)
+
+        rowIndex = try c.decodeIfPresent(Int.self, forKey: .rowIndex) ?? 0
+        rowName = try c.decodeIfPresent(String.self, forKey: .rowName)
+
+        positionIndex = try c.decodeIfPresent(Int.self, forKey: .positionIndex) ?? 0
+        roleHint = try c.decodeIfPresent(String.self, forKey: .roleHint)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(personID, forKey: .personID)
+        try c.encodeIfPresent(identityID, forKey: .identityID)
+
+        try c.encode(isUnknown, forKey: .isUnknown)
+
+        try c.encode(shortNameSnapshot, forKey: .shortNameSnapshot)
+        try c.encode(displayNameSnapshot, forKey: .displayNameSnapshot)
+
+        try c.encodeIfPresent(nameSnapshot, forKey: .nameSnapshot)
+
+        try c.encodeIfPresent(ageAtPhoto, forKey: .ageAtPhoto)
+
+        try c.encode(rowIndex, forKey: .rowIndex)
+        try c.encodeIfPresent(rowName, forKey: .rowName)
+
+        try c.encode(positionIndex, forKey: .positionIndex)
+        try c.encodeIfPresent(roleHint, forKey: .roleHint)
     }
 }
 
