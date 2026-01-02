@@ -2,6 +2,9 @@ import SwiftUI
 import AppKit
 import Observation
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
 
 // dMPP-2025-11-21-NAV2+UI — Folder navigation + crops + dMPMS sidecar read/write
 
@@ -35,11 +38,18 @@ struct DMPPImageEditorView: View {
     @State private var continueErrorMessage: String = ""
     @State private var activeScopedFolderURL: URL? = nil
     @State private var activeScopedFolderOK: Bool = false
+    @State private var exportFolderURL: URL? = nil
+    @State private var showExportError: Bool = false
+    @State private var exportErrorMessage: String = ""
+
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
     private let kLastFolderName = "dmpp.lastFolderName"
     private let kLastIncludeSubfolders = "dmpp.lastIncludeSubfolders"
     private let kLastUnpreppedOnly = "dmpp.lastUnpreppedOnly"
+    private let kExportFolderBookmark = "dmpp.exportFolderBookmark"
+    private let kExportFolderName = "dmpp.exportFolderName"
+
 
     private var isSaveEnabled: Bool {
         guard let vm else { return false }
@@ -55,8 +65,16 @@ struct DMPPImageEditorView: View {
             Divider()
             mainContentView
         }
-        .onAppear { loadPersistedLastFolder() }
+        .onAppear {
+            loadPersistedLastFolder()
+            loadPersistedExportFolder()
+        }
         .onDisappear { endScopedAccess() }
+        .alert("Export failed", isPresented: $showExportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(exportErrorMessage)
+        }
         .alert("Can’t continue", isPresented: $showContinueError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -225,29 +243,61 @@ struct DMPPImageEditorView: View {
         HStack(spacing: 8) {
 
             if vm.selectedCrop != nil {
-                Button {
-                    vm.deleteSelectedCrop()
-                } label: {
-                    Text("Delete Crop")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.red)
-                        )
+                HStack(spacing: 10) {
+
+                    Button {
+                        vm.deleteSelectedCrop()
+                    } label: {
+                        Text("Delete Crop")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.red)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                    )
+                    .padding(.top, -24)
+                    .padding(.leading, 16)
+                    
+                    
+                    Button {
+                        exportSelectedCrop()
+                    } label: {
+                        Text("Export Crop")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.gray)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Export the current crop as a new image file")
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .windowBackgroundColor))
+                    )
+                    .padding(.top, -24)
+                    .padding(.leading, 6)
                 }
-                .buttonStyle(.plain)
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white)
-                )
-                .padding(.top, -16)
-                .padding(.leading, 16)
+             
             }
+
 
             Spacer(minLength: 8)
 
@@ -438,6 +488,10 @@ struct DMPPCropEditorPane: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(.secondary.opacity(0.3))
                     )
+                    .overlay(alignment: .bottomTrailing) {
+                        cropSizePill(nsImage: nsImage, cropRect: selectedCrop.rect)
+                            .padding(10)
+                    }
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.secondary.opacity(0.1))
@@ -446,6 +500,7 @@ struct DMPPCropEditorPane: View {
                                 .foregroundStyle(.secondary)
                         )
                 }
+
 
                 if vm.selectedCrop != nil {
                     GeometryReader { _ in
@@ -493,6 +548,56 @@ struct DMPPCropEditorPane: View {
             }
         }
     }
+    
+    private func cropSizePill(nsImage: NSImage, cropRect: RectNormalized) -> some View {
+        let px = cropPixelSize(nsImage: nsImage, cropRect: cropRect)
+        let wPx = px?.w ?? 0
+        let hPx = px?.h ?? 0
+
+        let wIn = Double(wPx) / 300.0
+        let hIn = Double(hPx) / 300.0
+
+        let pxLine = "\(wPx) × \(hPx) px"
+        let inLine = String(format: "max print size - %.1f × %.1f in", wIn, hIn)
+
+        return VStack(alignment: .trailing, spacing: 2) {
+            Text(pxLine)
+            Text(inLine)
+        }
+        .font(.caption2)
+        .foregroundStyle(.primary)
+        .monospacedDigit()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(.secondary.opacity(0.25))
+        )
+    }
+
+    private func cropPixelSize(nsImage: NSImage, cropRect: RectNormalized) -> (w: Int, h: Int)? {
+        // Prefer true pixel dimensions (not points)
+        if let rep = nsImage.representations.first {
+            let imgW = rep.pixelsWide
+            let imgH = rep.pixelsHigh
+            if imgW > 0, imgH > 0 {
+                let w = max(0, Int((Double(imgW) * cropRect.width).rounded()))
+                let h = max(0, Int((Double(imgH) * cropRect.height).rounded()))
+                return (w, h)
+            }
+        }
+
+        // Fallback: points-based (less accurate, but better than nothing)
+        let imgW = Int(nsImage.size.width.rounded())
+        let imgH = Int(nsImage.size.height.rounded())
+        guard imgW > 0, imgH > 0 else { return nil }
+
+        let w = max(0, Int((Double(imgW) * cropRect.width).rounded()))
+        let h = max(0, Int((Double(imgH) * cropRect.height).rounded()))
+        return (w, h)
+    }
+
 }
 
 // MARK: - Right Pane (Metadata)
@@ -1686,6 +1791,195 @@ private extension DMPPMetadataFormPane {
 
 extension DMPPImageEditorView {
 
+    // MARK: - Export Crop
+
+    private func exportSelectedCrop() {
+        guard let vm else { return }
+        guard let crop = vm.selectedCrop else { return }
+
+        guard let destFolder = ensureExportFolder() else { return }
+
+        do {
+            try exportCrop(
+                sourceImageURL: vm.imageURL,
+                cropRect: crop.rect,
+                cropLabel: crop.label,
+                destinationFolder: destFolder
+            )
+        } catch {
+            exportErrorMessage = error.localizedDescription
+            showExportError = true
+        }
+    }
+
+    private func ensureExportFolder() -> URL? {
+        // If we already have a folder, use it
+        if let url = exportFolderURL, FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+
+        // Otherwise prompt once
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Export Folder"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        persistExportFolder(url)
+        exportFolderURL = url
+        return url
+    }
+
+    private func persistExportFolder(_ url: URL) {
+        let defaults = UserDefaults.standard
+        defaults.set(url.lastPathComponent, forKey: kExportFolderName)
+
+        do {
+            let data = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            defaults.set(data, forKey: kExportFolderBookmark)
+        } catch {
+            print("dMPP: Failed to persist export folder bookmark: \(error)")
+        }
+    }
+
+    private func loadPersistedExportFolder() {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: kExportFolderBookmark) else {
+            exportFolderURL = nil
+            return
+        }
+
+        var stale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+            exportFolderURL = url
+            if stale { persistExportFolder(url) }
+        } catch {
+            print("dMPP: Failed to resolve export folder bookmark: \(error)")
+            exportFolderURL = nil
+        }
+    }
+
+    private func exportCrop(
+        sourceImageURL: URL,
+        cropRect: RectNormalized,
+        cropLabel: String,
+        destinationFolder: URL
+    ) throws {
+
+        // Security scope for destination folder
+        let gotScope = destinationFolder.startAccessingSecurityScopedResource()
+        defer { if gotScope { destinationFolder.stopAccessingSecurityScopedResource() } }
+
+        // Read original image via ImageIO (keeps true pixel dimensions)
+        guard let src = CGImageSourceCreateWithURL(sourceImageURL as CFURL, nil) else {
+            throw NSError(domain: "dMPP.Export", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not open source image."])
+        }
+        guard let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            throw NSError(domain: "dMPP.Export", code: 2, userInfo: [NSLocalizedDescriptionKey: "Could not decode source image."])
+        }
+
+        let imgW = cgImage.width
+        let imgH = cgImage.height
+
+        // Convert normalized crop rect -> pixel crop rect
+        // Assumption: RectNormalized origin is top-left. If your crops come out vertically flipped,
+        // change y to: Int(((1.0 - cropRect.y - cropRect.height) * Double(imgH)).rounded())
+        let x = Int((Double(imgW) * cropRect.x).rounded())
+        let y = Int((Double(imgH) * cropRect.y).rounded())
+        let w = Int((Double(imgW) * cropRect.width).rounded())
+        let h = Int((Double(imgH) * cropRect.height).rounded())
+
+        let cropBox = CGRect(x: x, y: y, width: w, height: h)
+            .intersection(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+
+        guard cropBox.width > 1, cropBox.height > 1 else {
+            throw NSError(domain: "dMPP.Export", code: 3, userInfo: [NSLocalizedDescriptionKey: "Crop rectangle is empty."])
+        }
+
+        guard let cropped = cgImage.cropping(to: cropBox) else {
+            throw NSError(domain: "dMPP.Export", code: 4, userInfo: [NSLocalizedDescriptionKey: "Could not crop image."])
+        }
+
+        // Build destination filename: originalName — <cropLabel>.ext
+        let ext = sourceImageURL.pathExtension.isEmpty ? "jpg" : sourceImageURL.pathExtension
+        let base = sourceImageURL.deletingPathExtension().lastPathComponent
+
+        let cleanLabel = sanitizeForFilename(cropLabel.isEmpty ? "Crop" : cropLabel)
+        let outName = "\(base) — \(cleanLabel)"
+        var outURL = destinationFolder
+            .appendingPathComponent(outName)
+            .appendingPathExtension(ext)
+
+        outURL = uniqueURLIfNeeded(outURL)
+
+        // Match output type to original extension (best-effort)
+        guard let utType = UTType(filenameExtension: ext.lowercased()) else {
+            throw NSError(domain: "dMPP.Export", code: 5, userInfo: [NSLocalizedDescriptionKey: "Unknown file type: .\(ext)"])
+        }
+
+        // Create destination
+        guard let dest = CGImageDestinationCreateWithURL(outURL as CFURL, utType.identifier as CFString, 1, nil) else {
+            throw NSError(
+                domain: "dMPP.Export",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "This Mac can’t export .\(ext) files yet (no ImageIO encoder)."]
+            )
+        }
+
+        // Optional: quality for lossy formats
+        var options: [CFString: Any] = [:]
+        if utType.conforms(to: .jpeg) || utType.conforms(to: .heic) {
+            options[kCGImageDestinationLossyCompressionQuality] = 0.92
+        }
+
+        CGImageDestinationAddImage(dest, cropped, options as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+            throw NSError(domain: "dMPP.Export", code: 7, userInfo: [NSLocalizedDescriptionKey: "Failed to write the exported image file."])
+        }
+    }
+
+    private func sanitizeForFilename(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bad = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+        let cleaned = trimmed
+            .components(separatedBy: bad)
+            .joined(separator: "-")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return cleaned.isEmpty ? "Crop" : cleaned
+    }
+
+    private func uniqueURLIfNeeded(_ url: URL) -> URL {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: url.path) { return url }
+
+        let folder = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+
+        var i = 2
+        while true {
+            let candidate = folder
+                .appendingPathComponent("\(base) \(i)")
+                .appendingPathExtension(ext)
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+            i += 1
+        }
+    }
+
+    
     // MARK: Navigation flags
 
     private var canGoToPrevious: Bool {
@@ -2011,19 +2305,66 @@ extension DMPPImageEditorView {
     /// then sync legacy people[] from peopleV2 when needed.
     private func normalizePeople(in metadata: inout DmpmsMetadata) {
         let store = DMPPIdentityStore.shared
+
+        // Keep using dateRange.earliest for identity selection (existing behavior).
         let photoEarliest = metadata.dateRange?.earliest
 
+        // --- Helpers ---
+        func trimmed(_ s: String?) -> String? {
+            guard let s else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+
+        func makeDisplayName(given: String, middle: String?, surname: String) -> String {
+            if let m = trimmed(middle) {
+                return "\(given) \(m) \(surname)"
+            } else {
+                return "\(given) \(surname)"
+            }
+        }
+
+        func makeSortName(given: String, middle: String?, surname: String) -> String {
+            if let m = trimmed(middle) {
+                return "\(surname), \(given) \(m)"
+            } else {
+                return "\(surname), \(given)"
+            }
+        }
+
+        // --- Photo date range for age calculations (must match UI logic) ---
+        let dt = metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (photoStart, photoEnd): (Date?, Date?) = {
+            if !dt.isEmpty {
+                // Exact day => single point; otherwise range from the string
+                if dt.count == 10, let d = LooseYMD.parse(dt) { return (d, d) }
+                return LooseYMD.parseRange(dt)
+            }
+
+            // Fall back to dateRange if dateTaken is blank
+            if let r = metadata.dateRange {
+                let start = LooseYMD.parseRange(r.earliest).start
+                let end   = LooseYMD.parseRange(r.latest).end
+                return (start, end)
+            }
+
+            return (nil, nil)
+        }()
+
+        // --- Remove rows with missing identities ---
         metadata.peopleV2.removeAll { row in
             guard let id = row.identityID else { return false }
             return store.identity(withID: id) == nil
         }
 
+        // --- Normalize each row ---
         for i in metadata.peopleV2.indices {
             guard
                 let currentID = metadata.peopleV2[i].identityID,
                 let currentIdentity = store.identity(withID: currentID)
             else { continue }
 
+            // Group identities under a stable person key
             let pid = currentIdentity.personID ?? currentIdentity.id
             let versions = store.identityVersions(forPersonID: pid)
             guard !versions.isEmpty else { continue }
@@ -2033,17 +2374,46 @@ extension DMPPImageEditorView {
                 photoEarliestYMD: photoEarliest
             )
 
+            // Identity pointer for this photo
             metadata.peopleV2[i].identityID = chosen.id
+
+            // Stable person grouping id (prefer actual personID; fall back to pid)
+            metadata.peopleV2[i].personID = chosen.personID ?? pid
+
+            // Snapshots for resilience and fast UI
             metadata.peopleV2[i].shortNameSnapshot = chosen.shortName
             metadata.peopleV2[i].displayNameSnapshot = chosen.fullName
-            metadata.peopleV2[i].ageAtPhoto = ageDescription(
-                birthDateString: chosen.birthDate,
-                range: metadata.dateRange
+
+            // Structured snapshot so other apps can format names without parsing a full string
+            let given = chosen.givenName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let middle = trimmed(chosen.middleName)
+            let surname = chosen.surname.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let display = makeDisplayName(given: given, middle: middle, surname: surname)
+            let sort = makeSortName(given: given, middle: middle, surname: surname)
+
+            metadata.peopleV2[i].nameSnapshot = DmpmsNameSnapshot(
+                given: given,
+                middle: middle,
+                surname: surname,
+                display: display,
+                sort: sort
+            )
+
+            // Age snapshot computed with the same range-aware logic as UI
+            let (b0, b1) = LooseYMD.birthRange(chosen.birthDate)
+            metadata.peopleV2[i].ageAtPhoto = AgeAtPhoto.ageText(
+                photoStart: photoStart,
+                photoEnd: photoEnd,
+                birthStart: b0,
+                birthEnd: b1
             )
         }
 
         metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
     }
+
+
 
     private func saveCurrentMetadata() {
         guard let vm else { return }
