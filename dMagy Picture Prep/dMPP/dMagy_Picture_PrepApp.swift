@@ -1,6 +1,6 @@
 import SwiftUI
 
-// cp-2025-12-18-01(APP)
+// cp-2025-12-18-01(APP) test mark
 
 @main
 struct dMagy_Picture_PrepApp: App {
