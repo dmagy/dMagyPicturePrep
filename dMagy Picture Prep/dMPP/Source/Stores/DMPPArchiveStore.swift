@@ -67,7 +67,6 @@ final class DMPPArchiveStore: ObservableObject {
         panel.directoryURL = self.archiveRootURL
             ?? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
 
-
         panel.begin { [weak self] response in
             guard let self else { return }
             guard response == .OK, let url = panel.url else { return }
@@ -113,6 +112,7 @@ final class DMPPArchiveStore: ObservableObject {
             DispatchQueue.main.async {
                 self.archiveRootURL = url
                 self.archiveRootStatusMessage = nil
+                self.bootstrapPortableArchiveIfPossible(url)   // [BOOT]
             }
             return
         }
@@ -122,6 +122,7 @@ final class DMPPArchiveStore: ObservableObject {
             DispatchQueue.main.async {
                 self.archiveRootURL = url
                 self.archiveRootStatusMessage = nil
+                self.bootstrapPortableArchiveIfPossible(url)   // [BOOT]
             }
             return
         }
@@ -159,6 +160,25 @@ final class DMPPArchiveStore: ObservableObject {
         UserDefaults.standard.synchronize()
 
         resolveBookmarkIfPresent()
+        bootstrapPortableArchiveIfPossible(url) // [BOOT] immediate creation after user selects root
+    }
+
+    // ------------------------------------------------------------
+    // [BOOT] Ensure portable archive folder structure exists under root
+    // ------------------------------------------------------------
+    private func bootstrapPortableArchiveIfPossible(_ rootURL: URL) {
+        // File IO off the main thread.
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                _ = try DMPPPortableArchiveBootstrap.ensurePortableArchive(at: rootURL)
+            } catch {
+                DispatchQueue.main.async {
+                    // Keep message short; details go to console.
+                    self.archiveRootStatusMessage = "Creating portable archive data failed."
+                    print("Portable archive bootstrap failed: \(error)")
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------
@@ -205,4 +225,3 @@ final class DMPPArchiveStore: ObservableObject {
         isAccessingSecurityScopedResource = false
     }
 }
-
