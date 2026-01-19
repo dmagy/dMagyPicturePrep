@@ -40,10 +40,16 @@ struct dMagy_Picture_PrepApp: App {
 
         .commands {
             CommandGroup(after: .newItem) {
-                Button("Select Archive Root…") {
+                Button("Select Picture Library Folder…") {
                     archiveStore.promptForArchiveRoot()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+                
+                Button("Open Portable Archive Data Folder") {
+                    archiveStore.openPortableArchiveDataFolderInFinder()
+                }
+                .disabled(archiveStore.archiveRootURL == nil)
+
             }
         }
 
@@ -68,10 +74,10 @@ private struct DMPPArchiveRootGateView: View {
             } else {
                 // [ARCH] Root not set: show setup screen
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Choose Your Photo Archive Root")
+                    Text("Choose Your Picture Library Folder")
                         .font(.title2)
 
-                    Text("dMPP needs one top-level folder that contains your photo archive. Portable registry data will be stored inside it.")
+                    Text("dMPP needs one top-level folder that contains your pictures. Portable registry data will be stored inside it.")
                         .foregroundStyle(.secondary)
 
                     if let msg = archiveStore.archiveRootStatusMessage, !msg.isEmpty {
@@ -80,7 +86,7 @@ private struct DMPPArchiveRootGateView: View {
                             .foregroundStyle(.red)
                     }
 
-                    Button("Select Archive Root…") {
+                    Button("Select Picture Library Folder…") {
                         archiveStore.promptForArchiveRoot()
                     }
                     .padding(.top, 6)

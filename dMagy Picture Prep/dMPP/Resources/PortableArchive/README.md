@@ -42,7 +42,7 @@ Per-photo metadata is stored next to each image as a **sidecar JSON** file (dMPM
 This lets you back up, move, or share the archive without a database export step.
 
 ## If something looks wrong
-- If you moved the archive, open dMPP and re-select the archive root folder.
+- If you moved the archive, open dMPP and re-select the new folder.
 - If you accidentally deleted this folder, restore it from a backup.
 
 ---

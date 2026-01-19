@@ -41,7 +41,14 @@ struct DMPPImageEditorView: View {
     @State private var exportFolderURL: URL? = nil
     @State private var showExportError: Bool = false
     @State private var exportErrorMessage: String = ""
+    // [ARCH] User-facing warning when a selected folder is outside the Photo Library Folder
+    @State private var folderPickerWarning: String? = nil
 
+
+    // [ARCH] Access the chosen Photo Library Folder (archive root)
+    @EnvironmentObject private var archiveStore: DMPPArchiveStore
+
+    
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
     private let kLastFolderName = "dmpp.lastFolderName"
@@ -105,6 +112,12 @@ struct DMPPImageEditorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .help(folderURL == nil ? "Choose a folder to begin" : "Change folder…")
+                if let folderPickerWarning, !folderPickerWarning.isEmpty {
+                    Text(folderPickerWarning)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
 
                 // Show “Continue” only when no folder is currently loaded.
                 if folderURL == nil, canContinueLastFolder {
@@ -349,6 +362,22 @@ struct DMPPImageEditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+// ================================================================
+// [ARCH] URL helper: is `self` inside `ancestor`?
+// Must be at FILE SCOPE (outside any struct/class).
+// ================================================================
+private extension URL {
+    func isDescendant(of ancestor: URL) -> Bool {
+        let me = self.standardizedFileURL.resolvingSymlinksInPath().path
+        let root = ancestor.standardizedFileURL.resolvingSymlinksInPath().path
+
+        // Ensure root path ends with "/" so "/Photos" doesn't match "/PhotosOld"
+        let rootWithSlash = root.hasSuffix("/") ? root : (root + "/")
+        return me.hasPrefix(rootWithSlash)
+    }
+}
+
 
 // MARK: - Left Pane
 
@@ -2017,16 +2046,34 @@ extension DMPPImageEditorView {
     // MARK: Folder picking
 
     private func chooseFolder() {
+        guard let root = archiveStore.archiveRootURL else {
+            folderPickerWarning = "Set your Picture Library Folder first (File → Set Photo Library Folder…)."
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
+        panel.directoryURL = root  // start at the Photo Library Folder
 
         if panel.runModal() == .OK, let url = panel.url {
+            // Enforce: working folder must be inside the root
+            if !url.isDescendant(of: root) && url.standardizedFileURL != root.standardizedFileURL {
+                folderPickerWarning = "Working folder must be inside your Picture Library Folder."
+                return
+            }
+
+            // Clear warning on success
+            folderPickerWarning = nil
             loadImages(from: url)
         }
     }
+
+
+
+
 
     private func hasSidecar(_ imageURL: URL) -> Bool {
         FileManager.default.fileExists(atPath: sidecarURL(for: imageURL).path)
@@ -2041,14 +2088,40 @@ extension DMPPImageEditorView {
     }
 
     private func loadImages(from folder: URL) {
-        // Save current image metadata before switching folders / re-scanning.
+        // [SAVE] Save current image metadata before switching folders / re-scanning.
         saveCurrentMetadata()
 
-        guard beginScopedAccess(to: folder) else {
-            continueErrorMessage = "Prep can’t access that folder. Please choose it again."
+        // [ARCH] We need the Picture Library Folder (root) to compute relative paths.
+        guard let root = archiveStore.archiveRootURL else {
+            continueErrorMessage = "Picture Library Folder is not set. Please set it first."
             showContinueError = true
             return
         }
+
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let folderPath = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootWithSlash = rootPath.hasSuffix("/") ? rootPath : (rootPath + "/")
+
+        // [ARCH] Safety check: working folder must be inside the root.
+        let folderIsWithinRoot = (folderPath == rootPath) || folderPath.hasPrefix(rootWithSlash)
+        guard folderIsWithinRoot else {
+            continueErrorMessage = "Working folder must be inside your Picture Library Folder."
+            showContinueError = true
+            return
+        }
+
+        // [ARCH] Compute and persist the working folder RELATIVE path (portable).
+        let rel = (folderPath == rootPath) ? "" : String(folderPath.dropFirst(rootWithSlash.count))
+        UserDefaults.standard.set(rel, forKey: "DMPP.LastWorkingFolderRelativePath.v1")
+        UserDefaults.standard.synchronize()
+
+        // [ARCH] IMPORTANT:
+        // If the folder is inside the Picture Library Folder, we rely on the root bookmark access.
+        // beginScopedAccess(to:) may fail for subfolders even though root access is valid.
+        // Only use beginScopedAccess for non-root workflows (future advanced mode).
+        // (Right now, non-root selections are blocked anyway.)
+        //
+        // So: no beginScopedAccess needed here.
 
         folderURL = folder
 
@@ -2074,6 +2147,8 @@ extension DMPPImageEditorView {
             loadImage(at: 0)
         }
     }
+
+
 
     private func immediateImageURLs(in folder: URL) -> [URL] {
         let fm = FileManager.default
@@ -2117,6 +2192,9 @@ extension DMPPImageEditorView {
         defaults.set(advanceToNextWithoutSidecar, forKey: kLastUnpreppedOnly)
         defaults.set(url.lastPathComponent, forKey: kLastFolderName)
 
+        // [ARCH] Keep the legacy bookmark for backward compatibility.
+        // The new preferred key is saved in loadImages(from:) as:
+        // "DMPP.LastWorkingFolderRelativePath.v1"
         do {
             let data = try url.bookmarkData(
                 options: [.withSecurityScope],
@@ -2137,6 +2215,29 @@ extension DMPPImageEditorView {
         includeSubfolders = defaults.bool(forKey: kLastIncludeSubfolders)
         advanceToNextWithoutSidecar = defaults.bool(forKey: kLastUnpreppedOnly)
 
+        // [ARCH] Preferred: resolve last folder using Picture Library Folder + relative path.
+        if let root = archiveStore.archiveRootURL,
+           let rel = defaults.string(forKey: "DMPP.LastWorkingFolderRelativePath.v1") {
+
+            let trimmed = rel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // "" means root itself
+            if trimmed.isEmpty {
+                lastFolderURL = root
+                return
+            }
+
+            let candidate = root.appendingPathComponent(trimmed, isDirectory: true)
+
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                lastFolderURL = candidate
+                return
+            }
+            // If relative path doesn't exist (moved/renamed), fall through to legacy bookmark.
+        }
+
+        // [ARCH] Legacy fallback: bookmarked last folder
         guard let data = defaults.data(forKey: kLastFolderBookmark) else {
             lastFolderURL = nil
             return
@@ -2161,9 +2262,15 @@ extension DMPPImageEditorView {
     // MARK: Last-folder “Continue” helpers
 
     private var lastFolderNameForUI: String {
-        UserDefaults.standard.string(forKey: kLastFolderName)
-        ?? lastFolderURL?.lastPathComponent
-        ?? "Continue"
+        // Prefer relative-path-based display (if present)
+        if let rel = UserDefaults.standard.string(forKey: "DMPP.LastWorkingFolderRelativePath.v1"),
+           !rel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (rel as NSString).lastPathComponent
+        }
+
+        return UserDefaults.standard.string(forKey: kLastFolderName)
+            ?? lastFolderURL?.lastPathComponent
+            ?? "Continue"
     }
 
     private var canContinueLastFolder: Bool {
@@ -2175,16 +2282,16 @@ extension DMPPImageEditorView {
             return false
         }
 
-        // Optional: verify we can actually scope it (so button only shows when it will work)
-        let ok = url.startAccessingSecurityScopedResource()
-        if ok { url.stopAccessingSecurityScopedResource() }
-        return ok
+        // We intentionally do NOT require startAccessingSecurityScopedResource() here.
+        // loadImages(from:) will handle access failures and show the user a real message.
+        return true
     }
 
     private func continueLastFolder() {
         guard let url = lastFolderURL else { return }
         loadImages(from: url) // loadImages handles scoping + error message
     }
+
 
     // MARK: UI helpers
 

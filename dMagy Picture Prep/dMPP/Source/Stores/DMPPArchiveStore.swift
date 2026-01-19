@@ -57,8 +57,8 @@ final class DMPPArchiveStore: ObservableObject {
     // ------------------------------------------------------------
     func promptForArchiveRoot() {
         let panel = NSOpenPanel()
-        panel.title = "Choose Your Photo Archive Root"
-        panel.message = "Select the top-level folder that contains your photo archive. dMPP will store portable registry data inside it."
+        panel.title = "Set Picture Library Folder"
+        panel.message = "Select the top-level folder that contains your pictures. dMPP will store portable registry data inside it."
         panel.prompt = "Select"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -78,7 +78,7 @@ final class DMPPArchiveStore: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.archiveRootStatusMessage = "Could not set Archive Root: \(error.localizedDescription)"
+                    self.archiveRootStatusMessage = "Could not set Picture Library Folder: \(error.localizedDescription)"
                 }
             }
         }
@@ -130,7 +130,7 @@ final class DMPPArchiveStore: ObservableObject {
         // If we get here, the bookmark is not usable.
         DispatchQueue.main.async {
             self.archiveRootURL = nil
-            self.archiveRootStatusMessage = "Archive Root permission needs to be reselected."
+            self.archiveRootStatusMessage = "Picture Library Folder permission needs to be reselected."
         }
     }
 
@@ -163,6 +163,28 @@ final class DMPPArchiveStore: ObservableObject {
         bootstrapPortableArchiveIfPossible(url) // [BOOT] immediate creation after user selects root
     }
 
+    // ------------------------------------------------------------
+    // [ARCH] Convenience: portable archive folder URL (if root is set)
+    // ------------------------------------------------------------
+    var portableArchiveDataURL: URL? {
+        guard let root = archiveRootURL else { return nil }
+        return root.appendingPathComponent(DMPPPortableArchiveBootstrap.portableFolderName, isDirectory: true)
+    }
+
+    // ------------------------------------------------------------
+    // [ARCH] Convenience: open portable archive folder in Finder
+    // ------------------------------------------------------------
+    func openPortableArchiveDataFolderInFinder() {
+        guard let url = portableArchiveDataURL else {
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = "Picture Library Folder is not set."
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    
     // ------------------------------------------------------------
     // [BOOT] Ensure portable archive folder structure exists under root
     // ------------------------------------------------------------
