@@ -1,6 +1,6 @@
 import SwiftUI
 
-// cp-2025-12-18-01(APP) test mark
+// cp-2025-12-18-01(APP)
 
 @main
 struct dMagy_Picture_PrepApp: App {
@@ -8,14 +8,19 @@ struct dMagy_Picture_PrepApp: App {
     // [APP-STORE] App-wide People/Identity store (single source of truth)
     @StateObject private var identityStore = DMPPIdentityStore.shared
 
+    // [ARCH] Archive Root store (bookmark + selection)
+    @StateObject private var archiveStore = DMPPArchiveStore()
+
 
     var body: some Scene {
 
         // [APP-MAIN] Main editor window
         WindowGroup {
-            DMPPImageEditorView()
+            DMPPArchiveRootGateView()
+                .environmentObject(archiveStore)
                 .environmentObject(identityStore)
         }
+
 
         // [APP-SETTINGS] Settings window (you already have this; keep as-is if different)
         Settings {
@@ -33,12 +38,70 @@ struct dMagy_Picture_PrepApp: App {
         }
         .defaultSize(width: 900, height: 650)
 
-        // [APP-COMMANDS] People menu wiring
-     //   .commands {
-      //      PeopleCommands()
-      //  }
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("Select Archive Root…") {
+                    archiveStore.promptForArchiveRoot()
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+            }
+        }
+
     }
 }
+
+
+// ================================================================
+// [ARCH] Archive Root Gate View
+// - If Archive Root exists -> show editor
+// - If not -> show setup screen + button to select root
+// ================================================================
+
+private struct DMPPArchiveRootGateView: View {
+    @EnvironmentObject var archiveStore: DMPPArchiveStore
+
+    var body: some View {
+        Group {
+            if let _ = archiveStore.archiveRootURL {
+                // [ARCH] Root is set: show main editor
+                DMPPImageEditorView()
+            } else {
+                // [ARCH] Root not set: show setup screen
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Choose Your Photo Archive Root")
+                        .font(.title2)
+
+                    Text("dMPP needs one top-level folder that contains your photo archive. Portable registry data will be stored inside it.")
+                        .foregroundStyle(.secondary)
+
+                    if let msg = archiveStore.archiveRootStatusMessage, !msg.isEmpty {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    Button("Select Archive Root…") {
+                        archiveStore.promptForArchiveRoot()
+                    }
+                    .padding(.top, 6)
+
+                    Spacer()
+                }
+                .padding(20)
+                .frame(minWidth: 520, minHeight: 240)
+                .onAppear {
+                    // [ARCH] Auto-prompt ONLY on true first run (no bookmark saved yet).
+                    // If a bookmark exists but is invalid, we show the setup screen and the user can reselect.
+                    if archiveStore.archiveRootURL == nil && !archiveStore.hasStoredBookmark {
+                        archiveStore.promptForArchiveRoot()
+                    }
+                }
+
+            }
+        }
+    }
+}
+
 
 // [CMD] Commands live outside the App so they can use openWindow cleanly.
 private struct PeopleCommands: Commands {

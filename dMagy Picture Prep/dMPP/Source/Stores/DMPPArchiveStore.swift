@@ -4,14 +4,18 @@ import Combine
 
 // ================================================================
 // DMPPArchiveStore.swift
-// cp-2026-01-18-03A — archive root selection + bookmark persistence (fixes Combine + actor issues)
+// cp-2026-01-18-03B — robust bookmark persistence + resolve + first-run signal
 //
 // [ARCH] Responsibility:
-// - Let user pick an Archive Root folder (once).
-// - Persist access via security-scoped bookmark (works with sandbox).
+// - Let user pick an Archive Root folder.
+// - Persist access via bookmark (security-scoped when possible).
 // - Resolve bookmark to a URL on launch.
 // - Provide a single "archiveRootURL" the rest of the app uses.
-// - Caller can bootstrap portable archive data after selection/resolve.
+// - Provide "hasStoredBookmark" so UI knows whether to auto-prompt.
+//
+// Notes:
+// - Some dev/non-sandbox setups can behave differently with security scope.
+//   We try security-scoped first and fall back gracefully.
 // ================================================================
 
 final class DMPPArchiveStore: ObservableObject {
@@ -22,26 +26,28 @@ final class DMPPArchiveStore: ObservableObject {
     // [ARCH] Status / user-facing messaging hooks.
     @Published var archiveRootStatusMessage: String? = nil
 
-    // [ARCH] UserDefaults key for the security-scoped bookmark.
+    // [ARCH] UserDefaults key for the bookmark.
     private let bookmarkKey = "DMPP.ArchiveRootBookmark.v1"
 
     // [ARCH] Track security-scoped access so we can stop it.
     private var isAccessingSecurityScopedResource = false
 
     init() {
-        // Attempt to resolve bookmark immediately on app launch.
-        // If it fails, UI can prompt user to select root.
         resolveBookmarkIfPresent()
     }
 
     deinit {
-        // deinit is nonisolated; keep cleanup non-actor to avoid warnings/errors.
         stopAccessIfNeeded()
     }
 
     // ------------------------------------------------------------
-    // [ARCH] Public: do we already have a root?
+    // [ARCH] Public: whether any bookmark data exists in UserDefaults
+    // (this is what we use to decide whether to auto-prompt on first run)
     // ------------------------------------------------------------
+    var hasStoredBookmark: Bool {
+        UserDefaults.standard.data(forKey: bookmarkKey) != nil
+    }
+
     var hasArchiveRoot: Bool {
         archiveRootURL != nil
     }
@@ -57,8 +63,6 @@ final class DMPPArchiveStore: ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-
-        // Optional nicety: try to start in Pictures
         panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
 
         panel.begin { [weak self] response in
@@ -78,14 +82,14 @@ final class DMPPArchiveStore: ObservableObject {
         }
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Optional: clear root + bookmark (for troubleshooting).
-    // ------------------------------------------------------------
     func clearArchiveRoot() {
         stopAccessIfNeeded()
         UserDefaults.standard.removeObject(forKey: bookmarkKey)
+        UserDefaults.standard.synchronize()
+
         DispatchQueue.main.async {
             self.archiveRootURL = nil
+            self.archiveRootStatusMessage = nil
         }
     }
 
@@ -96,45 +100,33 @@ final class DMPPArchiveStore: ObservableObject {
         stopAccessIfNeeded()
 
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else {
+            DispatchQueue.main.async { self.archiveRootURL = nil }
+            return
+        }
+
+        // Try security-scoped resolve first, then fall back if needed.
+        if let url = resolveBookmark(data, options: [.withSecurityScope]) {
+            startSecurityScopeIfNeeded(url)
             DispatchQueue.main.async {
-                self.archiveRootURL = nil
+                self.archiveRootURL = url
+                self.archiveRootStatusMessage = nil
             }
             return
         }
 
-        var isStale = false
-        do {
-            let url = try URL(
-                resolvingBookmarkData: data,
-                options: [.withSecurityScope],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-
-            if isStale {
-                // Re-save bookmark if stale.
-                let refreshed = try url.bookmarkData(
-                    options: [.withSecurityScope],
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
-                UserDefaults.standard.set(refreshed, forKey: bookmarkKey)
-            }
-
-            // Start security-scoped access (required for sandbox).
-            if url.startAccessingSecurityScopedResource() {
-                isAccessingSecurityScopedResource = true
-            }
-
+        if let url = resolveBookmark(data, options: []) {
+            // No security scope; still usable in non-sandbox contexts.
             DispatchQueue.main.async {
                 self.archiveRootURL = url
+                self.archiveRootStatusMessage = nil
             }
+            return
+        }
 
-        } catch {
-            DispatchQueue.main.async {
-                self.archiveRootURL = nil
-                self.archiveRootStatusMessage = "Archive Root permission needs to be reselected."
-            }
+        // If we get here, the bookmark is not usable.
+        DispatchQueue.main.async {
+            self.archiveRootURL = nil
+            self.archiveRootStatusMessage = "Archive Root permission needs to be reselected."
         }
     }
 
@@ -142,25 +134,67 @@ final class DMPPArchiveStore: ObservableObject {
     // [ARCH] Core: set root, create bookmark, and resolve it.
     // ------------------------------------------------------------
     private func setArchiveRoot(_ url: URL) throws {
-        // Stop any previous access.
         stopAccessIfNeeded()
 
-        // Create security-scoped bookmark (safe even if not sandboxed).
-        let bookmark = try url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        // Prefer a security-scoped bookmark; fall back if environment doesn't support it cleanly.
+        let bookmark: Data
+        do {
+            bookmark = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        } catch {
+            bookmark = try url.bookmarkData(
+                options: [],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+        }
 
         UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+        UserDefaults.standard.synchronize()
 
-        // Resolve immediately to confirm it works.
         resolveBookmarkIfPresent()
     }
 
     // ------------------------------------------------------------
-    // [ARCH] Cleanup
+    // [ARCH] Helpers
     // ------------------------------------------------------------
+    private func resolveBookmark(_ data: Data, options: URL.BookmarkResolutionOptions) -> URL? {
+        var isStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: options,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+
+            // If stale, refresh and store again using same options we resolved with.
+            if isStale {
+                let refreshed = try url.bookmarkData(
+                    options: options.contains(.withSecurityScope) ? [.withSecurityScope] : [],
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+                UserDefaults.standard.set(refreshed, forKey: bookmarkKey)
+                UserDefaults.standard.synchronize()
+            }
+
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private func startSecurityScopeIfNeeded(_ url: URL) {
+        // Only attempt to start security scope if we resolved using security scope.
+        if url.startAccessingSecurityScopedResource() {
+            isAccessingSecurityScopedResource = true
+        }
+    }
+
     private func stopAccessIfNeeded() {
         if isAccessingSecurityScopedResource, let url = archiveRootURL {
             url.stopAccessingSecurityScopedResource()
@@ -168,3 +202,4 @@ final class DMPPArchiveStore: ObservableObject {
         isAccessingSecurityScopedResource = false
     }
 }
+
