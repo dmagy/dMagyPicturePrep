@@ -1,8 +1,10 @@
 import Foundation
+import CryptoKit
 
 // ================================================================
 // DMPPSoftLockService.swift
-// cp-2026-01-18-09 — warning-only soft locks (relative-path keyed)
+// cp-2026-01-18-09A — warning-only soft locks (relative-path keyed)
+// - Uses SHA256 for stable filenames across launches/devices.
 //
 // [LOCK] Goals:
 // - Warn (only) when another user/session may be editing the SAME picture.
@@ -10,7 +12,7 @@ import Foundation
 // - Key by RELATIVE picture path (relative to Picture Library Folder).
 //
 // Lock files live at:
-// <Root>/dMagy Portable Archive Data/_locks/lock_<hash>.json
+// <Root>/dMagy Portable Archive Data/_locks/lock_<sha256prefix>.json
 // ================================================================
 
 enum DMPPSoftLockService {
@@ -98,42 +100,43 @@ enum DMPPSoftLockService {
         let appVersion: String
     }
 
+    // [LOCK] Unique per app launch/run (do NOT store in UserDefaults).
+    // This makes testing with 2 instances work and prevents false "same session" matches.
+    private static let sessionIDForThisRun: String = {
+        // Include PID so two instances launched at the same time are guaranteed different.
+        "\(UUID().uuidString)-pid\(ProcessInfo.processInfo.processIdentifier)"
+    }()
+
     static func defaultSessionInfo() -> SessionInfo {
         let device = Host.current().localizedName ?? "Mac"
-        let user = NSFullUserName() // good enough for v1; can be overridden later
-        let session = UserDefaults.standard.string(forKey: "DMPP.SessionID.v1")
-            ?? {
-                let s = UUID().uuidString
-                UserDefaults.standard.set(s, forKey: "DMPP.SessionID.v1")
-                return s
-            }()
+        let user = NSFullUserName() // fine for v1; can be overridden later
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
 
         return SessionInfo(
             userDisplayName: user,
             deviceName: device,
-            sessionID: session,
+            sessionID: sessionIDForThisRun,
             appVersion: version
         )
     }
+
 
     // -----------------------------
     // MARK: Private Helpers
     // -----------------------------
 
     private static func lockFileURL(locksFolder: URL, photoRelPath: String) -> URL {
-        let hash = stableHashHex(photoRelPath)
+        let hash = stableSHA256HexPrefix(photoRelPath, prefixBytes: 16) // shorter filename, still very safe
         return locksFolder.appendingPathComponent("lock_\(hash).json")
     }
 
-    private static func stableHashHex(_ s: String) -> String {
-        // Simple deterministic hash; good enough for filenames.
-        // We can upgrade to SHA256 later if desired.
-        var hasher = Hasher()
-        hasher.combine(s)
-        let value = hasher.finalize()
-        // Convert to unsigned-ish hex string
-        return String(format: "%016llx", UInt64(bitPattern: Int64(value)))
+    private static func stableSHA256HexPrefix(_ s: String, prefixBytes: Int) -> String {
+        let data = Data(s.utf8)
+        let digest = SHA256.hash(data: data)
+        let bytes = Array(digest)
+
+        let count = max(1, min(prefixBytes, bytes.count))
+        return bytes.prefix(count).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func existingCreatedAtIfPresent(lockFileURL: URL) -> String? {

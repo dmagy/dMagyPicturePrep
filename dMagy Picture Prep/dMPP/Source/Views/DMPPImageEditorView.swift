@@ -43,6 +43,10 @@ struct DMPPImageEditorView: View {
     @State private var exportErrorMessage: String = ""
     // [ARCH] User-facing warning when a selected folder is outside the Photo Library Folder
     @State private var folderPickerWarning: String? = nil
+    // [LOCK] Warning-only soft lock UI
+    @State private var softLockWarningText: String? = nil
+    @State private var currentPhotoRelPathForLock: String? = nil
+
 
 
     // [ARCH] Access the chosen Photo Library Folder (archive root)
@@ -118,6 +122,13 @@ struct DMPPImageEditorView: View {
                         .foregroundStyle(.red)
                         .lineLimit(2)
                 }
+                if let softLockWarningText, !softLockWarningText.isEmpty {
+                    Text(softLockWarningText)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+
 
                 // Show “Continue” only when no folder is currently loaded.
                 if folderURL == nil, canContinueLastFolder {
@@ -2348,6 +2359,54 @@ extension DMPPImageEditorView {
         currentIndex = index
         let url = imageURLs[index]
 
+        // ------------------------------------------------------------
+        // [LOCK] Warning-only soft lock
+        // - Key by relative path (relative to Picture Library Folder)
+        // - Warn if another session has a fresh lock
+        // ------------------------------------------------------------
+        if let root = archiveStore.archiveRootURL,
+           let relPath = relativePathUnderRoot(fileURL: url, rootURL: root) {
+
+            // If we moved to a different photo, remove our prior lock (best-effort cleanup).
+            if let prev = currentPhotoRelPathForLock, prev != relPath {
+                DMPPSoftLockService.removeLock(root: root, photoRelPath: prev)
+            }
+            currentPhotoRelPathForLock = relPath
+
+            let session = DMPPSoftLockService.defaultSessionInfo()
+
+            // Check existing lock *before* we overwrite it
+            if let existing = DMPPSoftLockService.readLock(root: root, photoRelPath: relPath),
+               DMPPSoftLockService.isFresh(existing),
+               existing.sessionID != session.sessionID {
+
+                let minutes = minutesAgo(fromISO8601UTC: existing.lastSeenUTC)
+                if let minutes {
+                    softLockWarningText = "Heads up: \(existing.userDisplayName) on \(existing.deviceName) may be editing this picture (active ~\(minutes)m ago)."
+                } else {
+                    softLockWarningText = "Heads up: \(existing.userDisplayName) on \(existing.deviceName) may be editing this picture."
+                }
+            } else {
+                softLockWarningText = nil
+            }
+
+            // Upsert our lock (best-effort)
+            do {
+                try DMPPSoftLockService.upsertLock(root: root, photoRelPath: relPath, session: session)
+            } catch {
+                // Warning only — do not block editing.
+                print("Soft lock upsert failed: \(error)")
+            }
+        } else {
+            // If we can't compute relative path, do nothing (shouldn't happen under current rules)
+            softLockWarningText = nil
+            currentPhotoRelPathForLock = nil
+        }
+
+        // ------------------------------------------------------------
+        // [ROW] Existing image + metadata load pipeline
+        // ------------------------------------------------------------
+
         // Load sidecar first (mutable so we can hydrate)
         var metadata = loadMetadata(for: url)
 
@@ -2384,6 +2443,7 @@ extension DMPPImageEditorView {
         }
     }
 
+
     private func goToPreviousImage() {
         let newIndex = currentIndex - 1
         guard imageURLs.indices.contains(newIndex) else { return }
@@ -2402,6 +2462,25 @@ extension DMPPImageEditorView {
         }
     }
 
+    // [LOCK] Compute relative file path under Picture Library Folder (root)
+    private func relativePathUnderRoot(fileURL: URL, rootURL: URL) -> String? {
+        let rootPath = rootURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let filePath = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootWithSlash = rootPath.hasSuffix("/") ? rootPath : (rootPath + "/")
+
+        guard filePath.hasPrefix(rootWithSlash) else { return nil }
+        return String(filePath.dropFirst(rootWithSlash.count))
+    }
+
+    // [LOCK] Simple “minutes ago” from ISO8601 string
+    private func minutesAgo(fromISO8601UTC iso: String) -> Int? {
+        let fmt = ISO8601DateFormatter()
+        guard let d = fmt.date(from: iso) else { return nil }
+        let mins = Int(Date().timeIntervalSince(d) / 60.0)
+        return max(0, mins)
+    }
+
+    
     // MARK: Sidecar Read/Write
 
     private func sidecarURL(for imageURL: URL) -> URL {
