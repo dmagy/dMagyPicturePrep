@@ -4,15 +4,9 @@ import Foundation
 // DMPPPortableArchiveBootstrap.swift
 // cp-2026-01-18-02 — create portable archive folder structure + copy README/PDF
 //
-// [BOOT] This helper is called after the user selects the Archive Root.
-// It ensures <Archive Root>/dMagy Portable Archive Data exists and contains
-// the required subfolders, plus _Read_Me_.pdf and README.md.
-//
-// Design goals:
-// - Safe to call repeatedly (idempotent).
-// - Creates missing folders/files.
-// - Does NOT overwrite an existing README.md (user may edit it).
-// - PDF is copied only if missing.
+// [BOOT] Called after Archive Root is known.
+// Ensures: <Archive Root>/dMagy Portable Archive Data exists + required subfolders.
+// Copies bundled _Read_Me_.pdf + README.md if missing (does NOT overwrite README).
 // ================================================================
 
 enum DMPPPortableArchiveBootstrap {
@@ -28,7 +22,7 @@ enum DMPPPortableArchiveBootstrap {
         "Crops",
         "_locks",   // relative-path soft locks live here (warning only)
         "_meta",
-        "_indexes"  // optional: treat as cache/rebuildable
+        "_indexes"  // treat as cache/rebuildable
     ]
 
     // [BOOT] Public entry point.
@@ -59,10 +53,10 @@ enum DMPPPortableArchiveBootstrap {
             resourceName: "_Read_Me_",
             resourceExtension: "pdf",
             destinationURL: portableURL.appendingPathComponent("_Read_Me_.pdf"),
-            allowOverwrite: false // generally keep stable; only copy if missing
+            allowOverwrite: false // only copy if missing
         )
 
-        // [BOOT] Ensure schema version metadata exists (minimal, safe).
+        // [BOOT] Ensure schema version metadata exists.
         try ensureSchemaVersionFile(at: portableURL.appendingPathComponent("_meta", isDirectory: true))
 
         return portableURL
@@ -88,7 +82,6 @@ enum DMPPPortableArchiveBootstrap {
         }
 
         guard let sourceURL = Bundle.main.url(forResource: resourceName, withExtension: resourceExtension) else {
-            // If this happens, the resource wasn’t added to Copy Bundle Resources.
             throw NSError(
                 domain: "DMPPPortableArchiveBootstrap",
                 code: 1,
@@ -108,7 +101,6 @@ enum DMPPPortableArchiveBootstrap {
 
         if fm.fileExists(atPath: schemaURL.path) { return }
 
-        // [BOOT-META] Keep this tiny. Expand later as needed.
         let payload: [String: Any] = [
             "schemaVersion": 1,
             "createdAtUTC": ISO8601DateFormatter().string(from: Date())
