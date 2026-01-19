@@ -63,7 +63,10 @@ final class DMPPArchiveStore: ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+        // [ARCH] Start picker at current root if we have one; otherwise default to Pictures.
+        panel.directoryURL = self.archiveRootURL
+            ?? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+
 
         panel.begin { [weak self] response in
             guard let self else { return }
