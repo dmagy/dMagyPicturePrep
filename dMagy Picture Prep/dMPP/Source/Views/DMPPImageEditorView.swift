@@ -2618,91 +2618,32 @@ extension DMPPImageEditorView {
 
 // MARK: - Date validation helper (file-scope)
 
+// [DATEVAL] Date Taken warning message (uses LooseYMD strict validation)
+//
+// Rule (per Dan):
+// - Only show red warnings for supported numeric formats:
+//     1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08
+// - Do NOT warn for other text (even if we don't support it yet).
 private func dateValidationMessage(for raw: String) -> String? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let fullDate     = #"^\d{4}-\d{2}-\d{2}$"#
-    let yearMonth    = #"^\d{4}-\d{2}$"#
-    let yearOnly     = #"^\d{4}$"#
-    let decade       = #"^\d{4}s$"#
-    let yearRange    = #"^(\d{4})-(\d{4})$"#
-    let monthRange   = #"^(\d{4})-(\d{2})-(\d{4})-(\d{2})$"#
-    let monthRangeTo = #"^(\d{4})-(\d{2})\s+to\s+(\d{4})-(\d{2})$"#
+    switch LooseYMD.validateNumericDateString(trimmed) {
+    case .valid:
+        return nil
 
-    func matches(_ pattern: String) -> NSTextCheckingResult? {
-        let regex = try? NSRegularExpression(pattern: pattern)
-        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
-        return regex?.firstMatch(in: trimmed, options: [], range: range)
+    case .notApplicable:
+        // Not one of our supported numeric formats => don't show red.
+        // Example: "Summer 1984" (not supported yet, but we won't warn).
+        return nil
+
+    case .invalid:
+        // It *looked* like one of the supported numeric formats, but it's not valid.
+        // Keep message brief but helpful.
+        return "Invalid date. Examples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
     }
-
-    if matches(fullDate) != nil { return nil }
-    if matches(yearMonth) != nil { return nil }
-    if matches(yearOnly) != nil { return nil }
-    if matches(decade) != nil { return nil }
-
-    if let match = matches(yearRange) {
-        if match.numberOfRanges == 3,
-           let startRange = Range(match.range(at: 1), in: trimmed),
-           let endRange   = Range(match.range(at: 2), in: trimmed) {
-
-            let startYear = Int(trimmed[startRange]) ?? 0
-            let endYear   = Int(trimmed[endRange]) ?? 0
-
-            if endYear < startYear {
-                return "End year must not be earlier than start year."
-            } else {
-                return nil
-            }
-        }
-    }
-
-    if let match = matches(monthRange) {
-        if match.numberOfRanges == 5,
-           let sYRange = Range(match.range(at: 1), in: trimmed),
-           let sMRange = Range(match.range(at: 2), in: trimmed),
-           let eYRange = Range(match.range(at: 3), in: trimmed),
-           let eMRange = Range(match.range(at: 4), in: trimmed) {
-
-            let sY = Int(trimmed[sYRange]) ?? 0
-            let sM = Int(trimmed[sMRange]) ?? 0
-            let eY = Int(trimmed[eYRange]) ?? 0
-            let eM = Int(trimmed[eMRange]) ?? 0
-
-            if !(1...12).contains(sM) || !(1...12).contains(eM) {
-                return "Months must be between 01 and 12."
-            }
-            if eY < sY || (eY == sY && eM < sM) {
-                return "End month must not be earlier than start month."
-            }
-            return nil
-        }
-    }
-
-    if let match = matches(monthRangeTo) {
-        if match.numberOfRanges == 5,
-           let sYRange = Range(match.range(at: 1), in: trimmed),
-           let sMRange = Range(match.range(at: 2), in: trimmed),
-           let eYRange = Range(match.range(at: 3), in: trimmed),
-           let eMRange = Range(match.range(at: 4), in: trimmed) {
-
-            let sY = Int(trimmed[sYRange]) ?? 0
-            let sM = Int(trimmed[sMRange]) ?? 0
-            let eY = Int(trimmed[eYRange]) ?? 0
-            let eM = Int(trimmed[eMRange]) ?? 0
-
-            if !(1...12).contains(sM) || !(1...12).contains(eM) {
-                return "Months must be between 01 and 12."
-            }
-            if eY < sY || (eY == sY && eM < sM) {
-                return "End month must not be earlier than start month."
-            }
-            return nil
-        }
-    }
-
-    return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
 }
+
 
 // MARK: - File-scope helpers
 
