@@ -73,6 +73,7 @@ struct DMPPImageEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbarView
+            softLockBannerView
             Divider()
             mainContentView
         }
@@ -92,7 +93,9 @@ struct DMPPImageEditorView: View {
             Text(continueErrorMessage)
         }
     }
+       
 
+    
     // MARK: - Subviews
 
     @ViewBuilder
@@ -122,12 +125,8 @@ struct DMPPImageEditorView: View {
                         .foregroundStyle(.red)
                         .lineLimit(2)
                 }
-                if let softLockWarningText, !softLockWarningText.isEmpty {
-                    Text(softLockWarningText)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(2)
-                }
+    
+
 
 
                 // Show “Continue” only when no folder is currently loaded.
@@ -360,6 +359,44 @@ struct DMPPImageEditorView: View {
         .background(.thinMaterial)
     }
 
+    // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)
+    @ViewBuilder
+    private var softLockBannerView: some View {
+        if let softLockWarningText, !softLockWarningText.isEmpty {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.headline)
+
+                Text(softLockWarningText)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+
+                Spacer(minLength: 8)
+
+                Button("Dismiss") {
+                    self.softLockWarningText = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                Rectangle()
+                   // .fill(Color.orange.opacity(0.28))
+                    .fill(Color.orange)
+            )
+            .overlay(
+                Rectangle()
+                    .stroke(Color.orange.opacity(0.65), lineWidth: 1)
+            )
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: softLockWarningText)
+        }
+    }
+
+    
     @ViewBuilder
     private var emptyStateView: some View {
         VStack(spacing: 12) {
@@ -372,6 +409,8 @@ struct DMPPImageEditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+
 }
 
 // ================================================================

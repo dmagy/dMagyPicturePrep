@@ -1,6 +1,6 @@
 import SwiftUI
 
-// cp-2025-12-18-01(APP)
+// cp-2026-01-21-01(APP) — window autosave + fix duplicate WindowGroup + commands scope
 
 @main
 struct dMagy_Picture_PrepApp: App {
@@ -8,59 +8,69 @@ struct dMagy_Picture_PrepApp: App {
     // [APP-STORE] App-wide People/Identity store (single source of truth)
     @StateObject private var identityStore = DMPPIdentityStore.shared
 
-    // [ARCH] Archive Root store (bookmark + selection)
+    // [ARCH] Picture Library Folder store (bookmark + selection)
     @StateObject private var archiveStore = DMPPArchiveStore()
-
 
     var body: some Scene {
 
+        // ============================================================
         // [APP-MAIN] Main editor window
+        // ============================================================
         WindowGroup {
             DMPPArchiveRootGateView()
                 .environmentObject(archiveStore)
                 .environmentObject(identityStore)
+                // [WIN] Restore window frame between launches
+                .background(DMPPWindowAutosave(name: "DMPP.MainWindow.v1"))
         }
-
-
-        // [APP-SETTINGS] Settings window (you already have this; keep as-is if different)
-        Settings {
-            DMPPCropPreferencesView()
-                .environmentObject(identityStore)
-        }
-        .defaultSize(width: 980, height: 820)
-        .windowResizability(.contentMinSize)
-
-        // [APP-PEOPLE] Dedicated People Manager window
-        WindowGroup("Details", id: "People-Manager") {
-            
-            DMPPPeopleManagerView()
-                .environmentObject(identityStore)
-        }
-        .defaultSize(width: 900, height: 650)
-
+        // [CMD] Attach commands at the Scene level (applies to main window)
         .commands {
             CommandGroup(after: .newItem) {
+
                 Button("Select Picture Library Folder…") {
                     archiveStore.promptForArchiveRoot()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
-                
+
                 Button("Open Portable Archive Data Folder") {
                     archiveStore.openPortableArchiveDataFolderInFinder()
                 }
                 .disabled(archiveStore.archiveRootURL == nil)
-
             }
         }
 
+        // ============================================================
+        // [APP-SETTINGS] Settings window
+        // ============================================================
+        Settings {
+            DMPPCropPreferencesView()
+                .environmentObject(identityStore)
+        }
+        // (Leave these commented unless you intentionally want to force sizing.)
+        // .defaultSize(width: 980, height: 820)
+        // .windowResizability(.contentMinSize)
+
+        // ============================================================
+        // [APP-PEOPLE] Dedicated People Manager window
+        // ============================================================
+        WindowGroup("People Manager", id: "People-Manager") {
+            DMPPPeopleManagerView()
+                .environmentObject(identityStore)
+                // [WIN] Separate autosave key so it doesn't fight the main window
+                .background(DMPPWindowAutosave(name: "DMPP.PeopleWindow.v1"))
+        }
+        // Optional: also include People menu (if you want it globally, keep it here)
+        .commands {
+            PeopleCommands()
+        }
     }
 }
 
 
 // ================================================================
-// [ARCH] Archive Root Gate View
-// - If Archive Root exists -> show editor
-// - If not -> show setup screen + button to select root
+// [ARCH] Picture Library Folder Gate View
+// - If Picture Library Folder exists -> show editor
+// - If not -> show setup screen + button to select folder
 // ================================================================
 
 private struct DMPPArchiveRootGateView: View {
@@ -68,11 +78,11 @@ private struct DMPPArchiveRootGateView: View {
 
     var body: some View {
         Group {
-            if let _ = archiveStore.archiveRootURL {
-                // [ARCH] Root is set: show main editor
+            if archiveStore.archiveRootURL != nil {
+                // [ARCH] Folder is set: show main editor
                 DMPPImageEditorView()
             } else {
-                // [ARCH] Root not set: show setup screen
+                // [ARCH] Folder not set: show setup screen
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Choose Your Picture Library Folder")
                         .font(.title2)
@@ -94,7 +104,8 @@ private struct DMPPArchiveRootGateView: View {
                     Spacer()
                 }
                 .padding(20)
-                .frame(minWidth: 520, minHeight: 240)
+                // [WIN] Don't start tiny; still just a minimum.
+                .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     // [ARCH] Auto-prompt ONLY on true first run (no bookmark saved yet).
                     // If a bookmark exists but is invalid, we show the setup screen and the user can reselect.
@@ -102,14 +113,16 @@ private struct DMPPArchiveRootGateView: View {
                         archiveStore.promptForArchiveRoot()
                     }
                 }
-
             }
         }
     }
 }
 
 
+// ================================================================
 // [CMD] Commands live outside the App so they can use openWindow cleanly.
+// ================================================================
+
 private struct PeopleCommands: Commands {
 
     @Environment(\.openWindow) private var openWindow
@@ -117,7 +130,6 @@ private struct PeopleCommands: Commands {
     var body: some Commands {
         CommandMenu("People") {
             Button("Open People Manager") {
-                // [CMD-OPEN] This is the actual fix: uses the WindowGroup id above.
                 openWindow(id: "People-Manager")
             }
             .keyboardShortcut("p", modifiers: [.command, .shift])
