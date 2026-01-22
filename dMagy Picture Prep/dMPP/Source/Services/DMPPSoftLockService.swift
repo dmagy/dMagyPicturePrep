@@ -3,16 +3,18 @@ import CryptoKit
 
 // ================================================================
 // DMPPSoftLockService.swift
-// cp-2026-01-18-09A — warning-only soft locks (relative-path keyed)
-// - Uses SHA256 for stable filenames across launches/devices.
+// cp-2026-01-21-05 — warning-only soft locks (record-per-session)
+// - Uses SHA256(relPath) for stable per-picture folder names.
+// - Each session writes its OWN lock file so sessions do not overwrite each other.
 //
 // [LOCK] Goals:
 // - Warn (only) when another user/session may be editing the SAME picture.
 // - No hard blocking.
 // - Key by RELATIVE picture path (relative to Picture Library Folder).
+// - Cloud-sync friendly (Drive/Dropbox): no merge conflicts from shared single file.
 //
 // Lock files live at:
-// <Root>/dMagy Portable Archive Data/_locks/lock_<sha256prefix>.json
+// <Root>/dMagy Portable Archive Data/_locks/<sha256prefix>/lock_<sessionID>.json
 // ================================================================
 
 enum DMPPSoftLockService {
@@ -41,12 +43,17 @@ enum DMPPSoftLockService {
             .appendingPathComponent("_locks", isDirectory: true)
     }
 
-    /// Create or update a lock for a given relative photo path.
+    /// Create or update THIS SESSION's lock for a given relative photo path.
     static func upsertLock(root: URL, photoRelPath: String, session: SessionInfo) throws {
         let locksFolder = lockFolderURL(forRoot: root)
         try FileManager.default.createDirectory(at: locksFolder, withIntermediateDirectories: true)
 
-        let url = lockFileURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+        // Per-picture folder (stable across devices)
+        let pictureFolder = pictureLockFolderURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+        try FileManager.default.createDirectory(at: pictureFolder, withIntermediateDirectories: true)
+
+        // Per-session lock file (prevents last-writer-wins)
+        let url = lockFileURL(pictureFolder: pictureFolder, sessionID: session.sessionID)
 
         let now = ISO8601DateFormatter().string(from: Date())
         let created = existingCreatedAtIfPresent(lockFileURL: url) ?? now
@@ -65,13 +72,38 @@ enum DMPPSoftLockService {
         try data.write(to: url, options: [.atomic])
     }
 
-    /// Read a lock (if present) for a given relative photo path.
-    static func readLock(root: URL, photoRelPath: String) -> LockRecord? {
+    /// Read ALL locks (all sessions) for a given relative photo path.
+    /// This returns both fresh and stale; callers can filter with isFresh().
+    static func readLocks(root: URL, photoRelPath: String) -> [LockRecord] {
         let locksFolder = lockFolderURL(forRoot: root)
-        let url = lockFileURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+        let pictureFolder = pictureLockFolderURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
 
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(LockRecord.self, from: data)
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: pictureFolder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var records: [LockRecord] = []
+        records.reserveCapacity(urls.count)
+
+        for url in urls where url.pathExtension.lowercased() == "json" {
+            guard let data = try? Data(contentsOf: url),
+                  let rec = try? JSONDecoder().decode(LockRecord.self, from: data)
+            else { continue }
+            records.append(rec)
+        }
+
+        return records
+    }
+
+    /// Convenience: return all FRESH locks for this picture.
+    static func readFreshLocks(root: URL, photoRelPath: String, freshMinutes: Int = 5) -> [LockRecord] {
+        let now = Date()
+        return readLocks(root: root, photoRelPath: photoRelPath)
+            .filter { isFresh($0, now: now, freshMinutes: freshMinutes) }
     }
 
     /// Determine whether a lock should be considered "fresh" (warn-worthy).
@@ -82,11 +114,60 @@ enum DMPPSoftLockService {
         return delta >= 0 && delta <= Double(freshMinutes * 60)
     }
 
-    /// Delete a lock for a given relative photo path (best effort).
-    static func removeLock(root: URL, photoRelPath: String) {
+    /// Should we warn? True when ANY OTHER session has a fresh lock on this picture.
+    static func shouldWarn(root: URL, photoRelPath: String, currentSessionID: String, freshMinutes: Int = 5) -> Bool {
+        let fresh = readFreshLocks(root: root, photoRelPath: photoRelPath, freshMinutes: freshMinutes)
+        return fresh.contains { $0.sessionID != currentSessionID }
+    }
+
+    /// Return the list of OTHER sessions that are actively editing (fresh locks).
+    static func activeOtherSessions(root: URL, photoRelPath: String, currentSessionID: String, freshMinutes: Int = 5) -> [LockRecord] {
+        let fresh = readFreshLocks(root: root, photoRelPath: photoRelPath, freshMinutes: freshMinutes)
+        return fresh.filter { $0.sessionID != currentSessionID }
+    }
+
+    /// Delete THIS SESSION's lock for a given relative photo path (best effort).
+    static func removeLock(root: URL, photoRelPath: String, sessionID: String) {
         let locksFolder = lockFolderURL(forRoot: root)
-        let url = lockFileURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+        let pictureFolder = pictureLockFolderURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+        let url = lockFileURL(pictureFolder: pictureFolder, sessionID: sessionID)
         try? FileManager.default.removeItem(at: url)
+
+        // Optional cleanup: remove the picture folder if empty.
+        if let remaining = try? FileManager.default.contentsOfDirectory(atPath: pictureFolder.path),
+           remaining.isEmpty {
+            try? FileManager.default.removeItem(at: pictureFolder)
+        }
+    }
+
+    /// Optional cleanup: prune stale lock files for this picture (best effort).
+    /// Useful to reduce clutter in synced folders.
+    static func pruneStaleLocks(root: URL, photoRelPath: String, freshMinutes: Int = 5) {
+        let locksFolder = lockFolderURL(forRoot: root)
+        let pictureFolder = pictureLockFolderURL(locksFolder: locksFolder, photoRelPath: photoRelPath)
+
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: pictureFolder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let now = Date()
+        for url in urls where url.pathExtension.lowercased() == "json" {
+            guard let data = try? Data(contentsOf: url),
+                  let rec = try? JSONDecoder().decode(LockRecord.self, from: data)
+            else { continue }
+
+            if !isFresh(rec, now: now, freshMinutes: freshMinutes) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        // Remove folder if empty after pruning.
+        if let remaining = try? FileManager.default.contentsOfDirectory(atPath: pictureFolder.path),
+           remaining.isEmpty {
+            try? FileManager.default.removeItem(at: pictureFolder)
+        }
     }
 
     // -----------------------------
@@ -101,9 +182,8 @@ enum DMPPSoftLockService {
     }
 
     // [LOCK] Unique per app launch/run (do NOT store in UserDefaults).
-    // This makes testing with 2 instances work and prevents false "same session" matches.
+    // Include PID so two instances launched at the same time are guaranteed different.
     private static let sessionIDForThisRun: String = {
-        // Include PID so two instances launched at the same time are guaranteed different.
         "\(UUID().uuidString)-pid\(ProcessInfo.processInfo.processIdentifier)"
     }()
 
@@ -120,14 +200,26 @@ enum DMPPSoftLockService {
         )
     }
 
+    /// Expose current sessionID for callers (editor view) that need to compare.
+    static func currentSessionID() -> String {
+        sessionIDForThisRun
+    }
 
     // -----------------------------
     // MARK: Private Helpers
     // -----------------------------
 
-    private static func lockFileURL(locksFolder: URL, photoRelPath: String) -> URL {
-        let hash = stableSHA256HexPrefix(photoRelPath, prefixBytes: 16) // shorter filename, still very safe
-        return locksFolder.appendingPathComponent("lock_\(hash).json")
+    private static func pictureLockFolderURL(locksFolder: URL, photoRelPath: String) -> URL {
+        let hash = stableSHA256HexPrefix(photoRelPath, prefixBytes: 16)
+        return locksFolder.appendingPathComponent(hash, isDirectory: true)
+    }
+
+    private static func lockFileURL(pictureFolder: URL, sessionID: String) -> URL {
+        // SessionID includes UUID+pid; safe as filename, but sanitize lightly anyway.
+        let safeSession = sessionID
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return pictureFolder.appendingPathComponent("lock_\(safeSession).json")
     }
 
     private static func stableSHA256HexPrefix(_ s: String, prefixBytes: Int) -> String {

@@ -46,6 +46,8 @@ struct DMPPImageEditorView: View {
     // [LOCK] Warning-only soft lock UI
     @State private var softLockWarningText: String? = nil
     @State private var currentPhotoRelPathForLock: String? = nil
+    // [LOCK] Heartbeat timer (updates our lock timestamp while we’re on a picture)
+    @State private var softLockHeartbeatTimer: Timer? = nil
 
 
 
@@ -81,7 +83,23 @@ struct DMPPImageEditorView: View {
             loadPersistedLastFolder()
             loadPersistedExportFolder()
         }
-        .onDisappear { endScopedAccess() }
+        .onDisappear {
+            // [ARCH] End security-scoped access
+            endScopedAccess()
+
+            // [LOCK] Best-effort cleanup when this window goes away
+            stopSoftLockHeartbeat()
+
+            if let root = archiveStore.archiveRootURL,
+               let relPath = currentPhotoRelPathForLock {
+                DMPPSoftLockService.removeLock(
+                    root: root,
+                    photoRelPath: relPath,
+                    sessionID: DMPPSoftLockService.currentSessionID()
+                )
+            }
+        }
+
         .alert("Export failed", isPresented: $showExportError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -385,7 +403,7 @@ struct DMPPImageEditorView: View {
             .background(
                 Rectangle()
                    // .fill(Color.orange.opacity(0.28))
-                    .fill(Color.orange)
+                    .fill(Color.yellow)
             )
             .overlay(
                 Rectangle()
@@ -2393,6 +2411,8 @@ extension DMPPImageEditorView {
     private func loadImage(at index: Int) {
         guard imageURLs.indices.contains(index) else { return }
 
+        stopSoftLockHeartbeat()
+
         saveCurrentMetadata()
 
         currentIndex = index
@@ -2408,26 +2428,46 @@ extension DMPPImageEditorView {
 
             // If we moved to a different photo, remove our prior lock (best-effort cleanup).
             if let prev = currentPhotoRelPathForLock, prev != relPath {
-                DMPPSoftLockService.removeLock(root: root, photoRelPath: prev)
+                DMPPSoftLockService.removeLock(
+                    root: root,
+                    photoRelPath: prev,
+                    sessionID: DMPPSoftLockService.currentSessionID()
+                )
+
             }
             currentPhotoRelPathForLock = relPath
 
             let session = DMPPSoftLockService.defaultSessionInfo()
+            // [LOCK] Best-effort cleanup so _locks doesn’t grow forever
+            DMPPSoftLockService.pruneStaleLocks(root: root, photoRelPath: relPath)
 
-            // Check existing lock *before* we overwrite it
-            if let existing = DMPPSoftLockService.readLock(root: root, photoRelPath: relPath),
-               DMPPSoftLockService.isFresh(existing),
-               existing.sessionID != session.sessionID {
 
-                let minutes = minutesAgo(fromISO8601UTC: existing.lastSeenUTC)
+            // Check OTHER active sessions (fresh locks by others)
+            let others = DMPPSoftLockService.activeOtherSessions(
+                root: root,
+                photoRelPath: relPath,
+                currentSessionID: session.sessionID
+            )
+
+            if let first = others.first {
+                let minutes = minutesAgo(fromISO8601UTC: first.lastSeenUTC)
                 if let minutes {
-                    softLockWarningText = "Heads up: \(existing.userDisplayName) on \(existing.deviceName) may be editing this picture (active ~\(minutes)m ago)."
+                    if others.count == 1 {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) on \(first.deviceName) may be editing this picture (active ~\(minutes)m ago). Suggest coordinating with them to work in different parts of the picture folder structure."
+                    } else {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) and \(others.count - 1) other(s) may be editing this picture (active ~\(minutes)m ago). Suggest coordinating with them to work in different parts of the picture folder structure."
+                    }
                 } else {
-                    softLockWarningText = "Heads up: \(existing.userDisplayName) on \(existing.deviceName) may be editing this picture."
+                    if others.count == 1 {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) on \(first.deviceName) may be editing this picture. Suggest coordinating with them to work in different parts of the picture folder structure."
+                    } else {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) and \(others.count - 1) other(s) may be editing this picture. Suggest coordinating with them to work in different parts of the picture folder structure."
+                    }
                 }
             } else {
                 softLockWarningText = nil
             }
+
 
             // Upsert our lock (best-effort)
             do {
@@ -2436,6 +2476,8 @@ extension DMPPImageEditorView {
                 // Warning only — do not block editing.
                 print("Soft lock upsert failed: \(error)")
             }
+            startSoftLockHeartbeatIfPossible()
+
         } else {
             // If we can't compute relative path, do nothing (shouldn't happen under current rules)
             softLockWarningText = nil
@@ -2517,6 +2559,39 @@ extension DMPPImageEditorView {
         guard let d = fmt.date(from: iso) else { return nil }
         let mins = Int(Date().timeIntervalSince(d) / 60.0)
         return max(0, mins)
+    }
+    
+    // [LOCK] Start/Restart heartbeat so our lock stays "fresh" while editing
+    private func startSoftLockHeartbeatIfPossible() {
+        stopSoftLockHeartbeat() // restart cleanly
+
+        guard
+            let root = archiveStore.archiveRootURL,
+            let relPath = currentPhotoRelPathForLock
+        else { return }
+
+        // Tick every 60 seconds; warning-only, best-effort.
+        softLockHeartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
+            let session = DMPPSoftLockService.defaultSessionInfo()
+            // [LOCK] Best-effort cleanup so _locks doesn’t grow forever
+            DMPPSoftLockService.pruneStaleLocks(root: root, photoRelPath: relPath)
+
+            do {
+                try DMPPSoftLockService.upsertLock(root: root, photoRelPath: relPath, session: session)
+            } catch {
+                // Don’t bother the user; just log for debugging.
+                print("Soft lock heartbeat upsert failed: \(error)")
+            }
+        }
+
+        // Ensure timer fires during common UI interactions.
+        RunLoop.main.add(softLockHeartbeatTimer!, forMode: .common)
+    }
+
+    // [LOCK] Stop heartbeat when leaving a picture/folder
+    private func stopSoftLockHeartbeat() {
+        softLockHeartbeatTimer?.invalidate()
+        softLockHeartbeatTimer = nil
     }
 
     
