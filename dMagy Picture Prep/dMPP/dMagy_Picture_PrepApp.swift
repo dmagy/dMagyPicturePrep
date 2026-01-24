@@ -40,12 +40,14 @@ struct dMagy_Picture_PrepApp: App {
         }
 
         // ============================================================
-        // [APP-SETTINGS] Settings window
+        // [APP-SETTINGS] Settings window (hard-locked)
         // ============================================================
         Settings {
-            DMPPCropPreferencesView()
+            DMPPSettingsLockGateView()
                 .environmentObject(identityStore)
+                .environmentObject(archiveStore)
         }
+
         // (Leave these commented unless you intentionally want to force sizing.)
         // .defaultSize(width: 980, height: 820)
         // .windowResizability(.contentMinSize)
@@ -117,6 +119,164 @@ private struct DMPPArchiveRootGateView: View {
         }
     }
 }
+
+// ================================================================
+// [LOCK] Settings Lock Gate View (HARD LOCK + HEARTBEAT)
+// - If another session holds a fresh lock -> block editing
+// - Otherwise -> claim lock + show Settings UI
+// - Heartbeat keeps lock fresh while Settings is open
+// - Cleanup removes our lock on close
+// ================================================================
+
+private struct DMPPSettingsLockGateView: View {
+
+    @EnvironmentObject var archiveStore: DMPPArchiveStore
+    @EnvironmentObject var identityStore: DMPPIdentityStore
+
+    @State private var lockBlockMessage: String? = nil
+    @State private var canEnterSettings: Bool = false
+
+    // [LOCK] Heartbeat timer for Settings lock
+    @State private var settingsLockHeartbeatTimer: Timer? = nil
+
+    // [LOCK] Session identity for this run
+    private let session = DMPPSoftLockService.defaultSessionInfo()
+
+    var body: some View {
+        Group {
+            if canEnterSettings {
+                // [SETTINGS] Allowed: show your real Settings UI
+                DMPPCropPreferencesView()
+                    .environmentObject(identityStore)
+                    .onAppear {
+                        // [LOCK] When Settings UI becomes visible, start heartbeat.
+                        startSettingsLockHeartbeatIfPossible()
+                    }
+                    .onDisappear {
+                        // [LOCK] Cleanup when Settings closes
+                        stopSettingsLockHeartbeat()
+
+                        if let root = archiveStore.archiveRootURL {
+                            DMPPRegistryLockService.removeLock(
+                                root: root,
+                                resourceKey: DMPPRegistryLockService.resourceSettings,
+                                sessionID: session.sessionID
+                            )
+                        }
+                    }
+            } else {
+                // [SETTINGS] Blocked
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Settings are currently being edited")
+                        .font(.title2)
+
+                    Text(lockBlockMessage ?? "Another person may be editing shared Settings. Please try again in a moment.")
+                        .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    Text("Tip: Coordinate so only one person changes shared Settings at a time.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    Button("Check Again") {
+                        evaluateLockAndEnterIfPossible()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding(20)
+                .frame(minWidth: 700, minHeight: 360)
+            }
+        }
+        .onAppear {
+            evaluateLockAndEnterIfPossible()
+        }
+        .onDisappear {
+            // Defensive: if the whole gate disappears, stop timers.
+            stopSettingsLockHeartbeat()
+        }
+    }
+
+    // ------------------------------------------------------------
+    // [LOCK] Evaluate whether Settings should be accessible.
+    // If accessible, CLAIM the lock immediately (hard lock behavior).
+    // ------------------------------------------------------------
+    private func evaluateLockAndEnterIfPossible() {
+        lockBlockMessage = nil
+        canEnterSettings = false
+
+        guard let root = archiveStore.archiveRootURL else {
+            lockBlockMessage = "Settings require a Picture Library Folder to be selected first."
+            return
+        }
+
+        // Best-effort cleanup so we don’t block on stale sessions.
+        DMPPRegistryLockService.pruneStaleLocks(
+            root: root,
+            resourceKey: DMPPRegistryLockService.resourceSettings
+        )
+
+        // If anyone else is actively editing Settings, HARD BLOCK.
+        let others = DMPPRegistryLockService.activeOtherSessions(
+            root: root,
+            resourceKey: DMPPRegistryLockService.resourceSettings,
+            currentSessionID: session.sessionID
+        )
+
+        if let first = others.first {
+            lockBlockMessage =
+                "\(first.userDisplayName) on \(first.deviceName) appears to be editing Settings right now.\n\nPlease try again later."
+            canEnterSettings = false
+            return
+        }
+
+        // No other active sessions: claim lock now (best-effort, but treat failure as block).
+        do {
+            try DMPPRegistryLockService.upsertLock(
+                root: root,
+                resourceKey: DMPPRegistryLockService.resourceSettings,
+                session: session
+            )
+            canEnterSettings = true
+        } catch {
+            lockBlockMessage = "Could not claim Settings lock. Please try again.\n\n(\(error.localizedDescription))"
+            canEnterSettings = false
+        }
+    }
+
+    // ------------------------------------------------------------
+    // [LOCK] Heartbeat: keep our Settings lock fresh while open
+    // ------------------------------------------------------------
+    private func startSettingsLockHeartbeatIfPossible() {
+        stopSettingsLockHeartbeat() // restart cleanly
+
+        guard let root = archiveStore.archiveRootURL else { return }
+
+        settingsLockHeartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
+            do {
+                try DMPPRegistryLockService.upsertLock(
+                    root: root,
+                    resourceKey: DMPPRegistryLockService.resourceSettings,
+                    session: session
+                )
+            } catch {
+                // Hard lock is already claimed. If heartbeat fails, don’t crash—just log.
+                print("Settings lock heartbeat upsert failed: \(error)")
+            }
+        }
+
+        // Ensure timer runs during common UI interactions.
+        RunLoop.main.add(settingsLockHeartbeatTimer!, forMode: .common)
+    }
+
+    private func stopSettingsLockHeartbeat() {
+        settingsLockHeartbeatTimer?.invalidate()
+        settingsLockHeartbeatTimer = nil
+    }
+}
+
 
 
 // ================================================================
