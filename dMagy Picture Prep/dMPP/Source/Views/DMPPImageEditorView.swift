@@ -53,7 +53,7 @@ struct DMPPImageEditorView: View {
 
     // [ARCH] Access the chosen Photo Library Folder (archive root)
     @EnvironmentObject private var archiveStore: DMPPArchiveStore
-
+    @EnvironmentObject private var identityStore: DMPPIdentityStore
     
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
@@ -734,6 +734,9 @@ struct DMPPMetadataFormPane: View {
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
+    
+    @EnvironmentObject private var identityStore: DMPPIdentityStore
+
 
     // MARK: View
 
@@ -1460,7 +1463,7 @@ struct DMPPMetadataFormPane: View {
 
 private extension DMPPMetadataFormPane {
 
-    var identityStore: DMPPIdentityStore { .shared }
+   
 
     // A stable Equatable key so onChange compiles even if gps type isn’t Equatable.
     var gpsKey: String {
@@ -1824,7 +1827,7 @@ private extension DMPPMetadataFormPane {
 
     func groupID(forIdentityID iid: String) -> String? {
         guard let ident = identityStore.identity(forIdentityID: iid) else { return nil }
-        let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let pid = (ident.personID?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
         return pid ?? ident.id
     }
@@ -2496,11 +2499,15 @@ extension DMPPImageEditorView {
             metadata.gps = gps
         }
 
-        let newVM = DMPPImageEditorViewModel(imageURL: url, metadata: metadata)
+        let newVM = DMPPImageEditorViewModel(
+            imageURL: url,
+            metadata: metadata,
+            identityStore: identityStore
+        )
 
         newVM.wireAgeRefresh()
-        newVM.stripMissingPeopleV2Identities(identityStore: .shared)
-        newVM.reconcilePeopleV2Identities(identityStore: .shared)
+        newVM.stripMissingPeopleV2Identities(identityStore: identityStore)
+        newVM.reconcilePeopleV2Identities(identityStore: identityStore)
         newVM.recomputeAgesForCurrentImage()
 
         vm = newVM
@@ -2604,7 +2611,7 @@ extension DMPPImageEditorView {
     /// Single source of truth: normalize peopleV2 (remove missing IDs, choose best identity version),
     /// then sync legacy people[] from peopleV2 when needed.
     private func normalizePeople(in metadata: inout DmpmsMetadata) {
-        let store = DMPPIdentityStore.shared
+        let store = identityStore
 
         // Keep using dateRange.earliest for identity selection (existing behavior).
         let photoEarliest = metadata.dateRange?.earliest

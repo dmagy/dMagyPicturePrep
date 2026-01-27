@@ -1,6 +1,10 @@
 import SwiftUI
+import AppKit
+import CryptoKit
 
 // cp-2025-12-29-02(SETTINGS-TABS-HOSTFIX)
+
+
 
 struct DMPPCropPreferencesView: View {
 
@@ -8,6 +12,8 @@ struct DMPPCropPreferencesView: View {
     @State private var prefs: DMPPUserPreferences = .load()
     @State private var selectedLocationID: UUID? = nil
     @FocusState private var focusedField: FocusField?
+    
+    @EnvironmentObject var archiveStore: DMPPArchiveStore
 
     private enum FocusField: Hashable {
         case locationShortName(UUID)
@@ -17,12 +23,12 @@ struct DMPPCropPreferencesView: View {
 
     var body: some View {
         TabView {
-            
+
             // =====================================================
             // CROPS TAB
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
-                
+
                 // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Crop Presets")
@@ -32,40 +38,41 @@ struct DMPPCropPreferencesView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 4)
-                
+
                 Divider()
-                
+
                 // Main content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-                        
+
                         // Built-in default presets
                         builtInPresetsSection
-                        
+
                         Divider()
-                        
+
                         // Custom presets
                         customPresetsSection
                     }
                     .padding(.vertical, 4)
                 }
-                
+
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .topLeading)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .tabItem {
                 Label("Crops", systemImage: "crop")
             }
-
 
             // =====================================================
             // LOCATIONS TAB
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
-                
+
                 // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Locations")
@@ -75,34 +82,29 @@ struct DMPPCropPreferencesView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 4)
-                
+
                 Divider()
-                
+
                 VStack(alignment: .leading, spacing: 16) {
                     locationsSection
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-     
-                
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .topLeading)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .tabItem {
                 Label("Locations", systemImage: "mappin.and.ellipse")
             }
-            
+
             // =====================================================
             // PEOPLE TAB
             // =====================================================
-            
-            // IMPORTANT:
-            // When embedded in Settings’ TabView, use the .settingsTab host so
-            // we *don’t* run a NavigationSplitView inside the TabView.
-            // That’s what was causing the tab strip to “shift right” and mis-route clicks.
             VStack(alignment: .leading, spacing: 16) {
                 // Header
                 VStack(alignment: .leading, spacing: 4) {
@@ -112,16 +114,17 @@ struct DMPPCropPreferencesView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                        .padding(.bottom, 4)
-                    
-                    Divider()
-                    DMPPPeopleManagerView(host: .settingsTab)
-                
+                .padding(.bottom, 4)
+
+                Divider()
+
+                DMPPPeopleManagerView(host: .settingsTab)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding()
-                .tabItem {
-                    Label("People", systemImage: "person.2")
-                }
+            .tabItem {
+                Label("People", systemImage: "person.2")
+            }
 
             // =====================================================
             // TAGS TAB
@@ -150,14 +153,140 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .topLeading)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .tabItem {
                 Label("Tags", systemImage: "tag")
             }
 
-          
+            // =====================================================
+            // GENERAL TAB (Fingerprint + Copy chips)
+            // =====================================================
+            VStack(alignment: .leading, spacing: 16) {
+
+                // Header
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("General")
+                        .font(.title2.bold())
+                    Text("See which Picture Library Folder is active and where shared registry data is stored.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
+
+                Divider()
+
+                GroupBox("Picture Library Folder") {
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        if let root = archiveStore.archiveRootURL {
+
+                            let portable = root.appendingPathComponent("dMagy Portable Archive Data", isDirectory: true)
+
+                            // --- Root summary ---
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(root.lastPathComponent)
+                                    .font(.headline)
+
+                                Text(root.path)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .lineLimit(2)
+
+                                // Fingerprint chip
+                                HStack(spacing: 8) {
+                                    fingerprintChip(label: "Folder fingerprint", value: fingerprint(for: root))
+                                    Button("Copy Path") { copyToClipboard(root.path) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+
+                                    Button("Copy Fingerprint") { copyToClipboard(fingerprint(for: root)) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                }
+                            }
+
+                            Divider().padding(.vertical, 2)
+
+                            // --- Portable data summary ---
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Portable Archive Data")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Text(portable.path)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .lineLimit(2)
+
+                                HStack(spacing: 8) {
+                                    fingerprintChip(label: "Data fingerprint", value: fingerprint(for: portable))
+
+                                    Button("Copy Data Path") { copyToClipboard(portable.path) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+
+                                    Button("Copy Data Fingerprint") { copyToClipboard(fingerprint(for: portable)) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                }
+                            }
+
+                            Divider().padding(.vertical, 2)
+
+                            // --- Actions ---
+                            HStack(spacing: 12) {
+                                Button("Change Picture Library Folder…") {
+                                    archiveStore.promptForArchiveRoot()
+                                }
+
+                                Button("Show Folder in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([root])
+                                }
+
+                                Button("Show Portable Data in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([portable])
+                                }
+                            }
+                            .padding(.top, 4)
+
+                        } else {
+                            Text("No Picture Library Folder is selected yet.")
+                                .foregroundStyle(.secondary)
+
+                            Button("Select Picture Library Folder…") {
+                                archiveStore.promptForArchiveRoot()
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(10)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .frame(maxWidth: .infinity,
+                   maxHeight: .infinity,
+                   alignment: .topLeading)
+            .tabItem {
+                Label("General", systemImage: "gearshape")
+            }
+
+            .padding()
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            .tabItem {
+                Label("General", systemImage: "gearshape")
+            }
         }
         .frame(
             minWidth: 820,
@@ -168,12 +297,49 @@ struct DMPPCropPreferencesView: View {
             maxHeight: .infinity,
             alignment: .topLeading
         )
-
         .onChange(of: prefs) { _, newValue in
             newValue.save()
         }
-    
+    }
+    // MARK: - General tab helpers
 
+    private func copyToClipboard(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+
+    private func fingerprint(for url: URL) -> String {
+        // Stable across launches/machines for the same path string.
+        // Short enough to read; long enough to be useful.
+        let input = Data(url.path.utf8)
+        let digest = SHA256.hash(data: input)
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        // 12 chars is a nice “chip” size
+        return String(hex.prefix(12)).uppercased()
+    }
+
+    @ViewBuilder
+    private func fingerprintChip(label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label + ":")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.caption2.monospaced())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .textSelection(.enabled)
+        }
     }
 
     // MARK: - Sections (Crops tab)

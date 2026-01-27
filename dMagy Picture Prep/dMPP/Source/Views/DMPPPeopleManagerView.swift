@@ -21,6 +21,8 @@ struct DMPPPeopleManagerView: View {
     // Shared store – NOT a Binding, not @Bindable.
     // (Keeping singleton here avoids environment-object wiring churn.)
     @EnvironmentObject private var identityStore: DMPPIdentityStore
+    @EnvironmentObject var archiveStore: DMPPArchiveStore
+
 
 
     @State private var searchText: String = ""
@@ -64,20 +66,48 @@ struct DMPPPeopleManagerView: View {
     ]
 
     var body: some View {
+
+        mainContent
+            .alert("Delete person?", isPresented: $showDeleteConfirm) {
+                // unchanged
+            } message: {
+                // unchanged
+            }
+            .onAppear(perform: handleAppear)
+
+            // [IDS] Point the IdentityStore at the currently selected Picture Library Folder
+            .onAppear {
+                identityStore.configureForArchiveRoot(archiveStore.archiveRootURL)
+            }
+            .onChange(of: archiveStore.archiveRootURL) { _, newRoot in
+                identityStore.configureForArchiveRoot(newRoot)
+            }
+
+            .onChange(of: selectedPersonID) { _, newValue in
+                handleSelectedPersonChanged(newValue)
+            }
+            .onChange(of: identityStore.peopleSortedForUI.count) { _, _ in
+                handlePeopleCountChanged()
+            }
+    }
+
+    // ------------------------------------------------------------
+    // [PEOPLE] Main layout extracted to reduce compiler type-check load
+    // ------------------------------------------------------------
+    @ViewBuilder
+    private var mainContent: some View {
         Group {
             if host == .settingsTab {
-                // No NavigationSplitView here — and NO fixed minWidth.
                 HSplitView {
                     leftPane
-                        .padding(8)                          // small, controlled padding
+                        .padding(8)
                         .frame(minWidth: 300, idealWidth: 300, maxWidth: 300)
 
                     detailEditor
-                        .padding(12)                         // matches your other tabs nicely
+                        .padding(12)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             } else {
-                // Standalone window behavior (your current approach)
                 NavigationSplitView {
                     leftPane
                         .id(refreshToken)
@@ -85,40 +115,52 @@ struct DMPPPeopleManagerView: View {
                 } detail: {
                     detailEditor
                 }
-                .frame(minWidth: 910,  minHeight: 660)
+                .frame(minWidth: 910, minHeight: 660)
             }
         }
-        .alert("Delete person?", isPresented: $showDeleteConfirm) { /* unchanged */ } message: { /* unchanged */ }
-        .onAppear { /* unchanged */ }
-        .onChange(of: selectedPersonID) { _, newValue in /* unchanged */ }
-        .onChange(of: identityStore.peopleSortedForUI.count) { _, _ in
-            if let pid = selectedPersonID {
-                loadDrafts(for: pid)
-            } else if let first = filteredPeople.first {
-                selectedPersonID = first.id
-                loadDrafts(for: first.id)
-            }
-        }
-        .onAppear {
-            identityStore.load()
-
-            if selectedPersonID == nil, let first = filteredPeople.first {
-                selectedPersonID = first.id
-            }
-            if let pid = selectedPersonID {
-                loadDrafts(for: pid)
-            }
-        }
-        .onChange(of: selectedPersonID) { _, newValue in
-            if let pid = newValue {
-                loadDrafts(for: pid)
-            } else {
-                draftBirth = nil
-                draftAdditional = []
-            }
-        }
-
     }
+
+    // ------------------------------------------------------------
+    // [PEOPLE] Lifecycle / side effects extracted out of view builder
+    // ------------------------------------------------------------
+    private func handleAppear() {
+
+        // [PEOPLE] NOTE: Do NOT call identityStore.load() here.
+        // Your current DMPPIdentityStore no longer exposes `load()`,
+        // and it should already load during init/config.
+
+        if selectedPersonID == nil, let first = filteredPeople.first {
+            selectedPersonID = first.id
+        }
+
+        if let pid = selectedPersonID {
+            loadDrafts(for: pid)
+        } else {
+            draftBirth = nil
+            draftAdditional = []
+        }
+    }
+
+
+    private func handleSelectedPersonChanged(_ newValue: String?) {
+        if let pid = newValue {
+            loadDrafts(for: pid)
+        } else {
+            draftBirth = nil
+            draftAdditional = []
+        }
+    }
+
+    private func handlePeopleCountChanged() {
+        if let pid = selectedPersonID {
+            loadDrafts(for: pid)
+        } else if let first = filteredPeople.first {
+            selectedPersonID = first.id
+            loadDrafts(for: first.id)
+        }
+    }
+
+
 
 
     // MARK: - Host containers
@@ -158,91 +200,17 @@ struct DMPPPeopleManagerView: View {
 
     // MARK: - Left pane (list + search)
 
+    // [PEOPLE-LIST] Left pane (search + list + add)
     private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
 
             TextField("Search by short name, names, event, or notes", text: $searchText)
                 .textFieldStyle(.roundedBorder)
-                
 
             List(selection: $selectedPersonID) {
                 ForEach(filteredPeople) { person in
-                    let versions = identityStore.identityVersions(forPersonID: person.id)
-                    let current = versions.last ?? versions.first
-                 //   let deathDate = deathEventDate(from: versions)
-                    let isPet = isPetPerson(versions)
-
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: person.isFavorite ? "star.fill" : "star")
-                            .foregroundStyle(person.isFavorite ? .yellow : .secondary)
-                            .help(person.isFavorite ? "Favorite" : "Not marked favorite")
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 8) {
-                                Text(person.shortName.isEmpty ? "Untitled" : person.shortName)
-                                    .font(.headline)
-
-                                if let birth = person.birthDate, !birth.isEmpty {
-                                    Text("(b. \(birth))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                // Option B: Death is an event; display from Death event date
-                             //   if let deathDate, !deathDate.isEmpty {
-                            //        Text("(d. \(deathDate))")
-                                //        .font(.caption)
-                                 //       .foregroundStyle(.secondary)
-                           //     }
-
-                                Spacer()
-
-                                if versions.count > 1 {
-                                    Text("\(versions.count) identities")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            if let current {
-
-                                HStack(spacing: 4) {
-                                    Text(current.fullName)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-
-                                    if isPet {
-                                        Image(systemName: "pawprint.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .accessibilityLabel("Pet")
-                                    }
-                                }
-
-                                // Show latest event (if not Birth)
-                                if !current.idReason.isEmpty,
-                                   current.idReason.lowercased() != "birth" {
-                                    HStack(spacing: 6) {
-                                        Text(current.idReason)
-                                            .font(.caption2)
-                                        if !current.idDate.isEmpty {
-                                            Text(current.idDate)
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let notes = person.notes, !notes.isEmpty {
-                                Text(notes)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                    .tag(person.id)
+                    peopleListRow(person)
+                        .tag(person.id)
                 }
             }
 
@@ -254,10 +222,83 @@ struct DMPPPeopleManagerView: View {
             }
             .buttonStyle(.borderedProminent)
             .help("Create a new person (birth identity first)")
-          //  .padding(.top, 4)
         }
-      //  .padding()
     }
+    // [PEOPLE-LIST] Extracted row to prevent “unable to type-check” compiler timeouts
+    @ViewBuilder
+    private func peopleListRow(_ person: DMPPIdentityStore.PersonSummary) -> some View {
+
+        // Keep the “expensive” stuff out of the ForEach view-builder.
+        let versions = identityStore.identityVersions(forPersonID: person.id)
+        let currentIdentity = versions.last ?? versions.first
+        let isPet = isPetPerson(versions)
+
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: person.isFavorite ? "star.fill" : "star")
+                .foregroundStyle(person.isFavorite ? .yellow : .secondary)
+                .help(person.isFavorite ? "Favorite" : "Not marked favorite")
+
+            VStack(alignment: .leading, spacing: 2) {
+
+                HStack(spacing: 8) {
+                    Text(person.shortName.isEmpty ? "Untitled" : person.shortName)
+                        .font(.headline)
+
+                    if let birth = person.birthDate, !birth.isEmpty {
+                        Text("(b. \(birth))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if versions.count > 1 {
+                        Text("\(versions.count) identities")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let current = currentIdentity {
+
+                    HStack(spacing: 4) {
+                        Text(current.fullName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if isPet {
+                            Image(systemName: "pawprint.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Pet")
+                        }
+                    }
+
+                    // Show latest event (if not Birth)
+                    if !current.idReason.isEmpty,
+                       current.idReason.lowercased() != "birth" {
+                        HStack(spacing: 6) {
+                            Text(current.idReason)
+                                .font(.caption2)
+                            if !current.idDate.isEmpty {
+                                Text(current.idDate)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                if let notes = person.notes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
 
     private var filteredPeople: [DMPPIdentityStore.PersonSummary] {
         // Force deterministic ordering (even when names tie)

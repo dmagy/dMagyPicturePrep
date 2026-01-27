@@ -1,12 +1,14 @@
 import SwiftUI
+import Foundation
 
-// cp-2026-01-21-01(APP) — window autosave + fix duplicate WindowGroup + commands scope
+// cp-2026-01-25-03(APP) — remove IdentityStore singleton; App owns IdentityStore instance
 
 @main
 struct dMagy_Picture_PrepApp: App {
 
     // [APP-STORE] App-wide People/Identity store (single source of truth)
-    @StateObject private var identityStore = DMPPIdentityStore.shared
+    // NOTE: App owns the instance; do NOT use a singleton.
+    @StateObject private var identityStore = DMPPIdentityStore()
 
     // [ARCH] Picture Library Folder store (bookmark + selection)
     @StateObject private var archiveStore = DMPPArchiveStore()
@@ -58,7 +60,7 @@ struct dMagy_Picture_PrepApp: App {
         WindowGroup("People Manager", id: "People-Manager") {
             DMPPPeopleManagerView()
                 .environmentObject(identityStore)
-                // [WIN] Separate autosave key so it doesn't fight the main window
+                .environmentObject(archiveStore)
                 .background(DMPPWindowAutosave(name: "DMPP.PeopleWindow.v1"))
         }
         // Optional: also include People menu (if you want it globally, keep it here)
@@ -70,21 +72,41 @@ struct dMagy_Picture_PrepApp: App {
 
 
 // ================================================================
-// [ARCH] Picture Library Folder Gate View
+// [ARCH] Archive Root Gate View
 // - If Picture Library Folder exists -> show editor
 // - If not -> show setup screen + button to select folder
+// - Also configures IdentityStore for the chosen root (once per root change)
 // ================================================================
 
 private struct DMPPArchiveRootGateView: View {
     @EnvironmentObject var archiveStore: DMPPArchiveStore
+    @EnvironmentObject var identityStore: DMPPIdentityStore
+
+    // Track what we've configured so we don't re-run on every redraw
+    @State private var lastConfiguredRootPath: String? = nil
 
     var body: some View {
         Group {
-            if archiveStore.archiveRootURL != nil {
-                // [ARCH] Folder is set: show main editor
+            if let root = archiveStore.archiveRootURL {
+
+                // Root is set: show main editor (ONLY ONCE per root)
                 DMPPImageEditorView()
+                    .onAppear {
+                        configureIdentityStoreIfNeeded(for: root)
+                    }
+                    .onChange(of: archiveStore.archiveRootURL) { _, newRoot in
+                        if let newRoot {
+                            configureIdentityStoreIfNeeded(for: newRoot)
+                        } else {
+                            // Root cleared → fall back to legacy + reset our guard
+                            identityStore.configureForArchiveRoot(nil)
+                            lastConfiguredRootPath = nil
+                        }
+                    }
+
             } else {
-                // [ARCH] Folder not set: show setup screen
+
+                // Root not set: show setup screen
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Choose Your Picture Library Folder")
                         .font(.title2)
@@ -106,11 +128,9 @@ private struct DMPPArchiveRootGateView: View {
                     Spacer()
                 }
                 .padding(20)
-                // [WIN] Don't start tiny; still just a minimum.
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
-                    // [ARCH] Auto-prompt ONLY on true first run (no bookmark saved yet).
-                    // If a bookmark exists but is invalid, we show the setup screen and the user can reselect.
+                    // Auto-prompt ONLY on true first run (no bookmark saved yet).
                     if archiveStore.archiveRootURL == nil && !archiveStore.hasStoredBookmark {
                         archiveStore.promptForArchiveRoot()
                     }
@@ -118,7 +138,19 @@ private struct DMPPArchiveRootGateView: View {
             }
         }
     }
+
+    private func configureIdentityStoreIfNeeded(for root: URL) {
+        let path = root.path
+        guard lastConfiguredRootPath != path else { return }
+
+        // Prefer the injected store (App-owned) so we don't configure a different instance.
+        identityStore.configureForArchiveRoot(root)
+
+        lastConfiguredRootPath = path
+    }
 }
+
+
 
 // ================================================================
 // [LOCK] Settings Lock Gate View (HARD LOCK + HEARTBEAT)
@@ -268,7 +300,9 @@ private struct DMPPSettingsLockGateView: View {
         }
 
         // Ensure timer runs during common UI interactions.
-        RunLoop.main.add(settingsLockHeartbeatTimer!, forMode: .common)
+        if let t = settingsLockHeartbeatTimer {
+            RunLoop.main.add(t, forMode: .common)
+        }
     }
 
     private func stopSettingsLockHeartbeat() {
@@ -276,7 +310,6 @@ private struct DMPPSettingsLockGateView: View {
         settingsLockHeartbeatTimer = nil
     }
 }
-
 
 
 // ================================================================
