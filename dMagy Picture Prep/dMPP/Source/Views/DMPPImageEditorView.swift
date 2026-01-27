@@ -41,7 +41,20 @@ struct DMPPImageEditorView: View {
     @State private var exportFolderURL: URL? = nil
     @State private var showExportError: Bool = false
     @State private var exportErrorMessage: String = ""
+    // [ARCH] User-facing warning when a selected folder is outside the Photo Library Folder
+    @State private var folderPickerWarning: String? = nil
+    // [LOCK] Warning-only soft lock UI
+    @State private var softLockWarningText: String? = nil
+    @State private var currentPhotoRelPathForLock: String? = nil
+    // [LOCK] Heartbeat timer (updates our lock timestamp while we’re on a picture)
+    @State private var softLockHeartbeatTimer: Timer? = nil
 
+
+
+    // [ARCH] Access the chosen Photo Library Folder (archive root)
+    @EnvironmentObject private var archiveStore: DMPPArchiveStore
+    @EnvironmentObject private var identityStore: DMPPIdentityStore
+    
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
     private let kLastFolderName = "dmpp.lastFolderName"
@@ -62,6 +75,7 @@ struct DMPPImageEditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbarView
+            softLockBannerView
             Divider()
             mainContentView
         }
@@ -69,7 +83,23 @@ struct DMPPImageEditorView: View {
             loadPersistedLastFolder()
             loadPersistedExportFolder()
         }
-        .onDisappear { endScopedAccess() }
+        .onDisappear {
+            // [ARCH] End security-scoped access
+            endScopedAccess()
+
+            // [LOCK] Best-effort cleanup when this window goes away
+            stopSoftLockHeartbeat()
+
+            if let root = archiveStore.archiveRootURL,
+               let relPath = currentPhotoRelPathForLock {
+                DMPPSoftLockService.removeLock(
+                    root: root,
+                    photoRelPath: relPath,
+                    sessionID: DMPPSoftLockService.currentSessionID()
+                )
+            }
+        }
+
         .alert("Export failed", isPresented: $showExportError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -81,7 +111,9 @@ struct DMPPImageEditorView: View {
             Text(continueErrorMessage)
         }
     }
+       
 
+    
     // MARK: - Subviews
 
     @ViewBuilder
@@ -105,6 +137,15 @@ struct DMPPImageEditorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .help(folderURL == nil ? "Choose a folder to begin" : "Change folder…")
+                if let folderPickerWarning, !folderPickerWarning.isEmpty {
+                    Text(folderPickerWarning)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+    
+
+
 
                 // Show “Continue” only when no folder is currently loaded.
                 if folderURL == nil, canContinueLastFolder {
@@ -336,6 +377,44 @@ struct DMPPImageEditorView: View {
         .background(.thinMaterial)
     }
 
+    // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)
+    @ViewBuilder
+    private var softLockBannerView: some View {
+        if let softLockWarningText, !softLockWarningText.isEmpty {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.headline)
+
+                Text(softLockWarningText)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+
+                Spacer(minLength: 8)
+
+                Button("Dismiss") {
+                    self.softLockWarningText = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                Rectangle()
+                   // .fill(Color.orange.opacity(0.28))
+                    .fill(Color.yellow)
+            )
+            .overlay(
+                Rectangle()
+                    .stroke(Color.orange.opacity(0.65), lineWidth: 1)
+            )
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: softLockWarningText)
+        }
+    }
+
+    
     @ViewBuilder
     private var emptyStateView: some View {
         VStack(spacing: 12) {
@@ -348,7 +427,25 @@ struct DMPPImageEditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+
 }
+
+// ================================================================
+// [ARCH] URL helper: is `self` inside `ancestor`?
+// Must be at FILE SCOPE (outside any struct/class).
+// ================================================================
+private extension URL {
+    func isDescendant(of ancestor: URL) -> Bool {
+        let me = self.standardizedFileURL.resolvingSymlinksInPath().path
+        let root = ancestor.standardizedFileURL.resolvingSymlinksInPath().path
+
+        // Ensure root path ends with "/" so "/Photos" doesn't match "/PhotosOld"
+        let rootWithSlash = root.hasSuffix("/") ? root : (root + "/")
+        return me.hasPrefix(rootWithSlash)
+    }
+}
+
 
 // MARK: - Left Pane
 
@@ -637,6 +734,9 @@ struct DMPPMetadataFormPane: View {
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
+    
+    @EnvironmentObject private var identityStore: DMPPIdentityStore
+
 
     // MARK: View
 
@@ -1363,7 +1463,7 @@ struct DMPPMetadataFormPane: View {
 
 private extension DMPPMetadataFormPane {
 
-    var identityStore: DMPPIdentityStore { .shared }
+   
 
     // A stable Equatable key so onChange compiles even if gps type isn’t Equatable.
     var gpsKey: String {
@@ -1727,7 +1827,7 @@ private extension DMPPMetadataFormPane {
 
     func groupID(forIdentityID iid: String) -> String? {
         guard let ident = identityStore.identity(forIdentityID: iid) else { return nil }
-        let pid = (ident.personID?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let pid = (ident.personID?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 }
         return pid ?? ident.id
     }
@@ -2017,16 +2117,34 @@ extension DMPPImageEditorView {
     // MARK: Folder picking
 
     private func chooseFolder() {
+        guard let root = archiveStore.archiveRootURL else {
+            folderPickerWarning = "Set your Picture Library Folder first (File → Set Photo Library Folder…)."
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
+        panel.directoryURL = root  // start at the Photo Library Folder
 
         if panel.runModal() == .OK, let url = panel.url {
+            // Enforce: working folder must be inside the root
+            if !url.isDescendant(of: root) && url.standardizedFileURL != root.standardizedFileURL {
+                folderPickerWarning = "Working folder must be inside your Picture Library Folder."
+                return
+            }
+
+            // Clear warning on success
+            folderPickerWarning = nil
             loadImages(from: url)
         }
     }
+
+
+
+
 
     private func hasSidecar(_ imageURL: URL) -> Bool {
         FileManager.default.fileExists(atPath: sidecarURL(for: imageURL).path)
@@ -2041,14 +2159,40 @@ extension DMPPImageEditorView {
     }
 
     private func loadImages(from folder: URL) {
-        // Save current image metadata before switching folders / re-scanning.
+        // [SAVE] Save current image metadata before switching folders / re-scanning.
         saveCurrentMetadata()
 
-        guard beginScopedAccess(to: folder) else {
-            continueErrorMessage = "Prep can’t access that folder. Please choose it again."
+        // [ARCH] We need the Picture Library Folder (root) to compute relative paths.
+        guard let root = archiveStore.archiveRootURL else {
+            continueErrorMessage = "Picture Library Folder is not set. Please set it first."
             showContinueError = true
             return
         }
+
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let folderPath = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootWithSlash = rootPath.hasSuffix("/") ? rootPath : (rootPath + "/")
+
+        // [ARCH] Safety check: working folder must be inside the root.
+        let folderIsWithinRoot = (folderPath == rootPath) || folderPath.hasPrefix(rootWithSlash)
+        guard folderIsWithinRoot else {
+            continueErrorMessage = "Working folder must be inside your Picture Library Folder."
+            showContinueError = true
+            return
+        }
+
+        // [ARCH] Compute and persist the working folder RELATIVE path (portable).
+        let rel = (folderPath == rootPath) ? "" : String(folderPath.dropFirst(rootWithSlash.count))
+        UserDefaults.standard.set(rel, forKey: "DMPP.LastWorkingFolderRelativePath.v1")
+        UserDefaults.standard.synchronize()
+
+        // [ARCH] IMPORTANT:
+        // If the folder is inside the Picture Library Folder, we rely on the root bookmark access.
+        // beginScopedAccess(to:) may fail for subfolders even though root access is valid.
+        // Only use beginScopedAccess for non-root workflows (future advanced mode).
+        // (Right now, non-root selections are blocked anyway.)
+        //
+        // So: no beginScopedAccess needed here.
 
         folderURL = folder
 
@@ -2074,6 +2218,8 @@ extension DMPPImageEditorView {
             loadImage(at: 0)
         }
     }
+
+
 
     private func immediateImageURLs(in folder: URL) -> [URL] {
         let fm = FileManager.default
@@ -2117,6 +2263,9 @@ extension DMPPImageEditorView {
         defaults.set(advanceToNextWithoutSidecar, forKey: kLastUnpreppedOnly)
         defaults.set(url.lastPathComponent, forKey: kLastFolderName)
 
+        // [ARCH] Keep the legacy bookmark for backward compatibility.
+        // The new preferred key is saved in loadImages(from:) as:
+        // "DMPP.LastWorkingFolderRelativePath.v1"
         do {
             let data = try url.bookmarkData(
                 options: [.withSecurityScope],
@@ -2137,6 +2286,29 @@ extension DMPPImageEditorView {
         includeSubfolders = defaults.bool(forKey: kLastIncludeSubfolders)
         advanceToNextWithoutSidecar = defaults.bool(forKey: kLastUnpreppedOnly)
 
+        // [ARCH] Preferred: resolve last folder using Picture Library Folder + relative path.
+        if let root = archiveStore.archiveRootURL,
+           let rel = defaults.string(forKey: "DMPP.LastWorkingFolderRelativePath.v1") {
+
+            let trimmed = rel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // "" means root itself
+            if trimmed.isEmpty {
+                lastFolderURL = root
+                return
+            }
+
+            let candidate = root.appendingPathComponent(trimmed, isDirectory: true)
+
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDir), isDir.boolValue {
+                lastFolderURL = candidate
+                return
+            }
+            // If relative path doesn't exist (moved/renamed), fall through to legacy bookmark.
+        }
+
+        // [ARCH] Legacy fallback: bookmarked last folder
         guard let data = defaults.data(forKey: kLastFolderBookmark) else {
             lastFolderURL = nil
             return
@@ -2161,9 +2333,15 @@ extension DMPPImageEditorView {
     // MARK: Last-folder “Continue” helpers
 
     private var lastFolderNameForUI: String {
-        UserDefaults.standard.string(forKey: kLastFolderName)
-        ?? lastFolderURL?.lastPathComponent
-        ?? "Continue"
+        // Prefer relative-path-based display (if present)
+        if let rel = UserDefaults.standard.string(forKey: "DMPP.LastWorkingFolderRelativePath.v1"),
+           !rel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (rel as NSString).lastPathComponent
+        }
+
+        return UserDefaults.standard.string(forKey: kLastFolderName)
+            ?? lastFolderURL?.lastPathComponent
+            ?? "Continue"
     }
 
     private var canContinueLastFolder: Bool {
@@ -2175,16 +2353,16 @@ extension DMPPImageEditorView {
             return false
         }
 
-        // Optional: verify we can actually scope it (so button only shows when it will work)
-        let ok = url.startAccessingSecurityScopedResource()
-        if ok { url.stopAccessingSecurityScopedResource() }
-        return ok
+        // We intentionally do NOT require startAccessingSecurityScopedResource() here.
+        // loadImages(from:) will handle access failures and show the user a real message.
+        return true
     }
 
     private func continueLastFolder() {
         guard let url = lastFolderURL else { return }
         loadImages(from: url) // loadImages handles scoping + error message
     }
+
 
     // MARK: UI helpers
 
@@ -2236,10 +2414,82 @@ extension DMPPImageEditorView {
     private func loadImage(at index: Int) {
         guard imageURLs.indices.contains(index) else { return }
 
+        stopSoftLockHeartbeat()
+
         saveCurrentMetadata()
 
         currentIndex = index
         let url = imageURLs[index]
+
+        // ------------------------------------------------------------
+        // [LOCK] Warning-only soft lock
+        // - Key by relative path (relative to Picture Library Folder)
+        // - Warn if another session has a fresh lock
+        // ------------------------------------------------------------
+        if let root = archiveStore.archiveRootURL,
+           let relPath = relativePathUnderRoot(fileURL: url, rootURL: root) {
+
+            // If we moved to a different photo, remove our prior lock (best-effort cleanup).
+            if let prev = currentPhotoRelPathForLock, prev != relPath {
+                DMPPSoftLockService.removeLock(
+                    root: root,
+                    photoRelPath: prev,
+                    sessionID: DMPPSoftLockService.currentSessionID()
+                )
+
+            }
+            currentPhotoRelPathForLock = relPath
+
+            let session = DMPPSoftLockService.defaultSessionInfo()
+            // [LOCK] Best-effort cleanup so _locks doesn’t grow forever
+            DMPPSoftLockService.pruneStaleLocks(root: root, photoRelPath: relPath)
+
+
+            // Check OTHER active sessions (fresh locks by others)
+            let others = DMPPSoftLockService.activeOtherSessions(
+                root: root,
+                photoRelPath: relPath,
+                currentSessionID: session.sessionID
+            )
+
+            if let first = others.first {
+                let minutes = minutesAgo(fromISO8601UTC: first.lastSeenUTC)
+                if let minutes {
+                    if others.count == 1 {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) on \(first.deviceName) may be editing this picture (active ~\(minutes)m ago). Suggest coordinating with them to work in different parts of the picture folder structure."
+                    } else {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) and \(others.count - 1) other(s) may be editing this picture (active ~\(minutes)m ago). Suggest coordinating with them to work in different parts of the picture folder structure."
+                    }
+                } else {
+                    if others.count == 1 {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) on \(first.deviceName) may be editing this picture. Suggest coordinating with them to work in different parts of the picture folder structure."
+                    } else {
+                        softLockWarningText = "Heads up: \(first.userDisplayName) and \(others.count - 1) other(s) may be editing this picture. Suggest coordinating with them to work in different parts of the picture folder structure."
+                    }
+                }
+            } else {
+                softLockWarningText = nil
+            }
+
+
+            // Upsert our lock (best-effort)
+            do {
+                try DMPPSoftLockService.upsertLock(root: root, photoRelPath: relPath, session: session)
+            } catch {
+                // Warning only — do not block editing.
+                print("Soft lock upsert failed: \(error)")
+            }
+            startSoftLockHeartbeatIfPossible()
+
+        } else {
+            // If we can't compute relative path, do nothing (shouldn't happen under current rules)
+            softLockWarningText = nil
+            currentPhotoRelPathForLock = nil
+        }
+
+        // ------------------------------------------------------------
+        // [ROW] Existing image + metadata load pipeline
+        // ------------------------------------------------------------
 
         // Load sidecar first (mutable so we can hydrate)
         var metadata = loadMetadata(for: url)
@@ -2249,11 +2499,15 @@ extension DMPPImageEditorView {
             metadata.gps = gps
         }
 
-        let newVM = DMPPImageEditorViewModel(imageURL: url, metadata: metadata)
+        let newVM = DMPPImageEditorViewModel(
+            imageURL: url,
+            metadata: metadata,
+            identityStore: identityStore
+        )
 
         newVM.wireAgeRefresh()
-        newVM.stripMissingPeopleV2Identities(identityStore: .shared)
-        newVM.reconcilePeopleV2Identities(identityStore: .shared)
+        newVM.stripMissingPeopleV2Identities(identityStore: identityStore)
+        newVM.reconcilePeopleV2Identities(identityStore: identityStore)
         newVM.recomputeAgesForCurrentImage()
 
         vm = newVM
@@ -2277,6 +2531,7 @@ extension DMPPImageEditorView {
         }
     }
 
+
     private func goToPreviousImage() {
         let newIndex = currentIndex - 1
         guard imageURLs.indices.contains(newIndex) else { return }
@@ -2295,6 +2550,58 @@ extension DMPPImageEditorView {
         }
     }
 
+    // [LOCK] Compute relative file path under Picture Library Folder (root)
+    private func relativePathUnderRoot(fileURL: URL, rootURL: URL) -> String? {
+        let rootPath = rootURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let filePath = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let rootWithSlash = rootPath.hasSuffix("/") ? rootPath : (rootPath + "/")
+
+        guard filePath.hasPrefix(rootWithSlash) else { return nil }
+        return String(filePath.dropFirst(rootWithSlash.count))
+    }
+
+    // [LOCK] Simple “minutes ago” from ISO8601 string
+    private func minutesAgo(fromISO8601UTC iso: String) -> Int? {
+        let fmt = ISO8601DateFormatter()
+        guard let d = fmt.date(from: iso) else { return nil }
+        let mins = Int(Date().timeIntervalSince(d) / 60.0)
+        return max(0, mins)
+    }
+    
+    // [LOCK] Start/Restart heartbeat so our lock stays "fresh" while editing
+    private func startSoftLockHeartbeatIfPossible() {
+        stopSoftLockHeartbeat() // restart cleanly
+
+        guard
+            let root = archiveStore.archiveRootURL,
+            let relPath = currentPhotoRelPathForLock
+        else { return }
+
+        // Tick every 60 seconds; warning-only, best-effort.
+        softLockHeartbeatTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
+            let session = DMPPSoftLockService.defaultSessionInfo()
+            // [LOCK] Best-effort cleanup so _locks doesn’t grow forever
+            DMPPSoftLockService.pruneStaleLocks(root: root, photoRelPath: relPath)
+
+            do {
+                try DMPPSoftLockService.upsertLock(root: root, photoRelPath: relPath, session: session)
+            } catch {
+                // Don’t bother the user; just log for debugging.
+                print("Soft lock heartbeat upsert failed: \(error)")
+            }
+        }
+
+        // Ensure timer fires during common UI interactions.
+        RunLoop.main.add(softLockHeartbeatTimer!, forMode: .common)
+    }
+
+    // [LOCK] Stop heartbeat when leaving a picture/folder
+    private func stopSoftLockHeartbeat() {
+        softLockHeartbeatTimer?.invalidate()
+        softLockHeartbeatTimer = nil
+    }
+
+    
     // MARK: Sidecar Read/Write
 
     private func sidecarURL(for imageURL: URL) -> URL {
@@ -2304,7 +2611,7 @@ extension DMPPImageEditorView {
     /// Single source of truth: normalize peopleV2 (remove missing IDs, choose best identity version),
     /// then sync legacy people[] from peopleV2 when needed.
     private func normalizePeople(in metadata: inout DmpmsMetadata) {
-        let store = DMPPIdentityStore.shared
+        let store = identityStore
 
         // Keep using dateRange.earliest for identity selection (existing behavior).
         let photoEarliest = metadata.dateRange?.earliest
@@ -2618,91 +2925,32 @@ extension DMPPImageEditorView {
 
 // MARK: - Date validation helper (file-scope)
 
+// [DATEVAL] Date Taken warning message (uses LooseYMD strict validation)
+//
+// Rule (per Dan):
+// - Only show red warnings for supported numeric formats:
+//     1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08
+// - Do NOT warn for other text (even if we don't support it yet).
 private func dateValidationMessage(for raw: String) -> String? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let fullDate     = #"^\d{4}-\d{2}-\d{2}$"#
-    let yearMonth    = #"^\d{4}-\d{2}$"#
-    let yearOnly     = #"^\d{4}$"#
-    let decade       = #"^\d{4}s$"#
-    let yearRange    = #"^(\d{4})-(\d{4})$"#
-    let monthRange   = #"^(\d{4})-(\d{2})-(\d{4})-(\d{2})$"#
-    let monthRangeTo = #"^(\d{4})-(\d{2})\s+to\s+(\d{4})-(\d{2})$"#
+    switch LooseYMD.validateNumericDateString(trimmed) {
+    case .valid:
+        return nil
 
-    func matches(_ pattern: String) -> NSTextCheckingResult? {
-        let regex = try? NSRegularExpression(pattern: pattern)
-        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
-        return regex?.firstMatch(in: trimmed, options: [], range: range)
+    case .notApplicable:
+        // Not one of our supported numeric formats => don't show red.
+        // Example: "Summer 1984" (not supported yet, but we won't warn).
+        return nil
+
+    case .invalid:
+        // It *looked* like one of the supported numeric formats, but it's not valid.
+        // Keep message brief but helpful.
+        return "Invalid date. Examples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
     }
-
-    if matches(fullDate) != nil { return nil }
-    if matches(yearMonth) != nil { return nil }
-    if matches(yearOnly) != nil { return nil }
-    if matches(decade) != nil { return nil }
-
-    if let match = matches(yearRange) {
-        if match.numberOfRanges == 3,
-           let startRange = Range(match.range(at: 1), in: trimmed),
-           let endRange   = Range(match.range(at: 2), in: trimmed) {
-
-            let startYear = Int(trimmed[startRange]) ?? 0
-            let endYear   = Int(trimmed[endRange]) ?? 0
-
-            if endYear < startYear {
-                return "End year must not be earlier than start year."
-            } else {
-                return nil
-            }
-        }
-    }
-
-    if let match = matches(monthRange) {
-        if match.numberOfRanges == 5,
-           let sYRange = Range(match.range(at: 1), in: trimmed),
-           let sMRange = Range(match.range(at: 2), in: trimmed),
-           let eYRange = Range(match.range(at: 3), in: trimmed),
-           let eMRange = Range(match.range(at: 4), in: trimmed) {
-
-            let sY = Int(trimmed[sYRange]) ?? 0
-            let sM = Int(trimmed[sMRange]) ?? 0
-            let eY = Int(trimmed[eYRange]) ?? 0
-            let eM = Int(trimmed[eMRange]) ?? 0
-
-            if !(1...12).contains(sM) || !(1...12).contains(eM) {
-                return "Months must be between 01 and 12."
-            }
-            if eY < sY || (eY == sY && eM < sM) {
-                return "End month must not be earlier than start month."
-            }
-            return nil
-        }
-    }
-
-    if let match = matches(monthRangeTo) {
-        if match.numberOfRanges == 5,
-           let sYRange = Range(match.range(at: 1), in: trimmed),
-           let sMRange = Range(match.range(at: 2), in: trimmed),
-           let eYRange = Range(match.range(at: 3), in: trimmed),
-           let eMRange = Range(match.range(at: 4), in: trimmed) {
-
-            let sY = Int(trimmed[sYRange]) ?? 0
-            let sM = Int(trimmed[sMRange]) ?? 0
-            let eY = Int(trimmed[eYRange]) ?? 0
-            let eM = Int(trimmed[eMRange]) ?? 0
-
-            if !(1...12).contains(sM) || !(1...12).contains(eM) {
-                return "Months must be between 01 and 12."
-            }
-            if eY < sY || (eY == sY && eM < sM) {
-                return "End month must not be earlier than start month."
-            }
-            return nil
-        }
-    }
-
-    return "Entered value does not match standard forms \nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08"
 }
+
 
 // MARK: - File-scope helpers
 

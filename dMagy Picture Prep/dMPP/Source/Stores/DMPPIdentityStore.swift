@@ -1,26 +1,60 @@
 import Foundation
 import Combine
 
-// cp-2025-12-18-02(IDS)
-// NOTE: Converted from @Observable to ObservableObject so it works with @StateObject / .environmentObject.
+// ================================================================
+// DMPPIdentityStore.swift
+// cp-2026-01-24-01 — People registry: portable archive + record-per-person files
+//
+// [IDS] Goals:
+// - Store People registry under:
+//   <Picture Library Folder>/dMagy Portable Archive Data/People/
+//
+// - Record-per-file model (per person):
+//   People/person_<personID>.json  (contains [DmpmsIdentity] versions for that person)
+//
+// - Keep legacy single-file storage in Application Support as a fallback + migration source.
+// - Provide configureForArchiveRoot() entry point so the App can point the store at the
+//   currently selected Picture Library Folder.
+//
+// Notes:
+// - Settings are hard-locked, so concurrent People edits should be rare.
+// - Writes are atomic; Drive sync is still "eventual" across machines.
+// ================================================================
 
 final class DMPPIdentityStore: ObservableObject {
 
-    static let shared = DMPPIdentityStore()
 
-    /// Flat list of all identity versions persisted to disk.
+
+    // ------------------------------------------------------------
+    // [IDS] Public, in-memory model
+    // ------------------------------------------------------------
+
+    /// Flat list of all identity versions loaded from disk.
     /// Multiple entries may share the same `personID`.
     @Published var identities: [DmpmsIdentity] = []
 
     /// [IDS-REV] Lightweight change signal for cross-window refresh (People Manager -> Editor).
-    /// Any mutation bumps this so views/viewmodels can recompute derived values (like ages).
     @Published private(set) var revision: Int = 0
 
-    private let storageURL: URL
+    // ------------------------------------------------------------
+    // [IDS] Storage configuration
+    // ------------------------------------------------------------
+
+    /// The currently selected Picture Library Folder (archive root).
+    /// When set, People read/write happens in the portable archive.
+    private var archiveRootURL: URL? = nil
+
+    /// Legacy storage location (single identities.json file) used as fallback and migration source.
+    private let legacyStorageURL: URL
+
+    // [IDS] Portable folder names (single source of truth)
+    private let portableFolderName = DMPPPortableArchiveBootstrap.portableFolderName // "dMagy Portable Archive Data"
+    private let peopleFolderName = "People"
 
     // MARK: - Init
 
     init() {
+        // [IDS-LEGACY] Create legacy location (Application Support) for fallback + migration.
         let fm = FileManager.default
 
         if let appSupport = try? fm.url(
@@ -31,13 +65,31 @@ final class DMPPIdentityStore: ObservableObject {
         ) {
             let dir = appSupport.appendingPathComponent("dMagyPicturePrep", isDirectory: true)
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            storageURL = dir.appendingPathComponent("identities.json")
+            legacyStorageURL = dir.appendingPathComponent("identities.json")
         } else {
-            storageURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            legacyStorageURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("dMPP-identities.json")
         }
 
-        load()
+        // [IDS] Load immediately from legacy so the app can run before root is chosen.
+        loadFromLegacy()
+    }
+
+    // ------------------------------------------------------------
+    // [IDS] Configure store for a Picture Library Folder (archive root)
+    // ------------------------------------------------------------
+
+    /// Call this whenever the Picture Library Folder changes.
+    /// - If root is set: load from portable archive People/ folder (record-per-person files).
+    /// - If root is nil: fall back to legacy.
+    func configureForArchiveRoot(_ root: URL?) {
+        self.archiveRootURL = root
+
+        if let root {
+            loadFromPortableArchive(root: root)
+        } else {
+            loadFromLegacy()
+        }
     }
 
     // MARK: - Revision bump
@@ -46,38 +98,201 @@ final class DMPPIdentityStore: ObservableObject {
         revision &+= 1
     }
 
-    // MARK: - Persistence
+    // ============================================================
+    // MARK: [IDS-PATHS] Portable paths
+    // ============================================================
 
-    func load() {
+    private func portablePeopleFolderURL(root: URL) -> URL {
+        root
+            .appendingPathComponent(portableFolderName, isDirectory: true)
+            .appendingPathComponent(peopleFolderName, isDirectory: true)
+    }
+
+    private func personFileURL(root: URL, personID: String) -> URL {
+        let safeID = personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return portablePeopleFolderURL(root: root)
+            .appendingPathComponent("person_\(safeID).json")
+    }
+
+    // ============================================================
+    // MARK: [IDS-IO] Loading
+    // ============================================================
+
+    /// Legacy single-file load (Application Support fallback).
+    private func loadFromLegacy() {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: storageURL.path) else {
+        guard fm.fileExists(atPath: legacyStorageURL.path) else {
             identities = []
             bumpRevision()
             return
         }
 
         do {
-            let data = try Data(contentsOf: storageURL)
+            let data = try Data(contentsOf: legacyStorageURL)
             identities = try JSONDecoder().decode([DmpmsIdentity].self, from: data)
             migrateAndNormalize()
             bumpRevision()
         } catch {
-            print("dMPP: Failed to load identities: \(error)")
+            print("dMPP: Failed to load legacy identities: \(error)")
             identities = []
             bumpRevision()
         }
     }
 
-    private func save() {
+    /// Portable record-per-person load.
+    private func loadFromPortableArchive(root: URL) {
+
+        let fm = FileManager.default
+        let peopleFolder = portablePeopleFolderURL(root: root)
+
+        // Ensure folder exists (bootstrap should create it, but be defensive)
+        try? fm.createDirectory(at: peopleFolder, withIntermediateDirectories: true)
+
+        // If folder appears empty AND legacy has data, perform one-time migration.
+        if isPortablePeopleFolderEmpty(peopleFolder),
+           fm.fileExists(atPath: legacyStorageURL.path) {
+
+            do {
+                try migrateLegacyIntoPortableArchive(root: root)
+            } catch {
+                // If migration fails, fall back to legacy so the app still works.
+                print("dMPP: Migration legacy -> portable failed, using legacy. Error: \(error)")
+                loadFromLegacy()
+                return
+            }
+        }
+
         do {
-            let data = try JSONEncoder().encode(identities)
-            try data.write(to: storageURL, options: .atomic)
+            let files = try fm.contentsOfDirectory(
+                at: peopleFolder,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+
+            var loaded: [DmpmsIdentity] = []
+            loaded.reserveCapacity(512)
+
+            for url in files where url.lastPathComponent.hasPrefix("person_") && url.pathExtension.lowercased() == "json" {
+                guard let data = try? Data(contentsOf: url) else { continue }
+
+                // Each person file contains [DmpmsIdentity] versions for that person.
+                if let versions = try? JSONDecoder().decode([DmpmsIdentity].self, from: data) {
+                    loaded.append(contentsOf: versions)
+                }
+            }
+
+            identities = loaded
+            migrateAndNormalize()
+            bumpRevision()
+
         } catch {
-            print("dMPP: Failed to save identities: \(error)")
+            print("dMPP: Failed to load portable identities: \(error)")
+            identities = []
+            bumpRevision()
         }
     }
 
-    // MARK: - Migration / normalization
+    private func isPortablePeopleFolderEmpty(_ peopleFolder: URL) -> Bool {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: peopleFolder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return true
+        }
+        // Count only our person files
+        let personFiles = files.filter { $0.lastPathComponent.hasPrefix("person_") && $0.pathExtension.lowercased() == "json" }
+        return personFiles.isEmpty
+    }
+
+    // ============================================================
+    // MARK: [IDS-IO] Saving
+    // ============================================================
+
+    /// Save to the “current” backing store:
+    /// - If archiveRootURL is set: portable record-per-person files
+    /// - Else: legacy single-file
+    private func saveCurrentBackingStore() {
+        if let root = archiveRootURL {
+            saveToPortableArchive(root: root)
+        } else {
+            saveToLegacy()
+        }
+    }
+
+    private func saveToLegacy() {
+        do {
+            let data = try JSONEncoder().encode(identities)
+            try data.write(to: legacyStorageURL, options: .atomic)
+        } catch {
+            print("dMPP: Failed to save legacy identities: \(error)")
+        }
+    }
+
+    private func saveToPortableArchive(root: URL) {
+        let fm = FileManager.default
+        let peopleFolder = portablePeopleFolderURL(root: root)
+        try? fm.createDirectory(at: peopleFolder, withIntermediateDirectories: true)
+
+        // Group identities by personID (fall back to id if missing)
+        let groups = Dictionary(grouping: identities, by: { ($0.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? $0.id })
+
+        for (personID, versions) in groups {
+            let url = personFileURL(root: root, personID: personID)
+
+            do {
+                let data = try JSONEncoder().encode(versions)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                print("dMPP: Failed to save portable person file \(personID): \(error)")
+            }
+        }
+
+        // Optional cleanup: remove person files that no longer exist in memory
+        // (This prevents orphan files after deleting a person.)
+        do {
+            let existing = try fm.contentsOfDirectory(at: peopleFolder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            let desiredNames = Set(groups.keys.map { "person_\($0).json" })
+
+            for file in existing where file.lastPathComponent.hasPrefix("person_") && file.pathExtension.lowercased() == "json" {
+                if !desiredNames.contains(file.lastPathComponent) {
+                    try? fm.removeItem(at: file)
+                }
+            }
+        } catch {
+            // Best-effort; ignore
+        }
+    }
+
+    // ============================================================
+    // MARK: [IDS-MIGRATE] Legacy -> Portable migration
+    // ============================================================
+
+    private func migrateLegacyIntoPortableArchive(root: URL) throws {
+        // Load legacy identities.json
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: legacyStorageURL.path) else { return }
+
+        let data = try Data(contentsOf: legacyStorageURL)
+        let legacy = try JSONDecoder().decode([DmpmsIdentity].self, from: data)
+
+        // Write as portable person files.
+        let peopleFolder = portablePeopleFolderURL(root: root)
+        try fm.createDirectory(at: peopleFolder, withIntermediateDirectories: true)
+
+        let groups = Dictionary(grouping: legacy, by: { ($0.personID?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? $0.id })
+
+        for (personID, versions) in groups {
+            let url = personFileURL(root: root, personID: personID)
+            let out = try JSONEncoder().encode(versions)
+            try out.write(to: url, options: .atomic)
+        }
+
+        // We intentionally do NOT delete legacyStorageURL.
+        // It remains a fallback/backup in case the user switches roots or the portable folder is removed.
+        print("dMPP: Migrated legacy identities.json -> portable People/ (\(groups.count) people)")
+    }
+
+    // ============================================================
+    // MARK: [IDS-NORMALIZE] Migration / normalization
+    // ============================================================
 
     /// Ensures older files work and keeps per-person shared fields in sync.
     private func migrateAndNormalize() {
@@ -95,17 +310,15 @@ final class DMPPIdentityStore: ObservableObject {
 
         // 3) Keep stable UI ordering
         identities = identitiesSortedForUI
-
-        // Optional: write back the migrated structure so it stays clean next run
-        save()
     }
 
-    // MARK: - Alive filter (Option B: Death is an event)
+    // ============================================================
+    // MARK: [IDS] Alive filter (Option B: Death is an event)
+    // ============================================================
 
     /// Return people who could plausibly be alive during the photo range.
-    /// - If birth/death is unknown, we keep the person (inclusive, not exclusionary).
-    /// - Uses LooseYMD.birthRange for fuzzy parsing ("1970s", "1976", "1976-03-17").
-    /// - IMPORTANT: does NOT de-dupe by shortName.
+    /// - If birth/death is unknown, we keep the person (inclusive).
+    /// - Uses LooseYMD.birthRange for fuzzy parsing.
     func peopleAliveDuring(photoRange: DmpmsDateRange?) -> [PersonSummary] {
 
         // If we don't know the photo date at all, show everybody.
@@ -117,16 +330,6 @@ final class DMPPIdentityStore: ObservableObject {
         // If parsing failed, fall back to "show everybody".
         guard let p0 = photoEarliest, let p1 = photoLatest else {
             return peopleSortedForUI
-        }
-
-        // cp-2025-12-18-DEBUG-ANNA
-        let annas = peopleSortedForUI.filter { $0.shortName.lowercased().contains("anna") }
-        print("DEBUG peopleSortedForUI annas count=\(annas.count)")
-        for p in annas {
-            let pid = p.id
-            let b = p.birthDate ?? ""
-            let d = deathEventDate(from: p.versions) ?? ""
-            print("DEBUG anna shortName=\(p.shortName) id=\(pid) birth=\(b) deathEvent=\(d) versions=\(p.versions.count)")
         }
 
         return peopleSortedForUI.filter { person in
@@ -160,7 +363,9 @@ final class DMPPIdentityStore: ObservableObject {
         return s.isEmpty ? nil : s
     }
 
-    // MARK: - Shared fields propagation
+    // ============================================================
+    // MARK: [IDS] Shared fields propagation
+    // ============================================================
 
     private func propagateSharedFieldsAcrossIdentityVersions() {
         let groups = Dictionary(grouping: identities, by: { $0.personID ?? $0.id })
@@ -210,7 +415,9 @@ final class DMPPIdentityStore: ObservableObject {
         identities = rebuilt
     }
 
-    // MARK: - Computed views (raw identities)
+    // ============================================================
+    // MARK: [IDS] Computed views (raw identities)
+    // ============================================================
 
     var identitiesSortedForUI: [DmpmsIdentity] {
         identities.sorted {
@@ -226,7 +433,9 @@ final class DMPPIdentityStore: ObservableObject {
         identitiesSortedForUI.filter { !$0.isFavorite }
     }
 
-    // MARK: - Person grouping (one row per person for editor UI)
+    // ============================================================
+    // MARK: [IDS] Person grouping (one row per person for editor UI)
+    // ============================================================
 
     struct PersonSummary: Identifiable, Hashable {
         /// Uses the stable personID as the group identifier.
@@ -244,8 +453,6 @@ final class DMPPIdentityStore: ObservableObject {
         /// All identity versions for this person (sorted: Birth first, then by date-ish)
         let versions: [DmpmsIdentity]
     }
-
-    // MARK: - Checklist labels (People section)
 
     /// Returns a label for the People checklist.
     /// - If `shortName` is unique: "Anna"
@@ -328,7 +535,9 @@ final class DMPPIdentityStore: ObservableObject {
         peopleSortedForUI.filter { !$0.isFavorite }
     }
 
-    // MARK: - Lookup / mutation
+    // ============================================================
+    // MARK: [IDS] Lookup / mutation
+    // ============================================================
 
     func identity(withID id: String) -> DmpmsIdentity? {
         identities.first { $0.id == id }
@@ -361,22 +570,22 @@ final class DMPPIdentityStore: ObservableObject {
             identities.append(incoming)
         }
 
-        propagateSharedFieldsAcrossIdentityVersions()
-        identities = identitiesSortedForUI
-        save()
+        migrateAndNormalize()
+        saveCurrentBackingStore()
         bumpRevision()
     }
 
     func delete(id: String) {
         identities.removeAll { $0.id == id }
-        propagateSharedFieldsAcrossIdentityVersions()
-        save()
+        migrateAndNormalize()
+        saveCurrentBackingStore()
         bumpRevision()
     }
 
     func deletePerson(personID: String) {
         identities.removeAll { ($0.personID ?? $0.id) == personID }
-        save()
+        migrateAndNormalize()
+        saveCurrentBackingStore()
         bumpRevision()
     }
 
@@ -389,7 +598,9 @@ final class DMPPIdentityStore: ObservableObject {
         return sorted.last(where: { sortValue(for: $0.idDate) <= photoVal }) ?? sorted.first!
     }
 
-    // MARK: - Creation helpers for People Manager
+    // ============================================================
+    // MARK: [IDS] Creation helpers for People Manager
+    // ============================================================
 
     /// Creates a new person with a birth identity and returns the new personID.
     func addPerson() -> String {
@@ -413,13 +624,10 @@ final class DMPPIdentityStore: ObservableObject {
             notes: nil
         )
 
-        var birthCopy = birth
-        birthCopy.personID = personID
+        identities.append(birth)
 
-        identities.append(birthCopy)
-        propagateSharedFieldsAcrossIdentityVersions()
-        identities = identitiesSortedForUI
-        save()
+        migrateAndNormalize()
+        saveCurrentBackingStore()
         bumpRevision()
 
         return personID
@@ -441,15 +649,17 @@ final class DMPPIdentityStore: ObservableObject {
         new.kind = normalizeKind(new.kind)
 
         identities.append(new)
-        propagateSharedFieldsAcrossIdentityVersions()
-        identities = identitiesSortedForUI
-        save()
+
+        migrateAndNormalize()
+        saveCurrentBackingStore()
         bumpRevision()
 
         return new.id
     }
 
-    // MARK: - Internal helpers
+    // ============================================================
+    // MARK: [IDS] Internal helpers
+    // ============================================================
 
     private func normalize(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -476,8 +686,6 @@ final class DMPPIdentityStore: ObservableObject {
         let d = parts.count > 2 ? parts[2] : 0
         return y * 10_000 + m * 100 + d
     }
-
-    // MARK: - Sorting helpers (date grammar)
 
     /// Turns loose date grammar into a comparable key (earliest plausible YYYYMMDD).
     private func sortKey(for raw: String) -> Int {
@@ -537,3 +745,4 @@ final class DMPPIdentityStore: ObservableObject {
 fileprivate extension String {
     subscript(_ i: Int) -> Character { self[index(startIndex, offsetBy: i)] }
 }
+

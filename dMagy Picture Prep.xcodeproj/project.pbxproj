@@ -41,6 +41,7 @@
 				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.2.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.3.md",
+				"Docs/dMPP/dMPP-AI-Context.md",
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",

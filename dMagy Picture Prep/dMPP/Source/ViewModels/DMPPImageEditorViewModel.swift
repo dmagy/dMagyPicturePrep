@@ -14,6 +14,9 @@ import Combine
 @Observable
 class DMPPImageEditorViewModel {
 
+    // [IDS] Injected store (no singleton)
+    let identityStore: DMPPIdentityStore
+    
     // [DMPP-VM-IMAGE-URL] Where the actual image lives on disk.
     let imageURL: URL
 
@@ -25,9 +28,7 @@ class DMPPImageEditorViewModel {
     
     // cp-2025-12-18-07(AGE-STATE)
 
-    /// [AGE-STORE] Identity store for birthdate lookup + cross-window refresh.
-    /// Uses your existing singleton for now (keeps call sites unchanged).
-    private let identityStore: DMPPIdentityStore = .shared
+
 
     /// [AGE-MAP] identityID -> age (years) or nil
     var agesByIdentityID: [String: Int?] = [:]
@@ -74,9 +75,10 @@ class DMPPImageEditorViewModel {
     }
 
     
-    init(imageURL: URL, metadata: DmpmsMetadata) {
+    init(imageURL: URL, metadata: DmpmsMetadata, identityStore: DMPPIdentityStore) {
         self.imageURL = imageURL
         self.metadata = metadata
+        self.identityStore = identityStore
 
         // ---------------------------------------------------------
         // [DMPP-META-AUTODATE] Auto-fill Date/Era for camera images
@@ -1292,7 +1294,7 @@ extension DMPPImageEditorViewModel {
 
     /// Keep selected people, but re-pick the best identity for the current photo date.
     /// Call this after dateTaken/dateRange changes OR before saving.
-    func reconcilePeopleV2Identities(identityStore: DMPPIdentityStore = .shared) {
+    func reconcilePeopleV2Identities(identityStore: DMPPIdentityStore)  {
         guard !metadata.peopleV2.isEmpty else { return }
 
         let photoEarliest = metadata.dateRange?.earliest
@@ -1344,7 +1346,7 @@ extension DMPPImageEditorViewModel {
     }
 
     /// If an identity was deleted from the People Manager, strip it when the image is opened.
-    func stripMissingPeopleV2Identities(identityStore: DMPPIdentityStore = .shared) {
+    func stripMissingPeopleV2Identities(identityStore: DMPPIdentityStore) {
         guard !metadata.peopleV2.isEmpty else { return }
 
         for i in metadata.peopleV2.indices {
