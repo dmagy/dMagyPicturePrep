@@ -92,6 +92,23 @@ final class DMPPIdentityStore: ObservableObject {
         }
     }
 
+    // ------------------------------------------------------------
+    // [IDS] Portable archive file helpers (People record-per-file)
+    // ------------------------------------------------------------
+
+    func peopleFolderURL() -> URL? {
+        guard let root = archiveRootURL else { return nil }
+        return root
+            .appendingPathComponent(DMPPPortableArchiveBootstrap.portableFolderName, isDirectory: true)
+            .appendingPathComponent("People", isDirectory: true)
+    }
+
+    func personRecordURL(for personID: String) -> URL? {
+        guard let peopleFolder = peopleFolderURL() else { return nil }
+        return peopleFolder.appendingPathComponent("person_\(personID).json")
+    }
+
+    
     // MARK: - Revision bump
 
     private func bumpRevision() {

@@ -1,9 +1,10 @@
 import SwiftUI
+import AppKit
 
 // cp-2025-12-18-34(PEOPLE-MANAGER-FULLFILE)
 
-/// Standalone window for managing dMPMS identities.
-/// Uses the shared `DMPPIdentityStore` singleton as its backing store.
+/// Standalone (or embedded) view for managing dMPMS identities.
+/// Backed by the app-owned `DMPPIdentityStore` provided via EnvironmentObject.
 struct DMPPPeopleManagerView: View {
 
     // cp-2025-12-29-01(PEOPLE-HOST-MODE)
@@ -18,12 +19,9 @@ struct DMPPPeopleManagerView: View {
         self.host = host
     }
 
-    // Shared store – NOT a Binding, not @Bindable.
-    // (Keeping singleton here avoids environment-object wiring churn.)
+    // App-owned stores
     @EnvironmentObject private var identityStore: DMPPIdentityStore
-    @EnvironmentObject var archiveStore: DMPPArchiveStore
-
-
+    @EnvironmentObject private var archiveStore: DMPPArchiveStore
 
     @State private var searchText: String = ""
     @State private var selectedPersonID: String? = nil
@@ -37,6 +35,10 @@ struct DMPPPeopleManagerView: View {
     // Delete confirmation
     @State private var showDeleteConfirm: Bool = false
     @State private var deleteTargetPersonID: String? = nil
+    
+    @State private var showLinkedFileDetails: Bool = false
+
+
 
     // Default event suggestions for additional identity versions.
     // (Birth is handled by the birth identity block.)
@@ -85,6 +87,7 @@ struct DMPPPeopleManagerView: View {
 
             .onChange(of: selectedPersonID) { _, newValue in
                 handleSelectedPersonChanged(newValue)
+                showLinkedFileDetails = false
             }
             .onChange(of: identityStore.peopleSortedForUI.count) { _, _ in
                 handlePeopleCountChanged()
@@ -141,7 +144,6 @@ struct DMPPPeopleManagerView: View {
         }
     }
 
-
     private func handleSelectedPersonChanged(_ newValue: String?) {
         if let pid = newValue {
             loadDrafts(for: pid)
@@ -157,44 +159,6 @@ struct DMPPPeopleManagerView: View {
         } else if let first = filteredPeople.first {
             selectedPersonID = first.id
             loadDrafts(for: first.id)
-        }
-    }
-
-
-
-
-    // MARK: - Host containers
-
-    // cp-2025-12-29-01(PEOPLE-CONTAINER-SWITCH)
-    @ViewBuilder
-    private var contentView: some View {
-  
-        switch host {
-        case .window:
-            NavigationSplitView {
-                leftPane
-                    .id(refreshToken)
-                    .navigationSplitViewColumnWidth(min: 300, ideal: 300, max: 300) // fixed
-            } detail: {
-                detailEditor
-            }
-            .navigationSplitViewStyle(.balanced)
-            .frame(minWidth: 880, idealWidth: 880, minHeight: 600)
-
-        case .settingsTab:
-            // IMPORTANT:
-            // NavigationSplitView inside a TabView/Settings can cause toolbar/tab hit-testing weirdness
-            // and “tab strip shifts right”. Use HSplitView instead when embedded.
-            HSplitView {
-                leftPane
-                    .id(refreshToken)
-                    .frame(minWidth: 300, idealWidth: 320, maxWidth: 360)
-
-                detailEditor
-                    .frame(minWidth: 420, maxWidth: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-          //  .padding(.top, 8)
         }
     }
 
@@ -214,7 +178,6 @@ struct DMPPPeopleManagerView: View {
                 }
             }
 
-            // Add person moved to bottom of list view
             Button {
                 createNewPerson()
             } label: {
@@ -224,6 +187,7 @@ struct DMPPPeopleManagerView: View {
             .help("Create a new person (birth identity first)")
         }
     }
+
     // [PEOPLE-LIST] Extracted row to prevent “unable to type-check” compiler timeouts
     @ViewBuilder
     private func peopleListRow(_ person: DMPPIdentityStore.PersonSummary) -> some View {
@@ -299,7 +263,6 @@ struct DMPPPeopleManagerView: View {
         }
     }
 
-
     private var filteredPeople: [DMPPIdentityStore.PersonSummary] {
         // Force deterministic ordering (even when names tie)
         let basePeople = identityStore.peopleSortedForUI.sorted(by: peopleSort)
@@ -343,7 +306,6 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            //    .padding()
 
             } else if draftBirth == nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -353,7 +315,6 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-           //     .padding()
 
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -383,11 +344,10 @@ struct DMPPPeopleManagerView: View {
                                 )
                             }
                         }
-                    .padding(8)
+                        .padding(8)
                     }
 
                     HStack {
-                        // Delete moved here, left of Add event, with spacer in between
                         Button(role: .destructive) {
                             deleteTargetPersonID = selectedPersonID
                             showDeleteConfirm = true
@@ -414,12 +374,91 @@ struct DMPPPeopleManagerView: View {
                     }
                     .padding(.top, 8)
 
+                    
+                    
+                    // ------------------------------------------------------------
+                    // [PEOPLE] Linked JSON file (fingerprint chip + copy/reveal)
+                    // ------------------------------------------------------------
+                    if let pid = selectedPersonID {
+                        linkedPersonFilePanel(personID: pid)
+                    }
+
                     Spacer()
                 }
                 .padding()
             }
         }
     }
+
+    // ------------------------------------------------------------
+    // [PEOPLE] Linked file panel (portable People/person_<id>.json)
+    // ------------------------------------------------------------
+    @ViewBuilder
+    private func linkedPersonFilePanel(personID: String) -> some View {
+        GroupBox("Files") {
+            DisclosureGroup(isExpanded: $showLinkedFileDetails) {
+
+                VStack(alignment: .leading, spacing: 10) {
+
+                    if let url = identityStore.personRecordURL(for: personID) {
+
+                        // “Fingerprint chip” style: icon + filename capsule
+                        HStack(spacing: 10) {
+                            Image(systemName: "touchid")
+                                .foregroundStyle(.secondary)
+
+                            Text(url.lastPathComponent)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.quaternary.opacity(0.6))
+                                .clipShape(Capsule())
+
+                            Spacer()
+                        }
+
+                        Text(url.path)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+
+                        HStack(spacing: 10) {
+                            Button("Copy file name") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.lastPathComponent, forType: .string)
+                            }
+
+                            Button("Copy full path") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.path, forType: .string)
+                            }
+
+                            Button("Show in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            }
+                        }
+                        .controlSize(.small)
+
+                    } else {
+                        Text("Picture Library Folder isn’t configured yet, so the linked file can’t be shown.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 8)
+
+            } label: {
+                Label("Linked file (advanced)", systemImage: "doc.text.magnifyingglass")
+                    .font(.callout.weight(.semibold))
+            }
+            .padding(8)
+        }
+    }
+
+
+
+    // MARK: - Birth editor
 
     private var birthEditorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -431,7 +470,7 @@ struct DMPPPeopleManagerView: View {
                     Text("Short name")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField( "Short name", text: bindingBirth(\.shortName))
+                    TextField("Short name", text: bindingBirth(\.shortName))
                         .frame(width: 160)
                 }
 
@@ -617,7 +656,6 @@ struct DMPPPeopleManagerView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-             //       .padding(10)
                     .background(.quaternary.opacity(0.35))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
@@ -844,4 +882,7 @@ struct DMPPPeopleManagerView: View {
 
 #Preview {
     DMPPPeopleManagerView(host: .window)
+        .environmentObject(DMPPIdentityStore())
+        .environmentObject(DMPPArchiveStore())
 }
+

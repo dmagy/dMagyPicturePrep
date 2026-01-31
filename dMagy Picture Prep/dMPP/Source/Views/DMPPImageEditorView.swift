@@ -194,6 +194,8 @@ struct DMPPImageEditorView: View {
                     }
                     .buttonStyle(.plain)
                     .help(currentURL?.path ?? filename)
+                    
+          
 
                     HStack(spacing: 10) {
                         if !positionText.isEmpty {
@@ -213,6 +215,7 @@ struct DMPPImageEditorView: View {
                         }
                         .buttonStyle(.plain)
                         .help(folderURL.path)
+                        
                     }
                 }
             }

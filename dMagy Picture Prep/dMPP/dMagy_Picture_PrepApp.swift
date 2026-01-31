@@ -9,6 +9,8 @@ struct dMagy_Picture_PrepApp: App {
     // [APP-STORE] App-wide People/Identity store (single source of truth)
     // NOTE: App owns the instance; do NOT use a singleton.
     @StateObject private var identityStore = DMPPIdentityStore()
+    @StateObject private var tagStore = DMPPTagStore()
+
 
     // [ARCH] Picture Library Folder store (bookmark + selection)
     @StateObject private var archiveStore = DMPPArchiveStore()
@@ -22,6 +24,8 @@ struct dMagy_Picture_PrepApp: App {
             DMPPArchiveRootGateView()
                 .environmentObject(archiveStore)
                 .environmentObject(identityStore)
+                .environmentObject(tagStore)
+
                 // [WIN] Restore window frame between launches
                 .background(DMPPWindowAutosave(name: "DMPP.MainWindow.v1"))
         }
@@ -48,6 +52,8 @@ struct dMagy_Picture_PrepApp: App {
             DMPPSettingsLockGateView()
                 .environmentObject(identityStore)
                 .environmentObject(archiveStore)
+                .environmentObject(tagStore)
+
         }
 
         // (Leave these commented unless you intentionally want to force sizing.)
@@ -61,6 +67,8 @@ struct dMagy_Picture_PrepApp: App {
             DMPPPeopleManagerView()
                 .environmentObject(identityStore)
                 .environmentObject(archiveStore)
+                .environmentObject(tagStore)
+
                 .background(DMPPWindowAutosave(name: "DMPP.PeopleWindow.v1"))
         }
         // Optional: also include People menu (if you want it globally, keep it here)
@@ -81,6 +89,7 @@ struct dMagy_Picture_PrepApp: App {
 private struct DMPPArchiveRootGateView: View {
     @EnvironmentObject var archiveStore: DMPPArchiveStore
     @EnvironmentObject var identityStore: DMPPIdentityStore
+    @EnvironmentObject var tagStore: DMPPTagStore
 
     // Track what we've configured so we don't re-run on every redraw
     @State private var lastConfiguredRootPath: String? = nil
@@ -100,6 +109,8 @@ private struct DMPPArchiveRootGateView: View {
                         } else {
                             // Root cleared → fall back to legacy + reset our guard
                             identityStore.configureForArchiveRoot(nil)
+                            tagStore.configureForArchiveRoot(nil)
+
                             lastConfiguredRootPath = nil
                         }
                     }
@@ -137,6 +148,15 @@ private struct DMPPArchiveRootGateView: View {
                 }
             }
         }
+        // Title-bar gear icon (always available)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                }
+                .help("Settings")
+            }
+        }
     }
 
     private func configureIdentityStoreIfNeeded(for root: URL) {
@@ -145,10 +165,12 @@ private struct DMPPArchiveRootGateView: View {
 
         // Prefer the injected store (App-owned) so we don't configure a different instance.
         identityStore.configureForArchiveRoot(root)
+        tagStore.configureForArchiveRoot(root)
 
         lastConfiguredRootPath = path
     }
 }
+
 
 
 

@@ -14,6 +14,14 @@ struct DMPPCropPreferencesView: View {
     @FocusState private var focusedField: FocusField?
     
     @EnvironmentObject var archiveStore: DMPPArchiveStore
+ 
+
+    @StateObject private var tagStore = DMPPTagStore()
+
+    
+    @State private var showLinkedFileDetails: Bool = false
+    @State private var showLinkedTagsFileDetails: Bool = false
+
 
     private enum FocusField: Hashable {
         case locationShortName(UUID)
@@ -180,14 +188,11 @@ struct DMPPCropPreferencesView: View {
                 Divider()
 
                 GroupBox("Picture Library Folder") {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
 
                         if let root = archiveStore.archiveRootURL {
-
-                            let portable = root.appendingPathComponent("dMagy Portable Archive Data", isDirectory: true)
-
-                            // --- Root summary ---
-                            VStack(alignment: .leading, spacing: 6) {
+                            // Friendly summary first
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(root.lastPathComponent)
                                     .font(.headline)
 
@@ -196,64 +201,56 @@ struct DMPPCropPreferencesView: View {
                                     .foregroundStyle(.secondary)
                                     .textSelection(.enabled)
                                     .lineLimit(2)
-
-                                // Fingerprint chip
-                                HStack(spacing: 8) {
-                                    fingerprintChip(label: "Folder fingerprint", value: fingerprint(for: root))
-                                    Button("Copy Path") { copyToClipboard(root.path) }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-
-                                    Button("Copy Fingerprint") { copyToClipboard(fingerprint(for: root)) }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                }
                             }
 
-                            Divider().padding(.vertical, 2)
-
-                            // --- Portable data summary ---
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Portable Archive Data")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                Text(portable.path)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
-                                    .lineLimit(2)
-
-                                HStack(spacing: 8) {
-                                    fingerprintChip(label: "Data fingerprint", value: fingerprint(for: portable))
-
-                                    Button("Copy Data Path") { copyToClipboard(portable.path) }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-
-                                    Button("Copy Data Fingerprint") { copyToClipboard(fingerprint(for: portable)) }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                }
-                            }
-
-                            Divider().padding(.vertical, 2)
-
-                            // --- Actions ---
                             HStack(spacing: 12) {
                                 Button("Change Picture Library Folder…") {
                                     archiveStore.promptForArchiveRoot()
                                 }
 
-                                Button("Show Folder in Finder") {
+                                Button("Show in Finder") {
                                     NSWorkspace.shared.activateFileViewerSelecting([root])
                                 }
-
-                                Button("Show Portable Data in Finder") {
-                                    NSWorkspace.shared.activateFileViewerSelecting([portable])
-                                }
                             }
-                            .padding(.top, 4)
+                            .padding(.top, 2)
+
+                            // Advanced: hidden by default
+                            DisclosureGroup(isExpanded: $showLinkedFileDetails) {
+                                let portable = root.appendingPathComponent("dMagy Portable Archive Data", isDirectory: true)
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Divider().padding(.vertical, 2)
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Portable Archive Data (advanced)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+
+                                        Text(portable.path)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .textSelection(.enabled)
+                                            .lineLimit(2)
+                                    }
+
+                                    HStack(spacing: 12) {
+                                        Button("Show Portable Data in Finder") {
+                                            NSWorkspace.shared.activateFileViewerSelecting([portable])
+                                        }
+
+                                        Button("Copy Path") {
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(portable.path, forType: .string)
+                                        }
+                                    }
+                                }
+                                .padding(.top, 6)
+                            } label: {
+                                // The “control” the user clicks
+                                Label("Linked files (advanced)", systemImage: "doc.text.magnifyingglass")
+                                    .font(.callout.weight(.semibold))
+                            }
+                            .padding(.top, 6)
 
                         } else {
                             Text("No Picture Library Folder is selected yet.")
@@ -265,6 +262,8 @@ struct DMPPCropPreferencesView: View {
                             .padding(.top, 4)
                         }
                     }
+                    .padding(8)
+
                     .padding(10)
                 }
 
@@ -300,6 +299,33 @@ struct DMPPCropPreferencesView: View {
         .onChange(of: prefs) { _, newValue in
             newValue.save()
         }
+        .onAppear {
+            // Ensure tagStore is pointed at the current archive root AND seeded if needed
+            tagStore.configureForArchiveRoot(
+                archiveStore.archiveRootURL,
+                fallbackTags: prefs.availableTags
+            )
+            tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
+
+            // Now pull portable tags into prefs (so UI reflects the portable registry)
+            syncTagsFromPortableIntoPrefs()
+        }
+        .onChange(of: archiveStore.archiveRootURL) { _, newRoot in
+            // Re-point tag store to the new root (or nil) and seed/migrate if needed
+            tagStore.configureForArchiveRoot(
+                newRoot,
+                fallbackTags: prefs.availableTags
+            )
+            tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
+
+            // Refresh prefs from portable for this root
+            syncTagsFromPortableIntoPrefs()
+        }
+        .onChange(of: prefs.availableTags) { _, _ in
+            // Every add/edit/delete writes to tags.json (only works when a root is configured)
+            persistPrefsTagsToPortable()
+        }
+
     }
     // MARK: - General tab helpers
 
@@ -318,7 +344,38 @@ struct DMPPCropPreferencesView: View {
         // 12 chars is a nice “chip” size
         return String(hex.prefix(12)).uppercased()
     }
+    
+    private func syncTagsFromPortableIntoPrefs() {
+        // 1) Ensure TagStore is pointed at the current root and seed if needed.
+        tagStore.configureForArchiveRoot(
+            archiveStore.archiveRootURL,
+            fallbackTags: prefs.availableTags
+        )
 
+        // 2) Pull portable truth into prefs (canonical + includes reserved tags)
+        let portable = tagStore.tags
+        guard !portable.isEmpty else { return }
+
+        // Avoid infinite churn: only assign if it actually changed
+        if prefs.availableTags != portable {
+            prefs.availableTags = portable
+        }
+    }
+
+    private func persistPrefsTagsToPortable() {
+        // Persist whatever the UI currently has; store will sanitize + enforce reserved tags.
+        tagStore.persistTagsFromUI(prefs.availableTags)
+
+        // Optional: keep prefs in sync with sanitized portable truth (prevents “flagged ” etc.)
+        let portable = tagStore.tags
+        if !portable.isEmpty, prefs.availableTags != portable {
+            prefs.availableTags = portable
+        }
+    }
+
+
+    
+    
     @ViewBuilder
     private func fingerprintChip(label: String, value: String) -> some View {
         HStack(spacing: 6) {
@@ -342,6 +399,70 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
+    @ViewBuilder
+    private func linkedTagsFilePanel() -> some View {
+        GroupBox {
+            DisclosureGroup(isExpanded: $showLinkedTagsFileDetails) {
+
+                VStack(alignment: .leading, spacing: 10) {
+
+                    if let url = tagStore.tagsFileURL() {
+
+                        // “Fingerprint chip” style: icon + filename capsule
+                        HStack(spacing: 10) {
+                            Image(systemName: "touchid")
+                                .foregroundStyle(.secondary)
+
+                            Text(url.lastPathComponent)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.quaternary.opacity(0.6))
+                                .clipShape(Capsule())
+
+                            Spacer()
+                        }
+
+                        Text(url.path)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+
+                        HStack(spacing: 10) {
+                            Button("Copy file name") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.lastPathComponent, forType: .string)
+                            }
+
+                            Button("Copy full path") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.path, forType: .string)
+                            }
+
+                            Button("Show in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            }
+                        }
+                        .controlSize(.small)
+
+                    } else {
+                        Text("Picture Library Folder isn’t configured yet, so the linked file can’t be shown.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 8)
+
+            } label: {
+                Label("Linked file (advanced)", systemImage: "doc.text.magnifyingglass")
+                    .font(.callout.weight(.semibold))
+            }
+            .padding(8)
+        }
+    }
+
+    
     // MARK: - Sections (Crops tab)
 
     /// Section for the known built-in presets (Original, 16:9, 8×10, etc.).
@@ -515,57 +636,231 @@ struct DMPPCropPreferencesView: View {
     // MARK: - Tags section (Tags tab)
 
     private var tagsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Tags shown as checkboxes in the editor.")
+        VStack(alignment: .leading, spacing: 10) {
+
+            Text("Tags shown as checkboxes in the editor. Descriptions are for humans.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            ForEach(Array(prefs.availableTags.enumerated()), id: \.offset) { index, tag in
-                let isReserved = DMPPUserPreferences.isReservedTag(tag)
+            if tagStore.tagRecords.isEmpty {
+                Text("No tags loaded yet.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach($tagStore.tagRecords) { $rec in
+                        TagRowView(
+                            rec: $rec,
+                            onDelete: {
+                                deleteTagRecord(id: rec.id)
+                            },
+                            onPersist: {
+                                persistTagRecordsAndSyncPrefs()
+                            }
+                        )
+                    }
+                }
+            }
 
-                HStack {
+            HStack(spacing: 10) {
+                Button {
+                    addNewTagRecord()
+                } label: {
+                    Label("Add Tag", systemImage: "plus")
+                }
+
+                Spacer()
+
+                Button("Normalize & Save") {
+                    tagStore.normalizeAndSave()
+                    persistTagRecordsAndSyncPrefs()
+                }
+                .controlSize(.small)
+                .help("Cleans up duplicates/spacing and writes tags.json")
+                
+                
+                    .padding(.top, 6)
+
+            }
+            linkedTagsFilePanel()
+        }
+    }
+
+    private struct TagRowView: View {
+        @Binding var rec: DMPPTagStore.TagRecord
+        @State private var descExpanded: Bool = false
+        private let descCollapsedHeight: CGFloat = 80
+        private let descExpandedHeight: CGFloat = 180
+
+
+        let onDelete: () -> Void
+        let onPersist: () -> Void
+
+        // Local draft so typing spaces doesn't get nuked by sanitize-on-save
+        @State private var nameDraft: String = ""
+        @FocusState private var nameFocused: Bool
+
+        var body: some View {
+            let isReserved = rec.isReserved
+
+            VStack(alignment: .leading, spacing: 8) {
+
+                HStack(spacing: 10) {
                     if isReserved {
-                        // Locked: show text only (no editing), no delete
-                        Text(tag)
-                            .padding(.leading, 6)
+                        Text(rec.name)
+                            .font(.headline)
 
                         Spacer()
 
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.secondary)
-                            .help("This tag is required and cannot be renamed or deleted.")
+                            .help("This tag name is required and cannot be renamed or deleted.")
                     } else {
-                        // Editable
-                        TextField(
-                            "Tag",
-                            text: Binding(
-                                get: { prefs.availableTags[index] },
-                                set: { prefs.availableTags[index] = $0 }
-                            )
-                        )
-
-                        Spacer()
+                        TextField("Tag", text: $nameDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.headline)
+                            .focused($nameFocused)
+                            .onSubmit { commitNameIfNeeded() }
+                            .onChange(of: nameFocused) { _, isFocused in
+                                // When the field loses focus, commit once
+                                if !isFocused { commitNameIfNeeded() }
+                            }
 
                         Button(role: .destructive) {
-                            // Extra safety: don’t delete reserved tags even if they somehow slip through.
-                            let current = prefs.availableTags[index]
-                            guard !DMPPUserPreferences.isReservedTag(current) else { return }
-                            prefs.availableTags.remove(at: index)
+                            onDelete()
+                            onPersist()
                         } label: {
                             Image(systemName: "trash")
                         }
-                        .help("Remove tag")
                         .buttonStyle(.borderless)
+                        .help("Remove tag")
                     }
                 }
-            }
 
-            Button {
-                prefs.availableTags.append("New Tag")
-            } label: {
-                Label("Add Tag", systemImage: "plus")
+                // Multiline description (editable even for reserved tags)
+                ZStack(alignment: .topLeading) {
+                    if rec.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Description (optional)…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                            .padding(.leading, 6)
+                            .allowsHitTesting(false)
+                    }
+
+                    TextEditor(text: $rec.description)
+                        .font(.callout)
+                        .frame(minHeight: 36, idealHeight: 36, maxHeight: 140)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                        )
+                }
+            }
+            .padding(10)
+            .background(.quaternary.opacity(0.25))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .onAppear {
+                // Initialize draft from record when row appears
+                if nameDraft.isEmpty {
+                    nameDraft = rec.name
+                }
+            }
+            .onChange(of: rec.name) { _, newValue in
+                // If record name changes externally, reflect it—unless user is actively typing
+                if !nameFocused {
+                    nameDraft = newValue
+                }
+            }
+            // Keep description persisting live (your description trailing-space issue is already fixed)
+            .onChange(of: rec.description) { _, _ in
+                onPersist()
+            }
+            .onDisappear {
+                // Defensive: commit before row goes away
+                if !isReserved {
+                    commitNameIfNeeded()
+                }
             }
         }
+
+        private func commitNameIfNeeded() {
+            let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+
+            // Only write/persist if it actually changed
+            if rec.name != trimmed {
+                rec.name = trimmed
+                onPersist()
+            } else if nameDraft != trimmed {
+                // User typed trailing spaces; normalize the field display without rewriting the store
+                nameDraft = trimmed
+            }
+        }
+    }
+
+
+    // Existing helpers (keep yours as-is)
+
+    private func addNewTagRecord() {
+        let base = "New Tag"
+        var candidate = base
+        var n = 2
+
+        let existing = Set(tagStore.tagRecords.map { $0.name.lowercased() })
+        while existing.contains(candidate.lowercased()) {
+            candidate = "\(base) \(n)"
+            n += 1
+        }
+
+        tagStore.tagRecords.append(
+            DMPPTagStore.TagRecord(
+                id: UUID().uuidString,
+                name: candidate,
+                description: "",
+                isReserved: false
+            )
+        )
+
+        persistTagRecordsAndSyncPrefs()
+    }
+
+    private func deleteTagRecord(id: String) {
+        tagStore.tagRecords.removeAll { $0.id == id }
+        persistTagRecordsAndSyncPrefs()
+    }
+
+    /// Writes records to tags.json (sanitizes/keeps reserved), then syncs prefs.availableTags to names.
+    private func persistTagRecordsAndSyncPrefs() {
+        tagStore.persistRecordsFromUI(tagStore.tagRecords)
+
+        let portableNames = tagStore.tags
+        if prefs.availableTags != portableNames {
+            prefs.availableTags = portableNames
+        }
+    }
+
+    @discardableResult
+    private func ensureReservedTagsExist() -> Bool {
+        let reserved = ["Do Not Display", "Flagged"]
+        var changed = false
+
+        for r in reserved {
+            if !prefs.availableTags.contains(r) {
+                prefs.availableTags.insert(r, at: 0)
+                changed = true
+            }
+        }
+
+        if prefs.availableTags.isEmpty {
+            prefs.availableTags = [
+                "Do Not Display",
+                "Flagged"
+            ]
+            changed = true
+        }
+
+        return changed
     }
 
 
