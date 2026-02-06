@@ -25,6 +25,19 @@ struct RectNormalized: Codable, Equatable, Hashable {
 /// A reusable "virtual crop" definition that dMPP writes
 /// and dMPS reads from .dmpms.json sidecars.
 struct VirtualCrop: Identifiable, Codable, Equatable, Hashable {
+
+    // MARK: - [VC-MODEL-CROP] Headshot semantics (Phase 1)
+
+    enum CropKind: String, Codable, Hashable {
+        case standard
+        case headshot
+    }
+
+    enum HeadshotVariant: String, Codable, Hashable {
+        case tight
+        case full
+    }
+
     /// Stable identifier so we can edit/delete specific crops.
     /// Example: "crop-16x9-1"
     var id: String
@@ -37,9 +50,19 @@ struct VirtualCrop: Identifiable, Codable, Equatable, Hashable {
 
     /// Normalized rectangle in source image space.
     var rect: RectNormalized
-    
+
     /// If this crop was created from a custom preset, store that preset’s stable UUID string.
     /// This makes UI labels permanent even if preset names change later.
     var sourceCustomPresetID: String? = nil
 
+    /// Crop "kind" — standard crop vs headshot crop.
+    /// Default is standard so older sidecars decode safely.
+    var kind: CropKind = .standard
+
+    /// Only used when kind == .headshot
+    var headshotVariant: HeadshotVariant? = nil
+
+    /// Only used when kind == .headshot
+    /// Links to the People registry personID (exact ID type depends on your People model).
+    var headshotPersonID: String? = nil
 }

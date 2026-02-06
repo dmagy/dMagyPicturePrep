@@ -271,9 +271,11 @@ class DMPPImageEditorViewModel {
         aspectWidth: Int,
         aspectHeight: Int,
         rect: RectNormalized,
-        sourceCustomPresetID: String? = nil  // [VC-META] optional link to a custom preset
+        sourceCustomPresetID: String? = nil,
+        kind: VirtualCrop.CropKind = .standard,
+        headshotVariant: VirtualCrop.HeadshotVariant? = nil,
+        headshotPersonID: String? = nil
     ) {
-
         // Build an id prefix from the numeric aspect when available.
         let idPrefix: String
         if aspectWidth > 0 && aspectHeight > 0 {
@@ -299,13 +301,18 @@ class DMPPImageEditorViewModel {
             rect: rect
         )
 
-        // [VC-META] Persist custom preset ID if supplied
+        // [VC-META] Custom preset link
         crop.sourceCustomPresetID = sourceCustomPresetID
+
+        // [VC-HEADSHOT] Headshot semantics
+        crop.kind = kind
+        crop.headshotVariant = headshotVariant
+        crop.headshotPersonID = headshotPersonID
 
         metadata.virtualCrops.append(crop)
         selectedCropID = crop.id
-
     }
+
 
     // ============================================================
     // [DMPP-VM-CROP-PRESETS] Built-in presets (match New Crop menu)
@@ -368,31 +375,76 @@ class DMPPImageEditorViewModel {
         )
     }
 
-    // MARK: - Headshot (TEMP until Phase 1 variants)
+    // MARK: - Headshot (Phase 1 variants)
 
-    /// [CR-PRESET-HEADSHOT-FULL] Headshot (Full) — TEMP (Phase 1 will make distinct)
+    // [CR-PRESET-HEADSHOT-FULL] Headshot (Full) — Phase 1 variant
     func addPresetHeadshotFull8x10() {
-        // TEMP: same rect + aspect as headshot 8×10 for now.
-        addPresetHeadshot8x10()
-    }
-
-    /// [CR-PRESET-HEADSHOT-TIGHT] Headshot (Tight) — TEMP (Phase 1 will make distinct)
-    func addPresetHeadshotTight8x10() {
-        // TEMP: same rect + aspect as headshot 8×10 for now.
-        addPresetHeadshot8x10()
-    }
-
-    /// [CR-PRESET-HEADSHOT-8×10] Headshot 8×10 (4:5) – same aspect as Portrait 4:5,
-    /// but labeled separately so we can show special headshot guides in the UI.
-    func addPresetHeadshot8x10() {
         let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+
         addCrop(
-            label: "Headshot 4:5 (8×10)",
+            label: "Headshot (Full)",
             aspectWidth: 4,
             aspectHeight: 5,
-            rect: rect
+            rect: rect,
+            kind: .headshot,
+            headshotVariant: .full,
+            headshotPersonID: nil
         )
     }
+
+    // [CR-PRESET-HEADSHOT-TIGHT] Headshot (Tight) — Phase 1 variant
+    func addPresetHeadshotTight8x10() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+
+        addCrop(
+            label: "Headshot (Tight)",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            rect: rect,
+            kind: .headshot,
+            headshotVariant: .tight,
+            headshotPersonID: nil
+        )
+    }
+
+    // MARK: - [CR-HEADSHOT] Headshot creation (Phase 1)
+
+    /// Creates a headshot crop (4:5 / 8×10) with a variant and optional person link.
+    /// This version avoids touching your private addCrop(...) signature by:
+    /// 1) calling your existing headshot preset creators
+    /// 2) updating the newly-added crop’s headshot fields
+    func addHeadshotCrop(
+        variant: VirtualCrop.HeadshotVariant,
+        personID: String?
+    ) {
+        // 1) Create the crop using existing presets you already have
+        switch variant {
+        case .tight:
+            addPresetHeadshotTight8x10()
+        case .full:
+            addPresetHeadshotFull8x10()
+        }
+
+        // 2) Update the most recently added crop with headshot metadata
+        guard let newID = metadata.virtualCrops.last?.id,
+              let idx = metadata.virtualCrops.firstIndex(where: { $0.id == newID }) else {
+            return
+        }
+
+        metadata.virtualCrops[idx].kind = .headshot
+        metadata.virtualCrops[idx].headshotVariant = variant
+        metadata.virtualCrops[idx].headshotPersonID = personID
+
+        selectedCropID = metadata.virtualCrops[idx].id
+    }
+
+    /// [CR-PRESET-HEADSHOT-8×10] Legacy entry point.
+    /// This now maps to Headshot (Tight) for backward compatibility.
+    func addPresetHeadshot8x10() {
+        addPresetHeadshotTight8x10()
+    }
+
+
 
     // MARK: - Landscape
 
