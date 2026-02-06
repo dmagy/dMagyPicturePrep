@@ -39,19 +39,6 @@ struct DMPPUserPreferences: Codable, Equatable {
 
     // MARK: - Crop presets
 
-    /// Known built-in crop presets that can be used as defaults for new images.
-    enum CropPresetID: String, Codable, CaseIterable {
-        case original          // Original (full image)
-        case landscape16x9     // Landscape 16:9
-        case portrait8x10      // Portrait 8×10 (4:5)
-        case headshot8x10      // Headshot 8×10 (uses guides)
-        case landscape4x6      // Landscape 4×6 (3:2)
-        case square1x1         // Square 1:1
-
-        // NOTE: Freeform is *per-image* and created explicitly;
-        // we do not auto-create it as a default preset.
-    }
-
     /// User-defined custom crop preset.
     struct CustomCropPreset: Codable, Identifiable, Equatable {
         var id: UUID
@@ -65,7 +52,7 @@ struct DMPPUserPreferences: Codable, Equatable {
     /// Order is preserved.
     var defaultCropPresets: [CropPresetID] = [
         .landscape16x9,
-        .portrait8x10
+        .portrait4x5
     ]
 
     /// User-defined custom crop presets.
@@ -175,7 +162,11 @@ struct DMPPUserPreferences: Codable, Equatable {
         do {
             let data = try JSONEncoder().encode(self)
             UserDefaults.standard.set(data, forKey: Self.storageKey)
-            NotificationCenter.default.post(name: .dmppPreferencesChanged, object: nil)
+
+            // [PREFS-NOTIFY] Post on main thread so SwiftUI refresh is reliable.
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .dmppPreferencesChanged, object: nil)
+            }
         } catch {
             print("dMPP: Failed to encode DMPPUserPreferences: \(error)")
         }
@@ -225,6 +216,7 @@ struct DMPPUserPreferences: Codable, Equatable {
 }
 
 // MARK: - Effective defaults
+// MARK: - [PREF-CROPS] Crop Defaults Logic
 
 extension DMPPUserPreferences {
 
@@ -238,20 +230,77 @@ extension DMPPUserPreferences {
     /// - If the user disables all presets, we fall back to `.original` only
     ///   so they can still use dMPP just for metadata.
     /// - Duplicates are removed while preserving order.
+    // [CROPS-PREFS] Normalize stored defaults so legacy IDs don’t drift UI/behavior
     var effectiveDefaultCropPresets: [CropPresetID] {
-        let base: [CropPresetID] =
-            defaultCropPresets.isEmpty ? [.original] : defaultCropPresets
-
-        var seen = Set<CropPresetID>()
-        var result: [CropPresetID] = []
-
-        for preset in base {
-            if !seen.contains(preset) {
-                seen.insert(preset)
-                result.append(preset)
-            }
+        let mapped = defaultCropPresets.map { preset in
+            if preset == CropPresetID.headshot4x5 { return CropPresetID.headshot8x10 }
+            return preset
         }
-        return result
+
+        // De-dupe while preserving order
+        var seen = Set<CropPresetID>()
+        let deduped = mapped.filter { seen.insert($0).inserted }
+
+        // Safety rule: if user disables all, fall back to .original
+        if deduped.isEmpty { return [.original] }
+        return deduped
+    }
+}
+
+// MARK: - [PREF-CROPS] Crop Preset IDs
+
+extension DMPPUserPreferences {
+
+    // [CROPS-PREFS] Built-in crop preset IDs (matches New Crop menu + Settings > Crops)
+    enum CropPresetID: String, CaseIterable, Hashable {
+        case original
+
+        // Landscape
+        case landscape3x2
+        case landscape4x3
+        case landscape5x4
+        case landscape7x5
+        case landscape14x11
+        case landscape16x9
+
+        // Portrait
+        case portrait2x3
+        case portrait3x4
+        case portrait4x5
+        case portrait5x7
+        case portrait11x14
+        case portrait9x16
+
+        // Square
+        case square1x1
+
+        // Headshots (Phase 1 will make these truly per-person)
+        case headshot8x10
+
+        // [CROPS-PREFS-LEGACY] Back-compat: older prefs used this name for the same 4:5 headshot idea
+        case headshot4x5
+    }
+}
+
+// [CROPS-PREFS] Lossy Codable so unknown raw values don’t wipe all preferences.
+extension DMPPUserPreferences.CropPresetID: Codable {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        let raw = (try? c.decode(String.self)) ?? ""
+
+        if let v = DMPPUserPreferences.CropPresetID(rawValue: raw) {
+            self = v
+            return
+        }
+
+        // Unknown value from a future build or an old experiment:
+        // preserve app stability by falling back safely.
+        self = .original
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(self.rawValue)
     }
 }
 
@@ -259,7 +308,7 @@ extension DMPPUserPreferences {
 
 /// Legacy prefs format (kept minimal): same key, older Location ID shape, etc.
 private struct LegacyPrefsV1: Codable {
-    var defaultCropPresets: [DMPPUserPreferences.CropPresetID] = [.landscape16x9, .portrait8x10]
+    var defaultCropPresets: [DMPPUserPreferences.CropPresetID] = [.landscape16x9, .portrait4x5]
     var customCropPresets: [DMPPUserPreferences.CustomCropPreset] = []
     var availableTags: [String] = [DMPPUserPreferences.reservedDoNotDisplayTag]
     var userLocations: [LegacyUserLocation] = []

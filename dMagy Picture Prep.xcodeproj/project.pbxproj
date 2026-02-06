@@ -41,7 +41,8 @@
 				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.2.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.3.md",
-				"Docs/dMPP/dMPP-AI-Context.md",
+				"Docs/dMPP/dMPP-AI-Context-v1.md",
+				"Docs/dMPP/dMPP-AI-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",
@@ -53,6 +54,7 @@
 				"Docs/dMPP/dMPP-Context-v10.md",
 				"Docs/dMPP/dMPP-Context-v11.md",
 				"Docs/dMPP/dMPP-Context-v12.md",
+				"Docs/dMPP/dMPP-Context-v13.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};

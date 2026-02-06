@@ -37,4 +37,9 @@ struct VirtualCrop: Identifiable, Codable, Equatable, Hashable {
 
     /// Normalized rectangle in source image space.
     var rect: RectNormalized
+    
+    /// If this crop was created from a custom preset, store that preset’s stable UUID string.
+    /// This makes UI labels permanent even if preset names change later.
+    var sourceCustomPresetID: String? = nil
+
 }

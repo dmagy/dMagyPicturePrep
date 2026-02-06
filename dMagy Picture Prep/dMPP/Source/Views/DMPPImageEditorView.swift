@@ -297,7 +297,7 @@ struct DMPPImageEditorView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(.white)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(Color.red)
@@ -312,36 +312,27 @@ struct DMPPImageEditorView: View {
                     )
                     .padding(.top, -24)
                     .padding(.leading, 16)
-                    
-                    
+
                     Button {
                         exportSelectedCrop()
                     } label: {
                         Text("Export Crop")
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.gray)
-                            )
                     }
-                    .buttonStyle(.plain)
+                    
+                    .buttonStyle(.bordered)
                     .help("Export the current crop as a new image file")
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(Color(nsColor: .windowBackgroundColor))
                     )
                     .padding(.top, -24)
                     .padding(.leading, 6)
                 }
-             
             }
-
 
             Spacer(minLength: 8)
 
@@ -365,11 +356,13 @@ struct DMPPImageEditorView: View {
             Button("Previous Picture") { goToPreviousImage() }
                 .disabled(!canGoToPrevious)
 
+            let canNavigateCrops = vm.metadata.virtualCrops.count > 1
+
             Button("Previous Crop") { vm.selectPreviousCrop() }
-                .disabled(vm.metadata.virtualCrops.isEmpty)
+                .disabled(!canNavigateCrops)
 
             Button("Next Crop") { vm.selectNextCrop() }
-                .disabled(vm.metadata.virtualCrops.isEmpty)
+                .disabled(!canNavigateCrops)
 
             Button("Next Picture") { goToNextImage() }
                 .disabled(!canGoToNext)
@@ -379,6 +372,7 @@ struct DMPPImageEditorView: View {
         .padding(.vertical, 8)
         .background(.thinMaterial)
     }
+
 
     // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)
     @ViewBuilder
@@ -461,10 +455,24 @@ struct DMPPCropEditorPane: View {
     var vm: DMPPImageEditorViewModel
 
     /// Convenience accessor: current saved custom presets.
+    // [PREFS-REFRESH] Tie to refresh token so Menu items update after Settings edits.
     private var customPresets: [DMPPUserPreferences.CustomCropPreset] {
-        DMPPUserPreferences.load().customCropPresets
+        _ = customPresetsRefreshToken
+        return DMPPUserPreferences
+            .load()
+            .customCropPresets
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
+
+
+    // [CROPS-UI] Force refresh when preferences change (custom presets, etc.)
+    @State private var prefsRefreshToken: Int = 0
+    // [PREFS-REFRESH] Forces the New Crop menu to rebuild after Settings changes.
+    @State private var customPresetsRefreshToken: Int = 0
+
+
+    
     private var cropPickerSelection: Binding<String> {
         Binding(
             get: {
@@ -478,6 +486,36 @@ struct DMPPCropEditorPane: View {
         )
     }
 
+    // [CROPS-UI] Title for the segmented crop tabs.
+    // Custom preset crops show: "Label (W:H)" e.g. "Weird (12:5)"
+    private func cropTabTitle(for crop: VirtualCrop) -> String {
+
+        let base = vm.cropButtonTitle(for: crop)
+
+        // Only attempt custom matching for real ratios (not freeform/custom)
+        let ratio = crop.aspectRatio
+        if ratio == "custom" || ratio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return base
+        }
+
+        let cropLabel = crop.label.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Find a matching custom preset by label + ratio
+        for preset in customPresets {
+            let presetLabel = preset.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
+
+            if presetLabel == cropLabel && presetRatio == ratio {
+                return "\(presetLabel) (\(ratio))"
+            }
+        }
+
+        return base
+    }
+
+    
+   
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
@@ -486,7 +524,9 @@ struct DMPPCropEditorPane: View {
                 if !vm.metadata.virtualCrops.isEmpty {
                     Picker("Crops", selection: cropPickerSelection) {
                         ForEach(vm.metadata.virtualCrops) { crop in
-                            Text(crop.label).tag(crop.id)
+                            Text(cropTabTitle(for: crop))
+                                .tag(crop.id)
+                                .help(vm.cropButtonHelp(for: crop) ?? "")
                         }
                     }
                     .pickerStyle(.segmented)
@@ -500,56 +540,122 @@ struct DMPPCropEditorPane: View {
 
                 Menu("New Crop") {
 
-                    Menu("Screen") {
-                        Button("Original (full image)") { vm.addPresetOriginalCrop() }
-                            .disabled(vm.hasPresetOriginal)
+                    // ---------------------------------------------------------
+                    // Freeform
+                    // ---------------------------------------------------------
+                    Button("Freeform") { vm.addFreeformCrop() }
 
-                        Button("Landscape 16:9") { vm.addPresetLandscape16x9() }
-                            .disabled(vm.hasPresetLandscape16x9)
+                    // ---------------------------------------------------------
+                    // Headshot
+                    // (Phase 2: menu shape now; Phase 1 will make these distinct)
+                    // ---------------------------------------------------------
+                    Menu("Headshot") {
 
-                        Button("Portrait 9:16") { vm.addPresetPortrait9x16() }
-                            .disabled(vm.hasPresetPortrait9x16)
+                        Button("Headshot (Full)") {
+                            // TEMP: until Phase 1 introduces real variants
+                            vm.addPresetHeadshot8x10()
+                        }
+                        .disabled(vm.hasPresetHeadshot8x10)
+                        .help("Phase 1 will make this a distinct headshot variant.")
 
-                        Button("Landscape 4:3") { vm.addPresetLandscape4x3() }
+                        Button("Headshot (Tight)") {
+                            // TEMP: until Phase 1 introduces real variants
+                            vm.addPresetHeadshot8x10()
+                        }
+                        .disabled(vm.hasPresetHeadshot8x10)
+                        .help("Phase 1 will make this a distinct headshot variant.")
+                    }
+
+                    // ---------------------------------------------------------
+                    // Landscape
+                    // ---------------------------------------------------------
+                    Menu("Landscape") {
+
+                        Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }
+                            .disabled(vm.hasPresetLandscape3x2)
+
+                        Button("4:3 (18×24…)") { vm.addPresetLandscape4x3() }
                             .disabled(vm.hasPresetLandscape4x3)
+
+                        Button("5:4 (4×5, 8×10…)") { vm.addPresetLandscape5x4() }
+                            .disabled(vm.hasPresetLandscape5x4)
+
+                        Button("7:5 (5×7…)") { vm.addPresetLandscape7x5() }
+                            .disabled(vm.hasPresetLandscape7x5)
+
+                        Button("14:11 (11×14…)") { vm.addPresetLandscape14x11() }
+                            .disabled(vm.hasPresetLandscape14x11)
+
+                        Button("16:9") { vm.addPresetLandscape16x9() }
+                            .disabled(vm.hasPresetLandscape16x9)
                     }
 
-                    Menu("Print & Frames") {
-                        Button("Portrait 8×10") { vm.addPresetPortrait8x10() }
-                            .disabled(vm.hasPresetPortrait8x10)
+                    // ---------------------------------------------------------
+                    // Original
+                    // ---------------------------------------------------------
+                    Button("Original (full image)") { vm.addPresetOriginalCrop() }
+                        .disabled(vm.hasPresetOriginal)
 
-                        Button("Headshot 8×10") { vm.addPresetHeadshot8x10() }
-                            .disabled(vm.hasPresetHeadshot8x10)
+                    // ---------------------------------------------------------
+                    // Portrait
+                    // ---------------------------------------------------------
+                    Menu("Portrait") {
 
-                        Button("Landscape 4×6") { vm.addPresetLandscape4x6() }
-                            .disabled(vm.hasPresetLandscape4x6)
+                        Button("2:3 (4×6, 8×12…)") { vm.addPresetPortrait2x3() }
+                            .disabled(vm.hasCrop(aspectWidth: 2, aspectHeight: 3))
+
+                        Button("3:4 (18×24…)") { vm.addPresetPortrait3x4() }
+                            .disabled(vm.hasCrop(aspectWidth: 3, aspectHeight: 4))
+
+                        Button("4:5 (4×5, 8×10…)") { vm.addPresetPortrait4x5() }
+                            .disabled(vm.hasCrop(aspectWidth: 4, aspectHeight: 5))
+
+                        Button("5:7 (5×7…)") { vm.addPresetPortrait5x7() }
+                            .disabled(vm.hasCrop(aspectWidth: 5, aspectHeight: 7))
+
+                        Button("11:14 (11×14…)") { vm.addPresetPortrait11x14() }
+                            .disabled(vm.hasCrop(aspectWidth: 11, aspectHeight: 14))
+
+                        Button("9:16") { vm.addPresetPortrait9x16() }
+                            .disabled(vm.hasPresetPortrait9x16)
                     }
 
-                    Menu("Creative & Custom") {
-                        Button("Square 1:1") { vm.addPresetSquare1x1() }
-                            .disabled(vm.hasPresetSquare1x1)
+                    // ---------------------------------------------------------
+                    // Square
+                    // ---------------------------------------------------------
+                    Button("Square 1:1") { vm.addPresetSquare1x1() }
+                        .disabled(vm.hasPresetSquare1x1)
 
-                        Button("Freeform") { vm.addFreeformCrop() }
+                    // ---------------------------------------------------------
+                    // Custom Presets
+                    // ---------------------------------------------------------
+                    Menu("Custom Presets") {
 
-                        if !customPresets.isEmpty {
-                            Divider()
+                        if customPresets.isEmpty {
+                            Text("No custom presets yet")
+                        } else {
                             ForEach(customPresets) { preset in
+                                let presetIDString = preset.id.uuidString
+                                let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
+
+                                // [CROPS-UI] Prevent duplicates using the durable link first.
+                                // This stays correct even if the preset label changes later.
                                 let alreadyExists = vm.metadata.virtualCrops.contains { crop in
-                                    crop.label == preset.label &&
-                                    crop.aspectRatio == "\(preset.aspectWidth):\(preset.aspectHeight)"
+                                    if crop.sourceCustomPresetID == presetIDString { return true }
+                                    return crop.aspectRatio == presetRatio && crop.label == preset.label
                                 }
 
-                                Button(preset.label) {
+                                Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
                                     vm.addCrop(fromCustomPreset: preset)
                                 }
                                 .disabled(alreadyExists)
                             }
                         }
+
+                        Divider()
+
+                        Button("Manage Custom Presets…") { openSettings() }
                     }
-
-                    Divider()
-
-                    Button("Manage Custom Presets…") { openSettings() }
                 }
                 .padding(.trailing, 73)
             }
@@ -601,18 +707,11 @@ struct DMPPCropEditorPane: View {
                         )
                 }
 
-
                 if vm.selectedCrop != nil {
                     GeometryReader { _ in
                         VStack(spacing: 8) {
                             Text("Crop")
                                 .font(.caption)
-
-                         //   Button { vm.scaleSelectedCrop(by: 0.9) } label: {
-                         //       Image(systemName: "plus")
-                         //   }
-                         //   .buttonStyle(.borderedProminent)
-                         //   .help("Zoom in (smaller crop)")
 
                             Spacer(minLength: 8)
 
@@ -634,12 +733,6 @@ struct DMPPCropEditorPane: View {
                             .frame(maxHeight: .infinity)
 
                             Spacer(minLength: 8)
-
-                          //  Button { vm.scaleSelectedCrop(by: 1.1) } label: {
-                        //        Image(systemName: "minus")
-                        //    }
-                        //    .buttonStyle(.borderedProminent)
-                        //    .help("Zoom out (larger crop)")
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -647,7 +740,11 @@ struct DMPPCropEditorPane: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
+            customPresetsRefreshToken &+= 1
+        }
     }
+
     
     private func cropSizePill(nsImage: NSImage, cropRect: RectNormalized) -> some View {
         let px = cropPixelSize(nsImage: nsImage, cropRect: cropRect)

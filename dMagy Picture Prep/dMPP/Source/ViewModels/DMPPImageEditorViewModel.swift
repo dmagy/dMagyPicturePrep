@@ -106,6 +106,7 @@ class DMPPImageEditorViewModel {
             let presets = prefs.effectiveDefaultCropPresets
 
             // For each preset the user has chosen, create the matching crop.
+            // [DMPP-CROPS-DEFAULTS] Apply user-selected default presets (exhaustive-safe)
             for preset in presets {
                 switch preset {
                 case .original:
@@ -114,19 +115,26 @@ class DMPPImageEditorViewModel {
                 case .landscape16x9:
                     addPresetLandscape16x9()
 
-                case .portrait8x10:
-                    addPresetPortrait8x10()
+                case .portrait4x5:
+                    addPresetPortrait4x5()
 
-                case .headshot8x10:
+                case .headshot4x5, .headshot8x10:
+                    // Both map to the same current implementation for now
                     addPresetHeadshot8x10()
 
-                case .landscape4x6:
-                    addPresetLandscape4x6()
+                case .landscape3x2:
+                    addPresetLandscape3x2()
 
                 case .square1x1:
                     addPresetSquare1x1()
+
+                default:
+                    // [DMPP-CROPS-DEFAULTS] Forward-compat: ignore presets not yet implemented here
+                    // This prevents compile breaks when we add new CropPresetID cases.
+                    continue
                 }
             }
+
         }
 
         // Auto-select first crop if available
@@ -262,8 +270,10 @@ class DMPPImageEditorViewModel {
         label: String,
         aspectWidth: Int,
         aspectHeight: Int,
-        rect: RectNormalized
+        rect: RectNormalized,
+        sourceCustomPresetID: String? = nil  // [VC-META] optional link to a custom preset
     ) {
+
         // Build an id prefix from the numeric aspect when available.
         let idPrefix: String
         if aspectWidth > 0 && aspectHeight > 0 {
@@ -282,30 +292,35 @@ class DMPPImageEditorViewModel {
             aspectString = "custom"
         }
 
-        let crop = VirtualCrop(
+        var crop = VirtualCrop(
             id: id,
             label: label,
             aspectRatio: aspectString,
             rect: rect
         )
 
+        // [VC-META] Persist custom preset ID if supplied
+        crop.sourceCustomPresetID = sourceCustomPresetID
+
         metadata.virtualCrops.append(crop)
         selectedCropID = crop.id
+
     }
 
-    /// Create a crop from a user-defined preset definition.
-    /// This uses the same aspect/centering logic as the built-in presets.
+    // ============================================================
+    // [DMPP-VM-CROP-PRESETS] Built-in presets (match New Crop menu)
+    // ============================================================
+
     // MARK: - Custom preset → crop
 
     /// Create a crop from a user-defined custom preset, unless this image
-    /// already has an identical preset (same label + aspect ratio).
+    /// already has an identical aspect ratio.
+    ///
+    /// Note: We de-dupe by aspect ratio (not label) because labels may change
+    /// over time (e.g., adding helpful print-size hints).
     func addCrop(fromUserPreset preset: DMPPUserPreferences.CustomCropPreset) {
-        let aspectString = "\(preset.aspectWidth):\(preset.aspectHeight)"
-
-        // Don’t create duplicate custom crops for a single image.
-        if hasCrop(label: preset.label, aspectRatio: aspectString) {
-            return
-        }
+        // Don’t create duplicate crops for a single image (ratio-only).
+        if hasCrop(aspectWidth: preset.aspectWidth, aspectHeight: preset.aspectHeight) { return }
 
         let rect = defaultRect(
             forAspectWidth: preset.aspectWidth,
@@ -316,14 +331,12 @@ class DMPPImageEditorViewModel {
             label: preset.label,
             aspectWidth: preset.aspectWidth,
             aspectHeight: preset.aspectHeight,
-            rect: rect
+            rect: rect,
+            sourceCustomPresetID: preset.id.uuidString
         )
     }
 
-
-
-
-    /// [CR-PRESET-CUSTOM-NAMED] Custom preset crop (from user preferences)
+    /// [CR-PRESET-CUSTOM-NAMED] Custom preset crop (internal convenience)
     private func addPresetCustomCrop(
         label: String,
         aspectWidth: Int,
@@ -338,9 +351,118 @@ class DMPPImageEditorViewModel {
         )
     }
 
+    // MARK: - Freeform
 
+    /// [CR-PRESET-FREEFORM] Freeform crop (per-image, no fixed aspect).
+    ///
+    /// Uses aspectWidth = 0, aspectHeight = 0 to indicate a freeform crop.
+    /// Starts as a centered 1:1 rect; users can then reshape it with the freeform tools.
+    func addFreeformCrop() {
+        let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
 
-    // MARK: - Screen presets
+        addCrop(
+            label: "Freeform",
+            aspectWidth: 0,
+            aspectHeight: 0,
+            rect: rect
+        )
+    }
+
+    // MARK: - Headshot (TEMP until Phase 1 variants)
+
+    /// [CR-PRESET-HEADSHOT-FULL] Headshot (Full) — TEMP (Phase 1 will make distinct)
+    func addPresetHeadshotFull8x10() {
+        // TEMP: same rect + aspect as headshot 8×10 for now.
+        addPresetHeadshot8x10()
+    }
+
+    /// [CR-PRESET-HEADSHOT-TIGHT] Headshot (Tight) — TEMP (Phase 1 will make distinct)
+    func addPresetHeadshotTight8x10() {
+        // TEMP: same rect + aspect as headshot 8×10 for now.
+        addPresetHeadshot8x10()
+    }
+
+    /// [CR-PRESET-HEADSHOT-8×10] Headshot 8×10 (4:5) – same aspect as Portrait 4:5,
+    /// but labeled separately so we can show special headshot guides in the UI.
+    func addPresetHeadshot8x10() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+        addCrop(
+            label: "Headshot 4:5 (8×10)",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            rect: rect
+        )
+    }
+
+    // MARK: - Landscape
+
+    /// [CR-PRESET-3x2] Landscape 3:2 (4×6, 8×12...)
+    func addPresetLandscape3x2() {
+        let rect = defaultRect(forAspectWidth: 3, aspectHeight: 2)
+        addCrop(
+            label: "Landscape 3:2 (4×6, 8×12...)",
+            aspectWidth: 3,
+            aspectHeight: 2,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-4x3] Landscape 4:3 (18×24...)
+    func addPresetLandscape4x3() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 3)
+        addCrop(
+            label: "Landscape 4:3 (18×24...)",
+            aspectWidth: 4,
+            aspectHeight: 3,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-5x4] Landscape 5:4 (4×5, 8×10...)
+    func addPresetLandscape5x4() {
+        let rect = defaultRect(forAspectWidth: 5, aspectHeight: 4)
+        addCrop(
+            label: "Landscape 5:4 (4×5, 8×10...)",
+            aspectWidth: 5,
+            aspectHeight: 4,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-7x5] Landscape 7:5 (5×7...)
+    func addPresetLandscape7x5() {
+        let rect = defaultRect(forAspectWidth: 7, aspectHeight: 5)
+        addCrop(
+            label: "Landscape 7:5 (5×7...)",
+            aspectWidth: 7,
+            aspectHeight: 5,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-14x11] Landscape 14:11 (11×14...)
+    func addPresetLandscape14x11() {
+        let rect = defaultRect(forAspectWidth: 14, aspectHeight: 11)
+        addCrop(
+            label: "Landscape 14:11 (11×14...)",
+            aspectWidth: 14,
+            aspectHeight: 11,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-16x9] Landscape 16:9 (screen)
+    func addPresetLandscape16x9() {
+        let rect = defaultRect(forAspectWidth: 16, aspectHeight: 9)
+        addCrop(
+            label: "Landscape 16:9",
+            aspectWidth: 16,
+            aspectHeight: 9,
+            rect: rect
+        )
+    }
+
+    // MARK: - Original
 
     /// [CR-PRESET-ORIGINAL] Original (full image) — aspect from actual pixels.
     func addPresetOriginalCrop() {
@@ -370,13 +492,59 @@ class DMPPImageEditorViewModel {
         )
     }
 
-    /// [CR-PRESET-16x9] Landscape 16:9 (screen)
-    func addPresetLandscape16x9() {
-        let rect = defaultRect(forAspectWidth: 16, aspectHeight: 9)
+    // MARK: - Portrait
+
+    /// [CR-PRESET-2x3] Portrait 2:3 (4×6, 8×12...)
+    func addPresetPortrait2x3() {
+        let rect = defaultRect(forAspectWidth: 2, aspectHeight: 3)
         addCrop(
-            label: "Landscape 16:9",
-            aspectWidth: 16,
-            aspectHeight: 9,
+            label: "Portrait 2:3 (4×6, 8×12...)",
+            aspectWidth: 2,
+            aspectHeight: 3,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-3x4] Portrait 3:4 (18×24...)
+    func addPresetPortrait3x4() {
+        let rect = defaultRect(forAspectWidth: 3, aspectHeight: 4)
+        addCrop(
+            label: "Portrait 3:4 (18×24...)",
+            aspectWidth: 3,
+            aspectHeight: 4,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-4x5] Portrait 4:5 (4×5, 8×10...)
+    func addPresetPortrait4x5() {
+        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
+        addCrop(
+            label: "Portrait 4:5 (4×5, 8×10...)",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-5x7] Portrait 5:7 (5×7...)
+    func addPresetPortrait5x7() {
+        let rect = defaultRect(forAspectWidth: 5, aspectHeight: 7)
+        addCrop(
+            label: "Portrait 5:7 (5×7...)",
+            aspectWidth: 5,
+            aspectHeight: 7,
+            rect: rect
+        )
+    }
+
+    /// [CR-PRESET-11x14] Portrait 11:14 (11×14...)
+    func addPresetPortrait11x14() {
+        let rect = defaultRect(forAspectWidth: 11, aspectHeight: 14)
+        addCrop(
+            label: "Portrait 11:14 (11×14...)",
+            aspectWidth: 11,
+            aspectHeight: 14,
             rect: rect
         )
     }
@@ -392,42 +560,7 @@ class DMPPImageEditorViewModel {
         )
     }
 
-    /// [CR-PRESET-4x3] Landscape 4:3 (classic screen/tablet)
-    func addPresetLandscape4x3() {
-        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 3)
-        addCrop(
-            label: "Landscape 4:3",
-            aspectWidth: 4,
-            aspectHeight: 3,
-            rect: rect
-        )
-    }
-
-    // MARK: - Print & frames
-
-    /// [CR-PRESET-8×10] Portrait 8×10 (4:5)
-    func addPresetPortrait8x10() {
-        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
-        addCrop(
-            label: "Portrait 8×10",
-            aspectWidth: 4,
-            aspectHeight: 5,
-            rect: rect
-        )
-    }
-
-    /// [CR-PRESET-4x6] Landscape 4×6 (3:2)
-    func addPresetLandscape4x6() {
-        let rect = defaultRect(forAspectWidth: 3, aspectHeight: 2)
-        addCrop(
-            label: "Landscape 4×6",
-            aspectWidth: 3,
-            aspectHeight: 2,
-            rect: rect
-        )
-    }
-
-    // MARK: - Other
+    // MARK: - Square
 
     /// [CR-PRESET-1x1] Square 1:1
     func addPresetSquare1x1() {
@@ -439,35 +572,8 @@ class DMPPImageEditorViewModel {
             rect: rect
         )
     }
-    
-    /// [CR-PRESET-HEADSHOT-8×10] Headshot 8×10 (4:5) – same aspect as Portrait 8×10,
-    /// but labeled separately so we can show special headshot guides in the UI.
-    func addPresetHeadshot8x10() {
-        let rect = defaultRect(forAspectWidth: 4, aspectHeight: 5)
-        addCrop(
-            label: "Headshot 8×10",
-            aspectWidth: 4,
-            aspectHeight: 5,
-            rect: rect
-        )
-    }
-    /// [CR-PRESET-FREEFORM] Freeform crop (per-image, no fixed aspect).
-     ///
-     /// Uses aspectWidth = 0, aspectHeight = 0 in dMPMS to indicate a freeform crop.
-     /// Starts as a centered 1:1 rect; users can then reshape it with the freeform tools.
-     func addFreeformCrop() {
-         // Start from a centered square-ish rect based on the actual image size.
-         let rect = defaultRect(forAspectWidth: 1, aspectHeight: 1)
 
-         addCrop(
-             label: "Freeform",
-             aspectWidth: 0,
-             aspectHeight: 0,
-             rect: rect
-         )
-     }
-
-  
+    // MARK: - New Crop default action (legacy)
 
     /// [DMPP-VM-NEW-CROP] Generic "New Crop" action used by the button.
     /// For now, this creates another Landscape 16:9 crop.
@@ -475,175 +581,26 @@ class DMPPImageEditorViewModel {
         addPresetLandscape16x9()
     }
 
-
-
-
-    /// [DMPP-VM-DUP-CROP] Duplicate the currently selected crop (if any).
-    func duplicateSelectedCrop() {
-        guard let crop = selectedCrop else { return }
-
-        // Remember how many crops we had before.
-        let beforeCount = metadata.virtualCrops.count
-
-        // Use the history-aware helper.
-        duplicateVirtualCrop(cropID: crop.id)
-
-        // After duplication, the new crop should be the last one appended.
-        if metadata.virtualCrops.count == beforeCount + 1,
-           let newCrop = metadata.virtualCrops.last {
-            selectedCropID = newCrop.id
-        }
-    }
-
-    // ============================================================
-    // [DMPP-VM-CROP-NAV] Previous / Next crop selection helpers
-    // ============================================================
-
-    /// Select the previous crop in metadata.virtualCrops (wraps around).
-    func selectPreviousCrop() {
-        guard !metadata.virtualCrops.isEmpty else { return }
-
-        let crops = metadata.virtualCrops
-
-        // If nothing is selected yet, pick the last one.
-        guard let currentID = selectedCropID,
-              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
-            selectedCropID = crops.last?.id
-            return
-        }
-
-        let prevIndex = (currentIndex - 1 + crops.count) % crops.count
-        selectedCropID = crops[prevIndex].id
-    }
-
-    /// Select the next crop in metadata.virtualCrops (wraps around).
-    func selectNextCrop() {
-        guard !metadata.virtualCrops.isEmpty else { return }
-
-        let crops = metadata.virtualCrops
-
-        // If nothing is selected yet, pick the first one.
-        guard let currentID = selectedCropID,
-              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
-            selectedCropID = crops.first?.id
-            return
-        }
-
-        let nextIndex = (currentIndex + 1) % crops.count
-        selectedCropID = crops[nextIndex].id
-    }
-
-    
-    /// [DMPP-VM-DEL-CROP] Delete the currently selected crop (if any).
-    func deleteSelectedCrop() {
-        guard let id = selectedCropID,
-              let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-
-        // Use the history-aware helper to actually remove + log the event.
-        deleteVirtualCrop(cropID: id)
-
-        // Choose a new selection: next crop, or previous, or none.
-        if metadata.virtualCrops.indices.contains(index) {
-            selectedCropID = metadata.virtualCrops[index].id
-        } else if metadata.virtualCrops.indices.contains(index - 1) {
-            selectedCropID = metadata.virtualCrops[index - 1].id
-        } else {
-            selectedCropID = nil
-        }
-    }
-    // ============================================================
-    // [DMPP-VM-CROP-SCALE] Scale selected crop around its center
-    // ============================================================
-
-    /// Uniformly scale the currently selected crop around its center.
-    /// `factor` > 1.0 makes the crop larger (shows more image).
-    /// `factor` < 1.0 makes the crop smaller (zooms in).
-    func scaleSelectedCrop(by factor: Double) {
-        guard let id = selectedCropID,
-              let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }),
-              factor > 0
-        else { return }
-
-        var crop = metadata.virtualCrops[index]
-        var rect = crop.rect
-
-        // Minimum and maximum size as a fraction of the image.
-        let minSize: Double = 0.05   // don't let the crop get smaller than 5%
-        let maxSize: Double = 1.0    // never larger than the full image
-
-        // Clamp factor so we don't exceed bounds or go below min size.
-        let maxFactorWidth = maxSize / rect.width
-        let maxFactorHeight = maxSize / rect.height
-
-        let minFactorWidth = minSize / rect.width
-        let minFactorHeight = minSize / rect.height
-
-        var clampedFactor = factor
-        clampedFactor = min(clampedFactor, maxFactorWidth, maxFactorHeight)
-        clampedFactor = max(clampedFactor, max(minFactorWidth, minFactorHeight))
-
-        // Preserve the crop's center point.
-        let centerX = rect.x + rect.width / 2.0
-        let centerY = rect.y + rect.height / 2.0
-
-        let newWidth = rect.width * clampedFactor
-        let newHeight = rect.height * clampedFactor
-
-        // Recompute origin so the center stays the same.
-        var newX = centerX - newWidth / 2.0
-        var newY = centerY - newHeight / 2.0
-
-        // Clamp so the crop stays entirely within [0, 1].
-        newX = min(max(newX, 0.0), 1.0 - newWidth)
-        newY = min(max(newY, 0.0), 1.0 - newHeight)
-
-        rect = RectNormalized(x: newX, y: newY, width: newWidth, height: newHeight)
-        crop.rect = rect
-        metadata.virtualCrops[index] = crop
-
-        // Record a simple history event.
-        let event = HistoryEvent(
-            action: "scaleCrop",
-            timestamp: currentTimestampString(),
-            oldName: nil,
-            newName: crop.label,
-            cropID: crop.id
-        )
-        metadata.history.append(event)
-
-        saveCurrentMetadata()
-    }
-
-
-    // MARK: - Private crop helpers
-
-    /// Core helper to append a crop and select it.
-    private func addCrop(aspectRatio: String, rect: RectNormalized, label: String) {
-        let idPrefix = "crop-\(aspectRatio.replacingOccurrences(of: ":", with: "x"))"
-        let id = makeUniqueCropID(prefix: idPrefix)
-
-        let crop = VirtualCrop(
-            id: id,
-            label: label,
-            aspectRatio: aspectRatio,
-            rect: rect
-        )
-
-        metadata.virtualCrops.append(crop)
-        selectedCropID = crop.id
-    }
     // MARK: - Helpers: detect existing crops for disabling presets
 
-    /// Returns true if this image already has a crop with the same
-    /// user-facing label *and* aspect ratio string (e.g. "21:9").
+    /// True if a crop with this numeric aspect already exists (ignores label).
+    func hasCrop(aspectWidth: Int, aspectHeight: Int) -> Bool {
+        let target = "\(aspectWidth):\(aspectHeight)"
+        return metadata.virtualCrops.contains { $0.aspectRatio == target }
+    }
+
+    /// True if a crop exists that matches BOTH label and aspect ratio.
+    /// (Kept for rare cases; most UI should de-dupe by aspect ratio.)
     func hasCrop(label: String, aspectRatio: String) -> Bool {
         metadata.virtualCrops.contains { crop in
             crop.label == label && crop.aspectRatio == aspectRatio
         }
     }
 
+
+
+
+    
     // MARK: - [DMPP-VM-ASPECT] Build a centered rect for a given aspect ratio
 
     /// Creates a centered RectNormalized that fits entirely within the image
@@ -704,6 +661,130 @@ class DMPPImageEditorViewModel {
         }
         return candidate
     }
+    
+    // ============================================================
+    // [DMPP-VM-DEL-CROP] Delete the currently selected crop (if any).
+    // ============================================================
+    func deleteSelectedCrop() {
+        guard let id = selectedCropID,
+              let index = metadata.virtualCrops.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        // If you have a history-aware helper, keep using it.
+        deleteVirtualCrop(cropID: id)
+
+        // Choose a new selection: next crop, or previous, or none.
+        if metadata.virtualCrops.indices.contains(index) {
+            selectedCropID = metadata.virtualCrops[index].id
+        } else if metadata.virtualCrops.indices.contains(index - 1) {
+            selectedCropID = metadata.virtualCrops[index - 1].id
+        } else {
+            selectedCropID = nil
+        }
+    }
+    
+    // ============================================================
+    // [DMPP-VM-CROP-NAV] Previous / Next crop selection helpers
+    // ============================================================
+
+    /// Select the previous crop in metadata.virtualCrops (wraps around).
+    func selectPreviousCrop() {
+        guard !metadata.virtualCrops.isEmpty else { return }
+
+        let crops = metadata.virtualCrops
+
+        // If nothing is selected yet, pick the last one.
+        guard let currentID = selectedCropID,
+              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
+            selectedCropID = crops.last?.id
+            return
+        }
+
+        let prevIndex = (currentIndex - 1 + crops.count) % crops.count
+        selectedCropID = crops[prevIndex].id
+    }
+
+    /// Select the next crop in metadata.virtualCrops (wraps around).
+    func selectNextCrop() {
+        guard !metadata.virtualCrops.isEmpty else { return }
+
+        let crops = metadata.virtualCrops
+
+        // If nothing is selected yet, pick the first one.
+        guard let currentID = selectedCropID,
+              let currentIndex = crops.firstIndex(where: { $0.id == currentID }) else {
+            selectedCropID = crops.first?.id
+            return
+        }
+
+        let nextIndex = (currentIndex + 1) % crops.count
+        selectedCropID = crops[nextIndex].id
+    }
+
+    // ============================================================
+    // [DMPP-VM-CROP-DISPLAY] Crop button title + help text
+    // ============================================================
+
+    /// Returns the short label used for the segmented crop buttons.
+    /// Example:
+    /// - Stored label: "3:4 (18×24…)"  -> "Portrait 3:4"
+    /// - Stored label: "Landscape 3:2 (4×6, 8×12…)" -> "Landscape 3:2"
+    /// - Stored label: "Portrait 9:16" -> "Portrait 9:16"
+    /// - Stored label: "Square 1:1" -> "Square 1:1"
+    /// - Stored label: "Original (full image)" -> "Original"
+    func cropButtonTitle(for crop: VirtualCrop) -> String {
+        let raw = crop.label.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if raw == "Original (full image)" { return "Original" }
+        if raw == "Freeform" { return "Freeform" }
+
+        // Pull out any helper text in parentheses
+        let base = raw.components(separatedBy: " (").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
+
+        // If label already starts with a category, keep it.
+        let knownPrefixes = ["Portrait ", "Landscape ", "Headshot ", "Square "]
+        if knownPrefixes.contains(where: { base.hasPrefix($0) }) {
+            return base
+        }
+
+        // Otherwise infer from aspect ratio
+        if crop.aspectRatio == "1:1" { return "Square 1:1" }
+        if crop.aspectRatio == "custom" { return "Freeform" }
+
+        let parts = crop.aspectRatio.split(separator: ":")
+        if parts.count == 2,
+           let w = Int(parts[0]),
+           let h = Int(parts[1]) {
+
+            if w == h {
+                return "Square \(crop.aspectRatio)"
+            } else if h > w {
+                return "Portrait \(crop.aspectRatio)"
+            } else {
+                return "Landscape \(crop.aspectRatio)"
+            }
+        }
+
+        // Fallback: just show whatever we have
+        return base
+    }
+
+    /// Returns the helper text (what appears in parentheses) for .help().
+    /// Example: "3:4 (18×24…)" -> "18×24…"
+    func cropButtonHelp(for crop: VirtualCrop) -> String? {
+        let raw = crop.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = raw.firstIndex(of: "("),
+              let end = raw.lastIndex(of: ")"),
+              start < end
+        else { return nil }
+
+        let inside = raw[raw.index(after: start)..<end]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return inside.isEmpty ? nil : inside
+    }
+
 }
 //
 //  cp-2025-11-22-VC5 — Core virtual crop helpers using dMPMS models
@@ -820,6 +901,7 @@ extension DMPPImageEditorViewModel {
         metadata.peopleV2 = last.peopleV2
         recomputeAgesForCurrentImage()
     }
+ 
 
 
 }
@@ -1162,50 +1244,66 @@ extension DMPPImageEditorViewModel {
 
 extension DMPPImageEditorViewModel {
 
-    /// Original (full image) — keyed by label.
+    // MARK: - Original
+
+    /// Original (full image) — special case.
+    ///
+    /// It may have many different aspect ratios depending on the actual image pixels,
+    /// so we key it by label only.
     var hasPresetOriginal: Bool {
         metadata.virtualCrops.contains { $0.label == "Original (full image)" }
     }
 
-    /// Landscape 16:9
-    var hasPresetLandscape16x9: Bool {
-        metadata.virtualCrops.contains { $0.aspectRatio == "16:9" }
+    // MARK: - Headshot (TEMP until Phase 1 variants)
+
+    /// Headshot (any) currently shares 4:5 with Portrait 4:5, so this is ratio-based.
+    ///
+    /// IMPORTANT:
+    /// Right now Portrait 4:5 and Headshot share the same numeric aspect (4:5).
+    /// Because we de-dupe by aspect ratio, they cannot both exist on a single image.
+    ///
+    /// That matches your current behavior today. Phase 1 will introduce a discriminator
+    /// (kind/variant/personID) so these can coexist and be unique per person+variant.
+    var hasAnyHeadshot4x5: Bool {
+        hasCrop(aspectWidth: 4, aspectHeight: 5)
     }
 
-    /// Portrait 9:16
-    var hasPresetPortrait9x16: Bool {
-        metadata.virtualCrops.contains { $0.aspectRatio == "9:16" }
-    }
+    /// Back-compat shim (old name still used by the current UI/menu code).
+    var hasPresetHeadshot8x10: Bool { hasAnyHeadshot4x5 }
 
-    /// Landscape 4:3
-    var hasPresetLandscape4x3: Bool {
-        metadata.virtualCrops.contains { $0.aspectRatio == "4:3" }
-    }
+    // MARK: - Landscape
 
-    /// Portrait 8×10 (4:5)
-    var hasPresetPortrait8x10: Bool {
-        metadata.virtualCrops.contains {
-            $0.aspectRatio == "4:5" && $0.label.contains("Portrait 8×10")
-        }
-    }
+    var hasPresetLandscape3x2: Bool { hasCrop(aspectWidth: 3, aspectHeight: 2) }
+    var hasPresetLandscape4x3: Bool { hasCrop(aspectWidth: 4, aspectHeight: 3) }
+    var hasPresetLandscape5x4: Bool { hasCrop(aspectWidth: 5, aspectHeight: 4) }
+    var hasPresetLandscape7x5: Bool { hasCrop(aspectWidth: 7, aspectHeight: 5) }
+    var hasPresetLandscape14x11: Bool { hasCrop(aspectWidth: 14, aspectHeight: 11) }
+    var hasPresetLandscape16x9: Bool { hasCrop(aspectWidth: 16, aspectHeight: 9) }
 
-    /// Headshot 8×10 (4:5)
-    var hasPresetHeadshot8x10: Bool {
-        metadata.virtualCrops.contains {
-            $0.aspectRatio == "4:5" && $0.label.contains("Headshot 8×10")
-        }
-    }
+    /// Back-compat shim: old name from the previous UI.
+    var hasPresetLandscape4x6: Bool { hasPresetLandscape3x2 }
 
-    /// Landscape 4×6 (3:2)
-    var hasPresetLandscape4x6: Bool {
-        metadata.virtualCrops.contains { $0.aspectRatio == "3:2" }
-    }
+    // MARK: - Portrait
 
-    /// Square 1:1
-    var hasPresetSquare1x1: Bool {
-        metadata.virtualCrops.contains { $0.aspectRatio == "1:1" }
-    }
+    var hasPresetPortrait2x3: Bool { hasCrop(aspectWidth: 2, aspectHeight: 3) }
+    var hasPresetPortrait3x4: Bool { hasCrop(aspectWidth: 3, aspectHeight: 4) }
+
+    /// Portrait 4:5 (4×5, 8×10...) — note: shares aspect with headshot for now.
+    var hasPresetPortrait4x5: Bool { hasCrop(aspectWidth: 4, aspectHeight: 5) }
+
+    /// Back-compat shim: old name "Portrait 8×10" that keyed off 4:5.
+    var hasPresetPortrait8x10: Bool { hasPresetPortrait4x5 }
+
+    var hasPresetPortrait5x7: Bool { hasCrop(aspectWidth: 5, aspectHeight: 7) }
+    var hasPresetPortrait11x14: Bool { hasCrop(aspectWidth: 11, aspectHeight: 14) }
+    var hasPresetPortrait9x16: Bool { hasCrop(aspectWidth: 9, aspectHeight: 16) }
+
+    // MARK: - Square
+
+    var hasPresetSquare1x1: Bool { hasCrop(aspectWidth: 1, aspectHeight: 1) }
 }
+
+
 
 extension DMPPImageEditorViewModel {
 
@@ -1225,9 +1323,12 @@ extension DMPPImageEditorViewModel {
             label: preset.label,
             aspectWidth: preset.aspectWidth,
             aspectHeight: preset.aspectHeight,
-            rect: rect
+            rect: rect,
+            sourceCustomPresetID: preset.id.uuidString
         )
     }
+    
+    
 }
 // MARK: - EXIF Date Inference
 

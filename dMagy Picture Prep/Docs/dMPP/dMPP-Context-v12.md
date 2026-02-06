@@ -439,14 +439,22 @@ New-ish in CTX12:
 
 ### Medium
 
+* add Flagged to archive browsing modes (change to image buttons)
+     * other filtering options
 * Review filters (flagged pictures, incomplete metadata)
+* address window sizing issues on launch for primary interface and Settings window
 * Voice input for title/description
+* build first run instruction window and help
+* review _read_me_ and add examples
 * Code review + optimization
+
 
 ### Longer-term
 
+* investigate facial recognition (possible to use engine used by Photos?) 
+* investigate integration/image acquisition from Photos
 * Visual people layout overlays
-* Import/export tooling
+* Import/export tooling (ancestory.com for instance)
 * Keyboard-driven editor mode
 * Shared Swift Package between dMPP and dMPS (models + parsing utilities)
 
