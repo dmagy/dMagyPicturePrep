@@ -629,13 +629,13 @@ struct DMPPCropEditorPane: View {
                                     .frame(width: geo.size.width, height: geo.size.height)
 
                                 let isHeadshot = (selectedCrop.kind == .headshot)
-                                let isFreeform = (selectedCrop.aspectRatio == "custom"
-                                                  || selectedCrop.label == "Freeform")
+                                let isFreeform = (selectedCrop.aspectRatio == "custom" || selectedCrop.label == "Freeform")
 
                                 DMPPCropOverlayView(
                                     image: nsImage,
                                     rect: selectedCrop.rect,
                                     isHeadshot: isHeadshot,
+                                    headshotVariant: selectedCrop.headshotVariant,   // <-- add this
                                     isFreeform: isFreeform
                                 ) { newRect in
                                     vm.updateVirtualCropRect(
@@ -643,6 +643,7 @@ struct DMPPCropEditorPane: View {
                                         newRect: newRect
                                     )
                                 }
+
                             }
                         }
                     }

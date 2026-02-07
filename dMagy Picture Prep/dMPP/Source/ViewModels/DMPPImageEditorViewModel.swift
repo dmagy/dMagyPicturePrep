@@ -438,6 +438,34 @@ class DMPPImageEditorViewModel {
         selectedCropID = metadata.virtualCrops[idx].id
     }
 
+    // MARK: - [CR-HEADSHOT] Headshot helpers
+
+    /// Select existing headshot for (variant + personID) if it exists,
+    /// otherwise create it and select it.
+    func selectOrCreateHeadshotCrop(
+        variant: VirtualCrop.HeadshotVariant,
+        personID: String
+    ) {
+        if let existing = metadata.virtualCrops.first(where: { crop in
+            crop.kind == .headshot &&
+            crop.headshotVariant == variant &&
+            crop.headshotPersonID == personID
+        }) {
+            selectedCropID = existing.id
+            return
+        }
+
+        addHeadshotCrop(variant: variant, personID: personID)
+    }
+
+    /// True if we already have at least one headshot crop for this variant.
+    func hasAnyHeadshotCrop(variant: VirtualCrop.HeadshotVariant) -> Bool {
+        metadata.virtualCrops.contains { crop in
+            crop.kind == .headshot && crop.headshotVariant == variant
+        }
+    }
+
+    
     /// [CR-PRESET-HEADSHOT-8×10] Legacy entry point.
     /// This now maps to Headshot (Tight) for backward compatibility.
     func addPresetHeadshot8x10() {
@@ -786,10 +814,35 @@ class DMPPImageEditorViewModel {
     /// - Stored label: "Square 1:1" -> "Square 1:1"
     /// - Stored label: "Original (full image)" -> "Original"
     func cropButtonTitle(for crop: VirtualCrop) -> String {
+        // Normalize label once
         let raw = crop.label.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // Special cases
         if raw == "Original (full image)" { return "Original" }
         if raw == "Freeform" { return "Freeform" }
+
+        // ---------------------------------------------------------
+        // Headshots: "Full Headshot: Name" / "Tight Headshot: Name"
+        // ---------------------------------------------------------
+        if crop.kind == .headshot, let variant = crop.headshotVariant {
+            let variantLabel = (variant == .full) ? "Full Headshot" : "Tight Headshot"
+
+            let name: String = {
+                guard let pid = crop.headshotPersonID, !pid.isEmpty else { return "Unlinked" }
+
+                // Prefer the photo’s snapshot (fast + stable even if People Manager changes later)
+                if let row = metadata.peopleV2.first(where: { $0.personID == pid && !$0.isUnknown }) {
+                    let snap = row.shortNameSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !snap.isEmpty { return snap }
+                }
+
+               
+
+                return "Unknown"
+            }()
+
+            return "\(variantLabel): \(name)"
+        }
 
         // Pull out any helper text in parentheses
         let base = raw.components(separatedBy: " (").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
@@ -821,6 +874,7 @@ class DMPPImageEditorViewModel {
         // Fallback: just show whatever we have
         return base
     }
+
 
     /// Returns the helper text (what appears in parentheses) for .help().
     /// Example: "3:4 (18×24…)" -> "18×24…"

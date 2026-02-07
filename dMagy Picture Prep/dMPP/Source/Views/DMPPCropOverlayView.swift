@@ -10,39 +10,74 @@ import AppKit
 
 // MARK: - Image + Crop Overlay
 
-
 /// Draws the crop overlay on top of the image:
 /// - darkens outside the crop
 /// - shows a dashed border
-/// - draws headshot guides when needed
+/// - draws headshot guides when needed (variant-aware)
 /// - supports drag-to-move for all crops
 /// - supports a bottom-right resize handle for freeform crops.
 struct DMPPCropOverlayView: View {
 
     let image: NSImage
     let rect: RectNormalized
+
+    /// Whether this crop should show headshot guides at all.
     let isHeadshot: Bool
+
+    /// Which headshot template to draw (only used when isHeadshot == true).
+    /// If nil, defaults to Tight template for backward compatibility.
+    let headshotVariant: VirtualCrop.HeadshotVariant?
+
     let isFreeform: Bool
     let onRectChange: (RectNormalized) -> Void
-    
+
     @Environment(\.colorScheme) private var colorScheme
 
-     // Tuning knobs
-     private var overlayColor: Color {
-         // Recommended: always dark tint
-         .black
-     }
+    // MARK: - Template Config (Phase 3)
 
-     private var overlayOpacity: Double {
-         switch colorScheme {
-         case .light:
-             return 0.45   // medium dim
-         case .dark:
-             return 0.6    // a bit stronger so the crop really pops
-         @unknown default:
-             return 0.5
-         }
-     }
+    /// Headshot guide positions expressed as fractions of crop width/height.
+    /// For an 8×10 crop, these are “gridline” ratios, not pixels.
+    private struct HeadshotTemplate {
+        let v1: Double  // first vertical line as fraction of width
+        let v2: Double  // second vertical line as fraction of width
+        let h1: Double  // first horizontal line as fraction of height
+        let h2: Double  // second horizontal line as fraction of height
+    }
+
+ 
+    private static let tightTemplate = HeadshotTemplate(
+        v1: 2.0 / 8.0,
+        v2: 6.0 / 8.0,
+        h1: 1.0 / 10.0,
+        h2: 7.0 / 10.0
+    )
+
+    private static let fullTemplate = HeadshotTemplate(
+        v1: 2.5 / 8.0,
+        v2: 5.5 / 8.0,
+        // Lower both horizontals a bit vs Tight (tune freely)
+        h1: 1.0 / 10.0,
+        h2: 5.5 / 10.0
+    )
+
+    private func template(for variant: VirtualCrop.HeadshotVariant?) -> HeadshotTemplate {
+        switch variant ?? .tight {
+        case .tight: return Self.tightTemplate
+        case .full:  return Self.fullTemplate
+        }
+    }
+
+    // MARK: - Tuning knobs
+
+    private var overlayColor: Color { .black }
+
+    private var overlayOpacity: Double {
+        switch colorScheme {
+        case .light: return 0.45
+        case .dark:  return 0.60
+        @unknown default: return 0.50
+        }
+    }
 
     @State private var dragStartRect: RectNormalized?
     @State private var resizeStartRect: RectNormalized?
@@ -67,7 +102,7 @@ struct DMPPCropOverlayView: View {
                     path.addRect(cropFrame)
                 }
                 .fill(
-                   Color.black.opacity(0.65),
+                    overlayColor.opacity(overlayOpacity),
                     style: FillStyle(eoFill: true) // even-odd: "hole" where crop is
                 )
 
@@ -80,37 +115,38 @@ struct DMPPCropOverlayView: View {
                 )
                 .foregroundStyle(.white)
 
-                // 3) Headshot guides (8×10 grid: X at 2 & 6, Y at 1 & 7)
+                // 3) Headshot guides (variant-aware)
                 if isHeadshot {
                     let dashStyle = StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    let t = template(for: headshotVariant)
 
-                    let v1 = cropFrame.minX + cropFrame.width  * (2.0 / 8.0)
-                    let v2 = cropFrame.minX + cropFrame.width  * (6.0 / 8.0)
-                    let h1 = cropFrame.minY + cropFrame.height * (1.0 / 10.0)
-                    let h2 = cropFrame.minY + cropFrame.height * (7.0 / 10.0)
+                    let v1 = cropFrame.minX + cropFrame.width  * t.v1
+                    let v2 = cropFrame.minX + cropFrame.width  * t.v2
+                    let h1 = cropFrame.minY + cropFrame.height * t.h1
+                    let h2 = cropFrame.minY + cropFrame.height * t.h2
 
-                    // Vertical at 2/8
+                    // Vertical 1
                     Path { p in
                         p.move(to: CGPoint(x: v1, y: cropFrame.minY))
                         p.addLine(to: CGPoint(x: v1, y: cropFrame.maxY))
                     }
                     .stroke(Color.white.opacity(0.9), style: dashStyle)
 
-                    // Vertical at 6/8
+                    // Vertical 2
                     Path { p in
                         p.move(to: CGPoint(x: v2, y: cropFrame.minY))
                         p.addLine(to: CGPoint(x: v2, y: cropFrame.maxY))
                     }
                     .stroke(Color.white.opacity(0.9), style: dashStyle)
 
-                    // Horizontal at 1/10
+                    // Horizontal 1
                     Path { p in
                         p.move(to: CGPoint(x: cropFrame.minX, y: h1))
                         p.addLine(to: CGPoint(x: cropFrame.maxX, y: h1))
                     }
                     .stroke(Color.white.opacity(0.9), style: dashStyle)
 
-                    // Horizontal at 7/10
+                    // Horizontal 2
                     Path { p in
                         p.move(to: CGPoint(x: cropFrame.minX, y: h2))
                         p.addLine(to: CGPoint(x: cropFrame.maxX, y: h2))
