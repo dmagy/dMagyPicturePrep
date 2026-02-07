@@ -426,7 +426,7 @@ private extension URL {
 
 // MARK: - Left Pane
 
-/// [DMPP-SI-LEFT] Crops + image preview + crop controls (segmented tabs above preview).
+/// [DMPP-SI-LEFT] Crops + image preview + crop controls (chips above preview).
 struct DMPPCropEditorPane: View {
 
     @Environment(\.openSettings) private var openSettings
@@ -460,6 +460,10 @@ struct DMPPCropEditorPane: View {
         return unique.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
+    private var hasAnyPeopleForHeadshots: Bool {
+        !peopleInPhotoForHeadshots.isEmpty
+    }
+
     /// Convenience accessor: current saved custom presets.
     /// [PREFS-REFRESH] Tie to refresh token so Menu items update after Settings edits.
     private var customPresets: [DMPPUserPreferences.CustomCropPreset] {
@@ -486,9 +490,37 @@ struct DMPPCropEditorPane: View {
         )
     }
 
-    // [CROPS-UI] Title for the segmented crop tabs.
-    // Custom preset crops show: "Label (W:H)" e.g. "Weird (12:5)"
+    // MARK: - Titles
+
+    private func headshotPersonLabel(for personID: String?) -> String {
+        guard let personID, !personID.isEmpty else { return "Unlinked" }
+        if let match = peopleInPhotoForHeadshots.first(where: { $0.personID == personID }) {
+            return match.label
+        }
+        // Person might not be checked anymore; keep it readable.
+        return "Person \(personID.prefix(6))…"
+    }
+
+    private func headshotVariantLabel(_ v: VirtualCrop.HeadshotVariant?) -> String {
+        switch v {
+        case .some(.full):  return "Full"
+        case .some(.tight): return "Tight"
+        case .none:         return "Headshot"
+        }
+    }
+
+    /// Chip title shown above preview.
+    /// - Headshots: "Full Headshot: Dan"
+    /// - Custom preset matches: "Weird (12:5)"
     private func cropTabTitle(for crop: VirtualCrop) -> String {
+
+        // Headshot special-case (your requested wording/order)
+        if crop.kind == .headshot {
+            let v = headshotVariantLabel(crop.headshotVariant)
+            let name = headshotPersonLabel(for: crop.headshotPersonID)
+            return "\(v) Headshot: \(name)"
+        }
+
         let base = vm.cropButtonTitle(for: crop)
 
         // Only attempt custom matching for real ratios (not freeform/custom)
@@ -512,168 +544,79 @@ struct DMPPCropEditorPane: View {
         return base
     }
 
+    // MARK: - Sorting (chips)
+
+    private enum ChipGroup: Int {
+        case original = 0
+        case freeform = 1
+        case landscape = 2
+        case portrait = 3
+        case square = 4
+        case otherStandard = 5
+        case customPreset = 6
+        case headshotFull = 7
+        case headshotTight = 8
+        case headshotOther = 9
+    }
+
+    private func group(for crop: VirtualCrop) -> ChipGroup {
+        if crop.kind == .headshot {
+            switch crop.headshotVariant {
+            case .some(.full):  return .headshotFull
+            case .some(.tight): return .headshotTight
+            default:            return .headshotOther
+            }
+        }
+
+        let t = vm.cropButtonTitle(for: crop)
+
+        if t == "Original" { return .original }
+        if t == "Freeform" { return .freeform }
+        if t.hasPrefix("Landscape ") { return .landscape }
+        if t.hasPrefix("Portrait ") { return .portrait }
+        if t.hasPrefix("Square ") { return .square }
+
+        if crop.sourceCustomPresetID != nil { return .customPreset }
+
+        return .otherStandard
+    }
+
+    private func sortedCropsForChips(_ crops: [VirtualCrop]) -> [VirtualCrop] {
+        crops.sorted { a, b in
+            let ga = group(for: a).rawValue
+            let gb = group(for: b).rawValue
+            if ga != gb { return ga < gb }
+
+            // Within group: alphabetical by displayed title
+            let ta = cropTabTitle(for: a)
+            let tb = cropTabTitle(for: b)
+            return ta.localizedCaseInsensitiveCompare(tb) == .orderedAscending
+        }
+    }
+
+    // MARK: - [HEADSHOT] Duplicate prevention helpers (menu)
+
+    private func hasHeadshot(for personID: String, variant: VirtualCrop.HeadshotVariant) -> Bool {
+        vm.metadata.virtualCrops.contains { crop in
+            crop.kind == .headshot &&
+            crop.headshotVariant == variant &&
+            crop.headshotPersonID == personID
+        }
+    }
+
+    private func canAddHeadshot(for personID: String, variant: VirtualCrop.HeadshotVariant) -> Bool {
+        // Single place to change if you ever allow multiples per person later.
+        return !hasHeadshot(for: personID, variant: variant)
+    }
+
+    // MARK: - View
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            HStack(alignment: .center, spacing: 12) {
+            headerChipsAndMenu
 
-                if !vm.metadata.virtualCrops.isEmpty {
-                    Picker("Crops", selection: cropPickerSelection) {
-                        ForEach(vm.metadata.virtualCrops) { crop in
-                            Text(cropTabTitle(for: crop))
-                                .tag(crop.id)
-                                .help(vm.cropButtonHelp(for: crop) ?? "")
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("No crops defined. Use “New Crop” to add one.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Menu("New Crop") {
-
-                    // ---------------------------------------------------------
-                    // Freeform
-                    // ---------------------------------------------------------
-                    Button("Freeform") { vm.addFreeformCrop() }
-
-                    // ---------------------------------------------------------
-                    // Headshot (Full / Tight)
-                    // - Creates headshot crops with variant + optional person link
-                    // - People list comes from current photo's checked people
-                    // ---------------------------------------------------------
-                    Menu("Headshot") {
-
-                        // Headshot (Full)
-                        Menu("Headshot (Full)") {
-                            Button("Unassigned") {
-                                vm.addHeadshotCrop(variant: .full, personID: nil)
-                            }
-
-                            if !peopleInPhotoForHeadshots.isEmpty {
-                                Divider()
-                                ForEach(peopleInPhotoForHeadshots) { p in
-                                    Button(p.label) {
-                                        vm.addHeadshotCrop(variant: .full, personID: p.personID)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Headshot (Tight)
-                        Menu("Headshot (Tight)") {
-                            Button("Unassigned") {
-                                vm.addHeadshotCrop(variant: .tight, personID: nil)
-                            }
-
-                            if !peopleInPhotoForHeadshots.isEmpty {
-                                Divider()
-                                ForEach(peopleInPhotoForHeadshots) { p in
-                                    Button(p.label) {
-                                        vm.addHeadshotCrop(variant: .tight, personID: p.personID)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ---------------------------------------------------------
-                    // Landscape
-                    // ---------------------------------------------------------
-                    Menu("Landscape") {
-
-                        Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }
-                            .disabled(vm.hasPresetLandscape3x2)
-
-                        Button("4:3 (18×24…)") { vm.addPresetLandscape4x3() }
-                            .disabled(vm.hasPresetLandscape4x3)
-
-                        Button("5:4 (4×5, 8×10…)") { vm.addPresetLandscape5x4() }
-                            .disabled(vm.hasPresetLandscape5x4)
-
-                        Button("7:5 (5×7…)") { vm.addPresetLandscape7x5() }
-                            .disabled(vm.hasPresetLandscape7x5)
-
-                        Button("14:11 (11×14…)") { vm.addPresetLandscape14x11() }
-                            .disabled(vm.hasPresetLandscape14x11)
-
-                        Button("16:9") { vm.addPresetLandscape16x9() }
-                            .disabled(vm.hasPresetLandscape16x9)
-                    }
-
-                    // ---------------------------------------------------------
-                    // Original
-                    // ---------------------------------------------------------
-                    Button("Original (full image)") { vm.addPresetOriginalCrop() }
-                        .disabled(vm.hasPresetOriginal)
-
-                    // ---------------------------------------------------------
-                    // Portrait
-                    // ---------------------------------------------------------
-                    Menu("Portrait") {
-
-                        Button("2:3 (4×6, 8×12…)") { vm.addPresetPortrait2x3() }
-                            .disabled(vm.hasCrop(aspectWidth: 2, aspectHeight: 3))
-
-                        Button("3:4 (18×24…)") { vm.addPresetPortrait3x4() }
-                            .disabled(vm.hasCrop(aspectWidth: 3, aspectHeight: 4))
-
-                        Button("4:5 (4×5, 8×10…)") { vm.addPresetPortrait4x5() }
-                            .disabled(vm.hasCrop(aspectWidth: 4, aspectHeight: 5))
-
-                        Button("5:7 (5×7…)") { vm.addPresetPortrait5x7() }
-                            .disabled(vm.hasCrop(aspectWidth: 5, aspectHeight: 7))
-
-                        Button("11:14 (11×14…)") { vm.addPresetPortrait11x14() }
-                            .disabled(vm.hasCrop(aspectWidth: 11, aspectHeight: 14))
-
-                        Button("9:16") { vm.addPresetPortrait9x16() }
-                            .disabled(vm.hasPresetPortrait9x16)
-                    }
-
-                    // ---------------------------------------------------------
-                    // Square
-                    // ---------------------------------------------------------
-                    Button("Square 1:1") { vm.addPresetSquare1x1() }
-                        .disabled(vm.hasPresetSquare1x1)
-
-                    // ---------------------------------------------------------
-                    // Custom Presets
-                    // ---------------------------------------------------------
-                    Menu("Custom Presets") {
-
-                        if customPresets.isEmpty {
-                            Text("No custom presets yet")
-                        } else {
-                            ForEach(customPresets) { preset in
-                                let presetIDString = preset.id.uuidString
-                                let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
-
-                                // Prevent duplicates using durable link first.
-                                let alreadyExists = vm.metadata.virtualCrops.contains { crop in
-                                    if crop.sourceCustomPresetID == presetIDString { return true }
-                                    return crop.aspectRatio == presetRatio && crop.label == preset.label
-                                }
-
-                                Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
-                                    vm.addCrop(fromCustomPreset: preset)
-                                }
-                                .disabled(alreadyExists)
-                            }
-                        }
-
-                        Divider()
-
-                        Button("Manage Custom Presets…") { openSettings() }
-                    }
-                }
-                .padding(.trailing, 73)
-            }
-
+            // Preview + overlay + crop size slider (unchanged)
             HStack(alignment: .center, spacing: 12) {
 
                 if let nsImage = vm.nsImage, let selectedCrop = vm.selectedCrop {
@@ -685,7 +628,7 @@ struct DMPPCropEditorPane: View {
                                     .scaledToFit()
                                     .frame(width: geo.size.width, height: geo.size.height)
 
-                                let isHeadshot = selectedCrop.label.contains("Headshot")
+                                let isHeadshot = (selectedCrop.kind == .headshot)
                                 let isFreeform = (selectedCrop.aspectRatio == "custom"
                                                   || selectedCrop.label == "Freeform")
 
@@ -759,6 +702,256 @@ struct DMPPCropEditorPane: View {
         }
     }
 
+    // MARK: - Header (chips + menu)
+
+    private var headerChipsAndMenu: some View {
+        let allCrops = vm.metadata.virtualCrops
+        let crops = sortedCropsForChips(allCrops)
+
+        return HStack(alignment: .top, spacing: 12) {
+
+            if crops.isEmpty {
+                Text("No crops defined. Use “New Crop” to add one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                FlowLayout(spacing: 8) {
+                    ForEach(crops) { crop in
+                        CropChipButton(
+                            title: cropTabTitle(for: crop),
+                            isSelected: crop.id == cropPickerSelection.wrappedValue
+                        ) {
+                            cropPickerSelection.wrappedValue = crop.id
+                        }
+                        .help(vm.cropButtonHelp(for: crop) ?? "")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Menu("New Crop") {
+                // ---------------------------------------------------------
+                // Freeform
+                // ---------------------------------------------------------
+                Button("Freeform") { vm.addFreeformCrop() }
+
+                // ---------------------------------------------------------
+                // Headshot (Full / Tight)
+                // ---------------------------------------------------------
+                Menu("Headshot") {
+
+                    Menu("Full") {
+                        if peopleInPhotoForHeadshots.isEmpty {
+                            Text("Add people to this photo first")
+                        } else {
+                            ForEach(peopleInPhotoForHeadshots) { p in
+                                Button(p.label) {
+                                    vm.addHeadshotCrop(variant: .full, personID: p.personID)
+                                }
+                                .disabled(!canAddHeadshot(for: p.personID, variant: .full))
+                            }
+                        }
+                    }
+                    .disabled(!hasAnyPeopleForHeadshots)
+
+                    Menu("Tight") {
+                        if peopleInPhotoForHeadshots.isEmpty {
+                            Text("Add people to this photo first")
+                        } else {
+                            ForEach(peopleInPhotoForHeadshots) { p in
+                                Button(p.label) {
+                                    vm.addHeadshotCrop(variant: .tight, personID: p.personID)
+                                }
+                                .disabled(!canAddHeadshot(for: p.personID, variant: .tight))
+                            }
+                        }
+                    }
+                    .disabled(!hasAnyPeopleForHeadshots)
+                }
+                .disabled(!hasAnyPeopleForHeadshots)
+                .help(hasAnyPeopleForHeadshots
+                      ? ""
+                      : "Add at least one person in the People section to enable headshots.")
+
+                // ---------------------------------------------------------
+                // Landscape
+                // ---------------------------------------------------------
+                Menu("Landscape") {
+                    Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }
+                        .disabled(vm.hasPresetLandscape3x2)
+
+                    Button("4:3 (18×24…)") { vm.addPresetLandscape4x3() }
+                        .disabled(vm.hasPresetLandscape4x3)
+
+                    Button("5:4 (4×5, 8×10…)") { vm.addPresetLandscape5x4() }
+                        .disabled(vm.hasPresetLandscape5x4)
+
+                    Button("7:5 (5×7…)") { vm.addPresetLandscape7x5() }
+                        .disabled(vm.hasPresetLandscape7x5)
+
+                    Button("14:11 (11×14…)") { vm.addPresetLandscape14x11() }
+                        .disabled(vm.hasPresetLandscape14x11)
+
+                    Button("16:9") { vm.addPresetLandscape16x9() }
+                        .disabled(vm.hasPresetLandscape16x9)
+                }
+
+                // ---------------------------------------------------------
+                // Original
+                // ---------------------------------------------------------
+                Button("Original (full image)") { vm.addPresetOriginalCrop() }
+                    .disabled(vm.hasPresetOriginal)
+
+                // ---------------------------------------------------------
+                // Portrait
+                // ---------------------------------------------------------
+                Menu("Portrait") {
+                    Button("2:3 (4×6, 8×12…)") { vm.addPresetPortrait2x3() }
+                        .disabled(vm.hasCrop(aspectWidth: 2, aspectHeight: 3))
+
+                    Button("3:4 (18×24…)") { vm.addPresetPortrait3x4() }
+                        .disabled(vm.hasCrop(aspectWidth: 3, aspectHeight: 4))
+
+                    Button("4:5 (4×5, 8×10…)") { vm.addPresetPortrait4x5() }
+                        .disabled(vm.hasCrop(aspectWidth: 4, aspectHeight: 5))
+
+                    Button("5:7 (5×7…)") { vm.addPresetPortrait5x7() }
+                        .disabled(vm.hasCrop(aspectWidth: 5, aspectHeight: 7))
+
+                    Button("11:14 (11×14…)") { vm.addPresetPortrait11x14() }
+                        .disabled(vm.hasCrop(aspectWidth: 11, aspectHeight: 14))
+
+                    Button("9:16") { vm.addPresetPortrait9x16() }
+                        .disabled(vm.hasPresetPortrait9x16)
+                }
+
+                // ---------------------------------------------------------
+                // Square
+                // ---------------------------------------------------------
+                Button("Square 1:1") { vm.addPresetSquare1x1() }
+                    .disabled(vm.hasPresetSquare1x1)
+
+                // ---------------------------------------------------------
+                // Custom Presets
+                // ---------------------------------------------------------
+                Menu("Custom Presets") {
+                    if customPresets.isEmpty {
+                        Text("No custom presets yet")
+                    } else {
+                        ForEach(customPresets) { preset in
+                            let presetIDString = preset.id.uuidString
+                            let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
+
+                            // Prevent duplicates using durable link first.
+                            let alreadyExists = vm.metadata.virtualCrops.contains { crop in
+                                if crop.sourceCustomPresetID == presetIDString { return true }
+                                return crop.aspectRatio == presetRatio && crop.label == preset.label
+                            }
+
+                            Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
+                                vm.addCrop(fromCustomPreset: preset)
+                            }
+                            .disabled(alreadyExists)
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Manage Custom Presets…") { openSettings() }
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    // MARK: - Chip UI
+
+    private struct CropChipButton: View {
+        let title: String
+        let isSelected: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button(action: action) {
+                Text(title)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false) // prevents “overlap squeeze”
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18)
+                                     : Color.secondary.opacity(0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.55)
+                                             : Color.secondary.opacity(0.25),
+                                  lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - Wrapping layout (chips)
+
+    private struct FlowLayout: Layout {
+        var spacing: CGFloat = 8
+
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let maxWidth = proposal.width ?? 600
+
+            var x: CGFloat = 0
+            var y: CGFloat = 0
+            var rowHeight: CGFloat = 0
+
+            for s in subviews {
+                let size = s.sizeThatFits(.unspecified)
+
+                if x > 0, x + size.width > maxWidth {
+                    x = 0
+                    y += rowHeight + spacing
+                    rowHeight = 0
+                }
+
+                if x > 0 { x += spacing }
+                x += size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+
+            return CGSize(width: maxWidth, height: y + rowHeight)
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            var x = bounds.minX
+            var y = bounds.minY
+            var rowHeight: CGFloat = 0
+
+            for s in subviews {
+                let size = s.sizeThatFits(.unspecified)
+
+                if x > bounds.minX, x + size.width > bounds.maxX {
+                    x = bounds.minX
+                    y += rowHeight + spacing
+                    rowHeight = 0
+                }
+
+                s.place(
+                    at: CGPoint(x: x, y: y),
+                    proposal: ProposedViewSize(width: size.width, height: size.height)
+                )
+
+                x += size.width + spacing
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+    }
+
+    // MARK: - Existing helpers (unchanged)
+
     private func cropSizePill(nsImage: NSImage, cropRect: RectNormalized) -> some View {
         let px = cropPixelSize(nsImage: nsImage, cropRect: cropRect)
         let wPx = px?.w ?? 0
@@ -808,6 +1001,10 @@ struct DMPPCropEditorPane: View {
         return (w, h)
     }
 }
+
+
+
+
 
 // MARK: - Right Pane (Metadata)
 
@@ -1868,6 +2065,7 @@ private extension DMPPMetadataFormPane {
                         let nextPos = nextPositionIndex(inRow: activeRowIndex)
 
                         let newRow = DmpmsPersonInPhoto(
+                            personID: chosen.personID ?? person.id,
                             identityID: chosen.id,
                             isUnknown: false,
                             shortNameSnapshot: chosen.shortName,
@@ -1878,6 +2076,7 @@ private extension DMPPMetadataFormPane {
                             positionIndex: nextPos,
                             roleHint: nil
                         )
+
 
                         vm.metadata.peopleV2.append(newRow)
                     }
