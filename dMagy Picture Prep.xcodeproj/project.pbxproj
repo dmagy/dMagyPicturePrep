@@ -38,6 +38,7 @@
 		99A85AA12ED59F0B00A66212 /* Exceptions for "dMagy Picture Prep" folder in "dMagy Picture Prep" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"Docs/dMagy Project Collaboration Guide.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.2.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.3.md",

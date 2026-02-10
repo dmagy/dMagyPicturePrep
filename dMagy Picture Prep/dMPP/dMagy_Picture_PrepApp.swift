@@ -10,6 +10,8 @@ struct dMagy_Picture_PrepApp: App {
     // NOTE: App owns the instance; do NOT use a singleton.
     @StateObject private var identityStore = DMPPIdentityStore()
     @StateObject private var tagStore = DMPPTagStore()
+    @StateObject private var cropStore = DMPPCropStore()
+    @StateObject private var locationStore = DMPPLocationStore()
 
 
     // [ARCH] Picture Library Folder store (bookmark + selection)
@@ -25,7 +27,8 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(archiveStore)
                 .environmentObject(identityStore)
                 .environmentObject(tagStore)
-
+                .environmentObject(locationStore)
+                .environmentObject(cropStore)
                 // [WIN] Restore window frame between launches
                 .background(DMPPWindowAutosave(name: "DMPP.MainWindow.v1"))
         }
@@ -53,8 +56,10 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(identityStore)
                 .environmentObject(archiveStore)
                 .environmentObject(tagStore)
-
+                .environmentObject(locationStore)
+                .environmentObject(cropStore)
         }
+
 
         // (Leave these commented unless you intentionally want to force sizing.)
         // .defaultSize(width: 980, height: 820)
@@ -68,9 +73,11 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(identityStore)
                 .environmentObject(archiveStore)
                 .environmentObject(tagStore)
-
+                .environmentObject(locationStore)
+                .environmentObject(cropStore)
                 .background(DMPPWindowAutosave(name: "DMPP.PeopleWindow.v1"))
         }
+
         // Optional: also include People menu (if you want it globally, keep it here)
         .commands {
             PeopleCommands()
@@ -83,13 +90,15 @@ struct dMagy_Picture_PrepApp: App {
 // [ARCH] Archive Root Gate View
 // - If Picture Library Folder exists -> show editor
 // - If not -> show setup screen + button to select folder
-// - Also configures IdentityStore for the chosen root (once per root change)
+// - Configures portable registry stores once per root change
 // ================================================================
 
 private struct DMPPArchiveRootGateView: View {
     @EnvironmentObject var archiveStore: DMPPArchiveStore
     @EnvironmentObject var identityStore: DMPPIdentityStore
     @EnvironmentObject var tagStore: DMPPTagStore
+    @EnvironmentObject var locationStore: DMPPLocationStore
+    @EnvironmentObject var cropStore: DMPPCropStore
 
     // Track what we've configured so we don't re-run on every redraw
     @State private var lastConfiguredRootPath: String? = nil
@@ -98,26 +107,16 @@ private struct DMPPArchiveRootGateView: View {
         Group {
             if let root = archiveStore.archiveRootURL {
 
-                // Root is set: show main editor (ONLY ONCE per root)
                 DMPPImageEditorView()
                     .onAppear {
-                        configureIdentityStoreIfNeeded(for: root)
+                        configureStoresIfNeeded(for: root)
                     }
                     .onChange(of: archiveStore.archiveRootURL) { _, newRoot in
-                        if let newRoot {
-                            configureIdentityStoreIfNeeded(for: newRoot)
-                        } else {
-                            // Root cleared → fall back to legacy + reset our guard
-                            identityStore.configureForArchiveRoot(nil)
-                            tagStore.configureForArchiveRoot(nil)
-
-                            lastConfiguredRootPath = nil
-                        }
+                        configureStoresForCurrentRoot(newRoot)
                     }
 
             } else {
 
-                // Root not set: show setup screen
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Choose Your Picture Library Folder")
                         .font(.title2)
@@ -141,14 +140,12 @@ private struct DMPPArchiveRootGateView: View {
                 .padding(20)
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
-                    // Auto-prompt ONLY on true first run (no bookmark saved yet).
                     if archiveStore.archiveRootURL == nil && !archiveStore.hasStoredBookmark {
                         archiveStore.promptForArchiveRoot()
                     }
                 }
             }
         }
-        // Title-bar gear icon (always available)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 SettingsLink {
@@ -159,17 +156,39 @@ private struct DMPPArchiveRootGateView: View {
         }
     }
 
-    private func configureIdentityStoreIfNeeded(for root: URL) {
+    // MARK: - [CFG] Root-driven store configuration
+
+    private func configureStoresForCurrentRoot(_ root: URL?) {
+        guard let root else {
+            clearStoreConfiguration()
+            return
+        }
+        configureStoresIfNeeded(for: root)
+    }
+
+    private func configureStoresIfNeeded(for root: URL) {
         let path = root.path
         guard lastConfiguredRootPath != path else { return }
 
-        // Prefer the injected store (App-owned) so we don't configure a different instance.
         identityStore.configureForArchiveRoot(root)
         tagStore.configureForArchiveRoot(root)
+        locationStore.configureForArchiveRoot(root)
+        cropStore.configureForArchiveRoot(root)
 
         lastConfiguredRootPath = path
     }
+
+    private func clearStoreConfiguration() {
+        identityStore.configureForArchiveRoot(nil)
+        tagStore.configureForArchiveRoot(nil)
+        locationStore.configureForArchiveRoot(nil)
+        cropStore.configureForArchiveRoot(nil)
+
+        lastConfiguredRootPath = nil
+    }
 }
+
+
 
 
 

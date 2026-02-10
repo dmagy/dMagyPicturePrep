@@ -1,33 +1,92 @@
+// ================================================================
+// DMPPCropPreferencesView.swift
+// Purpose: Settings UI for managing crop presets, tags, locations, and people.
+// ================================================================
+//
+// What this file owns (high level)
+// - A multi-tab Settings view (Crops, Locations, People, Tags, General).
+// - Crop defaults UI (built-in presets toggles).
+// - Custom crop preset management:
+//     - Portable registry (preferred): crops.json in the Picture Library Folder
+//     - Legacy prefs (fallback): UserDefaults via DMPPUserPreferences
+//
+// Inputs
+// - archiveStore (EnvironmentObject): provides the active Picture Library Folder (archive root)
+// - cropStore   (EnvironmentObject): portable crop preset registry (crops.json)
+// - tagStore    (StateObject): portable tag registry (tags.json)
+// - locationStore (StateObject): portable location registry (locations.json)
+// - prefs (State): cached UserDefaults preferences (DMPPUserPreferences.load())
+//
+// Outputs (side effects)
+// - Writes UserDefaults when prefs change (default built-in crops; legacy custom presets fallback)
+// - Writes portable registry files when an archive root is selected:
+//     - Crops/crops.json via cropStore
+//     - Tags/tags.json via tagStore
+//     - Locations/locations.json via locationStore
+//
+// Data flow / source of truth rules
+// - Built-in default crop selections live in UserDefaults (prefs.defaultCropPresets).
+// - Custom crop presets should be portable when an archive root exists.
+//   Legacy custom presets exist only as a fallback or migration source.
+// - When a Picture Library Folder is selected, portable registries are configured
+//   onAppear and whenever archiveStore.archiveRootURL changes.
+//
+// Debug notes
+// - “DMPP Custom Presets source …” logs are only to confirm which source is active.
+// ================================================================
+
+
 import SwiftUI
 import AppKit
 import CryptoKit
 
 // cp-2025-12-29-02(SETTINGS-TABS-HOSTFIX)
 
-
-
 struct DMPPCropPreferencesView: View {
+
+    // ============================================================
+    // MARK: - State / Environment
+    // ============================================================
 
     /// User-level preferences (loaded from UserDefaults).
     @State private var prefs: DMPPUserPreferences = .load()
+
     @State private var selectedLocationID: UUID? = nil
     @FocusState private var focusedField: FocusField?
-    
+
     @EnvironmentObject var archiveStore: DMPPArchiveStore
- 
+    @EnvironmentObject var cropStore: DMPPCropStore
 
     @StateObject private var tagStore = DMPPTagStore()
     @StateObject private var locationStore = DMPPLocationStore()
-    
+
     @State private var showLinkedFileDetails: Bool = false
     @State private var showLinkedTagsFileDetails: Bool = false
 
+    // [CROPS-PORTABLE-DRAFT] Editable working copy for the Settings UI (portable registry)
+    @State private var cropDraftPresets: [DMPPCropStore.Preset] = []
 
+    // [CROPS-PORTABLE-LOCK] Prevent recursive onChange loops while persisting/sanitizing.
+    @State private var isPersistingCropDraft: Bool = false
+
+    // ============================================================
+    // MARK: - [DEBUG] Custom Presets source indicator
+    // ============================================================
+
+    private var debugCustomPresetSourceLine: String {
+        let portableCount = cropStore.presets.count
+        let legacyCount = DMPPUserPreferences.load().customCropPresets.count
+        return "DMPP Custom Presets source: portable=\(portableCount > 0 ? 1 : 0) legacy=\(legacyCount > 0 ? 1 : 0)"
+    }
+
+    
     private enum FocusField: Hashable {
         case locationShortName(UUID)
     }
 
-
+    // ============================================================
+    // MARK: - View
+    // ============================================================
 
     var body: some View {
         TabView {
@@ -37,7 +96,6 @@ struct DMPPCropPreferencesView: View {
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
 
-                // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Crop Presets")
                         .font(.title2.bold())
@@ -49,16 +107,10 @@ struct DMPPCropPreferencesView: View {
 
                 Divider()
 
-                // Main content
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-
-                        // Built-in default presets
                         builtInPresetsSection
-
                         Divider()
-
-                        // Custom presets
                         customPresetsSection
                     }
                     .padding(.vertical, 4)
@@ -67,21 +119,14 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .tabItem {
-                Label("Crops", systemImage: "crop")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .tabItem { Label("Crops", systemImage: "crop") }
 
             // =====================================================
             // LOCATIONS TAB
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
 
-                // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Locations")
                         .font(.title2.bold())
@@ -101,20 +146,14 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .tabItem {
-                Label("Locations", systemImage: "mappin.and.ellipse")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
 
             // =====================================================
             // PEOPLE TAB
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
-                // Header
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text("People")
                         .font(.title2.bold())
@@ -130,16 +169,13 @@ struct DMPPCropPreferencesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding()
-            .tabItem {
-                Label("People", systemImage: "person.2")
-            }
+            .tabItem { Label("People", systemImage: "person.2") }
 
             // =====================================================
             // TAGS TAB
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
 
-                // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Tags")
                         .font(.title2.bold())
@@ -161,21 +197,14 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .tabItem {
-                Label("Tags", systemImage: "tag")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .tabItem { Label("Tags", systemImage: "tag") }
 
             // =====================================================
             // GENERAL TAB (Fingerprint + Copy chips)
             // =====================================================
             VStack(alignment: .leading, spacing: 16) {
 
-                // Header
                 VStack(alignment: .leading, spacing: 4) {
                     Text("General")
                         .font(.title2.bold())
@@ -191,7 +220,7 @@ struct DMPPCropPreferencesView: View {
                     VStack(alignment: .leading, spacing: 10) {
 
                         if let root = archiveStore.archiveRootURL {
-                            // Friendly summary first
+
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(root.lastPathComponent)
                                     .font(.headline)
@@ -214,7 +243,6 @@ struct DMPPCropPreferencesView: View {
                             }
                             .padding(.top, 2)
 
-                            // Advanced: hidden by default
                             DisclosureGroup(isExpanded: $showLinkedFileDetails) {
                                 let portable = root.appendingPathComponent("dMagy Portable Archive Data", isDirectory: true)
 
@@ -246,13 +274,13 @@ struct DMPPCropPreferencesView: View {
                                 }
                                 .padding(.top, 6)
                             } label: {
-                                // The “control” the user clicks
                                 Label("Linked files (advanced)", systemImage: "doc.text.magnifyingglass")
                                     .font(.callout.weight(.semibold))
                             }
                             .padding(.top, 6)
 
                         } else {
+
                             Text("No Picture Library Folder is selected yet.")
                                 .foregroundStyle(.secondary)
 
@@ -262,30 +290,14 @@ struct DMPPCropPreferencesView: View {
                             .padding(.top, 4)
                         }
                     }
-                    .padding(8)
-
                     .padding(10)
                 }
 
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(maxWidth: .infinity,
-                   maxHeight: .infinity,
-                   alignment: .topLeading)
-            .tabItem {
-                Label("General", systemImage: "gearshape")
-            }
-
-            .padding()
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .topLeading
-            )
-            .tabItem {
-                Label("General", systemImage: "gearshape")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .tabItem { Label("General", systemImage: "gearshape") }
         }
         .frame(
             minWidth: 820,
@@ -296,68 +308,114 @@ struct DMPPCropPreferencesView: View {
             maxHeight: .infinity,
             alignment: .topLeading
         )
-        // [PREFS-SAVE] Save + broadcast when crop defaults change
+
+        // ============================================================
+        // MARK: - Persistence hooks
+        // ============================================================
+
+        // [PREFS-SAVE] Save when built-in defaults change
         .onChange(of: prefs.defaultCropPresets) { _, _ in
             prefs.save()
         }
-        // [PREFS-SAVE] Save + broadcast when custom presets change (add/remove/rename/values)
+
+        // [PREFS-SAVE] Save when legacy custom presets change (only edited when NO archive root)
         .onChange(of: prefs.customCropPresets) { _, _ in
             prefs.save()
         }
 
+        // ============================================================
+        // MARK: - Lifecycle / Root switching
+        // ============================================================
+
         .onAppear {
-            // -------------------------------
-            // TAGS
-            // -------------------------------
-            tagStore.configureForArchiveRoot(
-                archiveStore.archiveRootURL,
-                fallbackTags: prefs.availableTags
-            )
-            tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
-
-            syncTagsFromPortableIntoPrefs()
-
-            // -------------------------------
-            // LOCATIONS
-            // -------------------------------
-            locationStore.configureForArchiveRoot(
-                archiveStore.archiveRootURL,
-                fallbackLocations: prefs.userLocations
-            )
-            syncLocationsFromPortableIntoPrefs()
+            configureForCurrentArchiveRoot()
         }
-        .onChange(of: archiveStore.archiveRootURL) { _, newRoot in
-            // -------------------------------
-            // TAGS
-            // -------------------------------
-            tagStore.configureForArchiveRoot(
-                newRoot,
-                fallbackTags: prefs.availableTags
-            )
-            tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
-
-            syncTagsFromPortableIntoPrefs()
-
-            // -------------------------------
-            // LOCATIONS
-            // -------------------------------
-            locationStore.configureForArchiveRoot(
-                newRoot,
-                fallbackLocations: prefs.userLocations
-            )
-            syncLocationsFromPortableIntoPrefs()
+        .onChange(of: archiveStore.archiveRootURL) { _, _ in
+            configureForCurrentArchiveRoot()
         }
+
+        // Tags + Locations portable write-back (unchanged)
         .onChange(of: prefs.availableTags) { _, _ in
-            // Every add/edit/delete writes to tags.json (only works when a root is configured)
             persistPrefsTagsToPortable()
         }
         .onChange(of: prefs.userLocations) { _, _ in
-            // Every add/edit/delete writes to locations.json (only works when a root is configured)
             persistPrefsLocationsToPortable()
         }
-
     }
+
+    // ============================================================
+    // MARK: - [ARCH-CONFIG] Configure stores for current archive root
+    // ============================================================
+
+    private func configureForCurrentArchiveRoot() {
+
+        // Reload prefs (keeps Settings window honest if other screens changed UserDefaults)
+        prefs = DMPPUserPreferences.load()
+
+        let root = archiveStore.archiveRootURL
+
+        // -------------------------------
+        // TAGS
+        // -------------------------------
+        tagStore.configureForArchiveRoot(root, fallbackTags: prefs.availableTags)
+        tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
+        syncTagsFromPortableIntoPrefs()
+
+        // -------------------------------
+        // LOCATIONS
+        // -------------------------------
+        locationStore.configureForArchiveRoot(root, fallbackLocations: prefs.userLocations)
+        syncLocationsFromPortableIntoPrefs()
+
+        // -------------------------------
+        // CROPS (portable registry)
+        // -------------------------------
+        guard let root else {
+            // No archive root: portable registries are unavailable.
+            // Show legacy custom presets editor only.
+            cropDraftPresets = []
+            return
+        }
+
+        // 1) Load portable presets (or seed empty)
+        cropStore.configureForArchiveRoot(root, fallbackPresets: [])
+
+        // 2) One-time migration from legacy prefs if portable is empty
+        //    (this function also clears legacy to prevent “portable=1 legacy=1” forever)
+        cropStore.migrateLegacyPrefsIfNeeded(legacyPresets: prefs.customCropPresets)
+
+        // 3) Refresh the UI draft from portable truth
+        cropDraftPresets = cropStore.presets
+
+        // Optional: if you want the debug line to reflect reality immediately
+        // (not required, but keeps the Settings window consistent)
+        prefs = DMPPUserPreferences.load()
+    }
+
+
+    private func configureCropsForCurrentRoot() {
+
+        // No root => portable not available; UI will show legacy editor
+        guard let root = archiveStore.archiveRootURL else {
+            cropDraftPresets = []
+            return
+        }
+
+        // Ensure store is pointed at root and has current file loaded
+        cropStore.configureForArchiveRoot(root, fallbackPresets: nil)
+
+        // Merge legacy prefs into portable, then clear legacy to stop “portable=1 legacy=1”.
+        // IMPORTANT: only call ONE migration method (the merge+clear one).
+        let legacy = DMPPUserPreferences.load().customCropPresets
+        cropStore.mergeLegacyPrefsIntoPortableThenClear(legacyPresets: legacy)
+
+        // Pull portable truth into our UI draft
+        cropDraftPresets = cropStore.presets
+    }
+
+    // ============================================================
     // MARK: - General tab helpers
+    // ============================================================
 
     private func copyToClipboard(_ s: String) {
         let pb = NSPasteboard.general
@@ -366,55 +424,52 @@ struct DMPPCropPreferencesView: View {
     }
 
     private func fingerprint(for url: URL) -> String {
-        // Stable across launches/machines for the same path string.
-        // Short enough to read; long enough to be useful.
         let input = Data(url.path.utf8)
         let digest = SHA256.hash(data: input)
         let hex = digest.map { String(format: "%02x", $0) }.joined()
-        // 12 chars is a nice “chip” size
         return String(hex.prefix(12)).uppercased()
     }
-    
+
+    // ============================================================
+    // MARK: - Tags portable sync
+    // ============================================================
+
     private func syncTagsFromPortableIntoPrefs() {
-        // 1) Ensure TagStore is pointed at the current root and seed if needed.
         tagStore.configureForArchiveRoot(
             archiveStore.archiveRootURL,
             fallbackTags: prefs.availableTags
         )
 
-        // 2) Pull portable truth into prefs (canonical + includes reserved tags)
         let portable = tagStore.tags
         guard !portable.isEmpty else { return }
 
-        // Avoid infinite churn: only assign if it actually changed
         if prefs.availableTags != portable {
             prefs.availableTags = portable
         }
     }
 
     private func persistPrefsTagsToPortable() {
-        // Persist whatever the UI currently has; store will sanitize + enforce reserved tags.
         tagStore.persistTagsFromUI(prefs.availableTags)
 
-        // Optional: keep prefs in sync with sanitized portable truth (prevents “flagged ” etc.)
         let portable = tagStore.tags
         if !portable.isEmpty, prefs.availableTags != portable {
             prefs.availableTags = portable
         }
     }
 
+    // ============================================================
+    // MARK: - Locations portable sync
+    // ============================================================
+
     private func syncLocationsFromPortableIntoPrefs() {
-        // 1) Ensure store is pointed at current root and seeded if needed.
         locationStore.configureForArchiveRoot(
             archiveStore.archiveRootURL,
             fallbackLocations: prefs.userLocations
         )
 
-        // 2) Pull portable truth into prefs (canonical)
         let portable = locationStore.locations
         guard !portable.isEmpty else { return }
 
-        // Avoid churn
         if prefs.userLocations != portable {
             prefs.userLocations = portable
         }
@@ -423,14 +478,16 @@ struct DMPPCropPreferencesView: View {
     private func persistPrefsLocationsToPortable() {
         locationStore.persistLocationsFromUI(prefs.userLocations)
 
-        // Optional: sync back sanitized portable truth
         let portable = locationStore.locations
         if !portable.isEmpty, prefs.userLocations != portable {
             prefs.userLocations = portable
         }
     }
 
-    
+    // ============================================================
+    // MARK: - Shared UI bits
+    // ============================================================
+
     @ViewBuilder
     private func fingerprintChip(label: String, value: String) -> some View {
         HStack(spacing: 6) {
@@ -463,7 +520,6 @@ struct DMPPCropPreferencesView: View {
 
                     if let url = tagStore.tagsFileURL() {
 
-                        // “Fingerprint chip” style: icon + filename capsule
                         HStack(spacing: 10) {
                             Image(systemName: "touchid")
                                 .foregroundStyle(.secondary)
@@ -517,10 +573,10 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
-    
+    // ============================================================
     // MARK: - Sections (Crops tab)
+    // ============================================================
 
-    // [CROPS-UI] Built-in preset rows used by Settings (sorted for display)
     private struct BuiltInPresetRow: Identifiable {
         let id: DMPPUserPreferences.CropPresetID
         let title: String
@@ -529,45 +585,37 @@ struct DMPPCropPreferencesView: View {
 
     private var builtInPresetRowsSorted: [BuiltInPresetRow] {
         let rows: [BuiltInPresetRow] = [
-            .init(id: .headshot8x10,   title: "Headshot 8×10",       education: "Portrait 4:5 with headshot guides"),
+            .init(id: .headshot8x10,   title: "Headshot 8×10",         education: "Portrait 4:5 with headshot guides"),
             .init(id: .original,       title: "Original (full image)", education: "Full frame, aspect from actual pixels."),
 
-            .init(id: .landscape14x11, title: "Landscape 14:11",     education: "Includes print sizes 11×14…"),
-            .init(id: .landscape16x9,  title: "Landscape 16:9",      education: "Typical TV / display aspect."),
-            .init(id: .landscape3x2,   title: "Landscape 3:2",       education: "Includes print sizes 4×6, 8×12…"),
-            .init(id: .landscape4x3,   title: "Landscape 4:3",       education: "Includes print sizes 18×24…"),
-            .init(id: .landscape5x4,   title: "Landscape 5:4",       education: "Includes print sizes 4×5, 8×10…"),
-            .init(id: .landscape7x5,   title: "Landscape 7:5",       education: "Includes print sizes 5×7…"),
+            .init(id: .landscape14x11, title: "Landscape 14:11",       education: "Includes print sizes 11×14…"),
+            .init(id: .landscape16x9,  title: "Landscape 16:9",        education: "Typical TV / display aspect."),
+            .init(id: .landscape3x2,   title: "Landscape 3:2",         education: "Includes print sizes 4×6, 8×12…"),
+            .init(id: .landscape4x3,   title: "Landscape 4:3",         education: "Includes print sizes 18×24…"),
+            .init(id: .landscape5x4,   title: "Landscape 5:4",         education: "Includes print sizes 4×5, 8×10…"),
+            .init(id: .landscape7x5,   title: "Landscape 7:5",         education: "Includes print sizes 5×7…"),
 
-            .init(id: .portrait11x14,  title: "Portrait 11:14",      education: "Includes print sizes 11×14…"),
-            .init(id: .portrait2x3,    title: "Portrait 2:3",        education: "Includes print sizes 4×6, 8×12…"),
-            .init(id: .portrait3x4,    title: "Portrait 3:4",        education: "Includes print sizes 18×24…"),
-            .init(id: .portrait4x5,    title: "Portrait 4:5",        education: "Includes print sizes 4×5, 8×10…"),
-            .init(id: .portrait5x7,    title: "Portrait 5:7",        education: "Includes print sizes 5×7…"),
-            .init(id: .portrait9x16,   title: "Portrait 9:16",       education: "Vertical screen"),
+            .init(id: .portrait11x14,  title: "Portrait 11:14",        education: "Includes print sizes 11×14…"),
+            .init(id: .portrait2x3,    title: "Portrait 2:3",          education: "Includes print sizes 4×6, 8×12…"),
+            .init(id: .portrait3x4,    title: "Portrait 3:4",          education: "Includes print sizes 18×24…"),
+            .init(id: .portrait4x5,    title: "Portrait 4:5",          education: "Includes print sizes 4×5, 8×10…"),
+            .init(id: .portrait5x7,    title: "Portrait 5:7",          education: "Includes print sizes 5×7…"),
+            .init(id: .portrait9x16,   title: "Portrait 9:16",         education: "Vertical screen"),
 
-            .init(id: .square1x1,      title: "Square 1:1",          education: "Square crops (social, grids, etc.)"),
+            .init(id: .square1x1,      title: "Square 1:1",            education: "Square crops (social, grids, etc.)"),
         ]
 
-        // Alphabetical by title, matching your dropdown intent
         return rows.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    
-    /// Section for the known built-in presets (Original, 16:9, 8×10, etc.).
     private var builtInPresetsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
 
             Text("Standard crops")
                 .font(.headline)
 
-        //    Text("These crops are automatically created when an image has no existing sidecar.")
-          //      .font(.footnote)
-          //      .foregroundStyle(.secondary)
-
             VStack(alignment: .leading, spacing: 6) {
 
-                // Header row so “Default” is a right-side column like Custom
                 HStack {
                     Spacer()
                     Text("Default")
@@ -578,23 +626,14 @@ struct DMPPCropPreferencesView: View {
                 .padding(.bottom, 2)
 
                 ForEach(builtInPresetRowsSorted) { row in
-                    builtInRow(
-                        id: row.id,
-                        title: row.title,
-                        subtitle: row.education
-                    )
+                    builtInRow(id: row.id, title: row.title, subtitle: row.education)
                 }
             }
-           
-           .frame(maxWidth: 450, alignment: .leading)
+            .frame(maxWidth: 450, alignment: .leading)
             .padding(.top, 4)
-
         }
     }
-   
 
-    /// A single row for a built-in preset toggle.
-    // [CROPS-UI] Preset row with right-side Default checkbox and inline education
     private func builtInRow(
         id: DMPPUserPreferences.CropPresetID,
         title: String,
@@ -615,7 +654,6 @@ struct DMPPCropPreferencesView: View {
         )
 
         return HStack(alignment: .firstTextBaseline) {
-            // Single line: “Landscape 5:4 — Includes print sizes 4×5, 8×10…”
             Text("\(title) — \(subtitle)")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -627,25 +665,131 @@ struct DMPPCropPreferencesView: View {
         .padding(.vertical, 2)
     }
 
+    // ============================================================
+    // MARK: - Custom presets section (portable-first)
+    // ============================================================
 
-    /// Section for user-defined custom presets.
     private var customPresetsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
+
             Text("Custom crops")
                 .font(.headline)
 
-         //   Text("Define your own named aspect ratios and choose which ones should be created for new images.")
-          //      .font(.footnote)
-          //      .foregroundStyle(.secondary)
+            // No root => show legacy editor
+            if archiveStore.archiveRootURL == nil {
 
-            if prefs.customCropPresets.isEmpty {
-                Text("No custom presets yet. Click “Add Crop” to create one.")
+                Text("Select a Picture Library Folder to manage portable custom crops.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 4)
+
+                legacyCustomPresetsEditor
+
+            } else {
+
+                // Portable editor (crops.json)
+                if cropDraftPresets.isEmpty {
+                    Text("No custom presets yet. Click “Add Crop” to create one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                } else {
+                    portableCustomPresetsEditor
+                }
+
+                Button {
+                    addBlankPortableCropPreset()
+                } label: {
+                    Label("Add Crop", systemImage: "plus")
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+
+    private var portableCustomPresetsEditor: some View {
+        VStack(spacing: 8) {
+
+            HStack {
+                Text("Crop name")
+                    .font(.caption.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Width : Height")
+                    .font(.caption.bold())
+                    .frame(width: 110, alignment: .leading)
+
+                Text("Default")
+                    .font(.caption.bold())
+                    .frame(width: 70, alignment: .center)
+
+                Spacer().frame(width: 24)
+            }
+            .padding(.bottom, 2)
+
+            Divider()
+
+            ForEach($cropDraftPresets) { $p in
+                HStack(alignment: .center, spacing: 8) {
+
+                    TextField("Preset name", text: $p.label)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 4) {
+                        TextField("W", value: $p.aspectWidth, formatter: NumberFormatter())
+                            .frame(width: 40)
+                            .textFieldStyle(.roundedBorder)
+
+                        Text(":")
+
+                        TextField("H", value: $p.aspectHeight, formatter: NumberFormatter())
+                            .frame(width: 40)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .frame(width: 110, alignment: .leading)
+
+                    Toggle("", isOn: $p.isDefaultForNewImages)
+                        .labelsHidden()
+                        .frame(width: 70, alignment: .center)
+
+                    Button(role: .destructive) {
+                        deletePortableCropPreset(id: p.id)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete this custom preset")
+                }
+            }
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+        .padding(.top, 4)
+        .onChange(of: cropDraftPresets) { _, newValue in
+            // Prevent infinite onChange churn while we normalize and assign back
+            guard !isPersistingCropDraft else { return }
+            isPersistingCropDraft = true
+
+            cropStore.persistPresetsFromUI(newValue)
+
+            // Store sanitizes + sorts; reflect it back into the editor.
+            let cleaned = cropStore.presets
+            if cleaned != cropDraftPresets {
+                cropDraftPresets = cleaned
+            }
+
+            isPersistingCropDraft = false
+        }
+    }
+
+    // Legacy editor (prefs-backed) only used when there is NO archive root selected.
+    private var legacyCustomPresetsEditor: some View {
+        Group {
+            if prefs.customCropPresets.isEmpty {
+                EmptyView()
             } else {
                 VStack(spacing: 8) {
-                    // Column headers
+
                     HStack {
                         Text("Crop name")
                             .font(.caption.bold())
@@ -659,13 +803,12 @@ struct DMPPCropPreferencesView: View {
                             .font(.caption.bold())
                             .frame(width: 70, alignment: .center)
 
-                        Spacer().frame(width: 24) // for delete icon
+                        Spacer().frame(width: 24)
                     }
                     .padding(.bottom, 2)
 
                     Divider()
 
-                    // Editable rows
                     let sortedIndices = prefs.customCropPresets.indices.sorted {
                         prefs.customCropPresets[$0].label.localizedCaseInsensitiveCompare(prefs.customCropPresets[$1].label) == .orderedAscending
                     }
@@ -673,29 +816,27 @@ struct DMPPCropPreferencesView: View {
                     ForEach(sortedIndices, id: \.self) { i in
                         HStack(alignment: .center, spacing: 8) {
 
-                            // Label
                             TextField("Preset name", text: $prefs.customCropPresets[i].label)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            // Aspect W:H
                             HStack(spacing: 4) {
                                 TextField("W", value: $prefs.customCropPresets[i].aspectWidth, formatter: NumberFormatter())
                                     .frame(width: 40)
                                     .textFieldStyle(.roundedBorder)
+
                                 Text(":")
+
                                 TextField("H", value: $prefs.customCropPresets[i].aspectHeight, formatter: NumberFormatter())
                                     .frame(width: 40)
                                     .textFieldStyle(.roundedBorder)
                             }
                             .frame(width: 110, alignment: .leading)
 
-                            // Default checkbox
                             Toggle("", isOn: $prefs.customCropPresets[i].isDefaultForNewImages)
                                 .labelsHidden()
                                 .frame(width: 70, alignment: .center)
 
-                            // Delete button
                             Button(role: .destructive) {
                                 deleteCustomPreset(prefs.customCropPresets[i])
                             } label: {
@@ -705,22 +846,61 @@ struct DMPPCropPreferencesView: View {
                             .help("Delete this custom preset")
                         }
                     }
-
                 }
                 .frame(maxWidth: 420, alignment: .leading)
                 .padding(.top, 4)
             }
-
-            Button {
-                addBlankCustomPreset()
-            } label: {
-                Label("Add Crop", systemImage: "plus")
-            }
-            .padding(.top, 6)
         }
     }
 
+    // ============================================================
+    // MARK: - [CROPS] Portable add/delete helpers
+    // ============================================================
+
+    private func addBlankPortableCropPreset() {
+        let p = DMPPCropStore.Preset(
+            id: UUID().uuidString,
+            label: "New preset",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            isDefaultForNewImages: false
+        )
+
+        cropDraftPresets.append(p)
+        cropStore.persistPresetsFromUI(cropDraftPresets)
+        cropDraftPresets = cropStore.presets
+    }
+
+    private func deletePortableCropPreset(id: String) {
+        cropDraftPresets.removeAll { $0.id == id }
+        cropStore.persistPresetsFromUI(cropDraftPresets)
+        cropDraftPresets = cropStore.presets
+    }
+
+    
+    
+    // ============================================================
+    // MARK: - Legacy custom preset helpers (prefs-backed)
+    // ============================================================
+
+    private func addBlankCustomPreset() {
+        let newPreset = DMPPUserPreferences.CustomCropPreset(
+            id: UUID(),
+            label: "New preset",
+            aspectWidth: 4,
+            aspectHeight: 5,
+            isDefaultForNewImages: false
+        )
+        prefs.customCropPresets.append(newPreset)
+    }
+
+    private func deleteCustomPreset(_ preset: DMPPUserPreferences.CustomCropPreset) {
+        prefs.customCropPresets.removeAll { $0.id == preset.id }
+    }
+
+    // ============================================================
     // MARK: - Tags section (Tags tab)
+    // ============================================================
 
     private var tagsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -738,12 +918,8 @@ struct DMPPCropPreferencesView: View {
                     ForEach($tagStore.tagRecords) { $rec in
                         TagRowView(
                             rec: $rec,
-                            onDelete: {
-                                deleteTagRecord(id: rec.id)
-                            },
-                            onPersist: {
-                                persistTagRecordsAndSyncPrefs()
-                            }
+                            onDelete: { deleteTagRecord(id: rec.id) },
+                            onPersist: { persistTagRecordsAndSyncPrefs() }
                         )
                     }
                 }
@@ -764,26 +940,19 @@ struct DMPPCropPreferencesView: View {
                 }
                 .controlSize(.small)
                 .help("Cleans up duplicates/spacing and writes tags.json")
-                
-                
-                    .padding(.top, 6)
-
+                .padding(.top, 6)
             }
+
             linkedTagsFilePanel()
         }
     }
 
     private struct TagRowView: View {
         @Binding var rec: DMPPTagStore.TagRecord
-        @State private var descExpanded: Bool = false
-        private let descCollapsedHeight: CGFloat = 80
-        private let descExpandedHeight: CGFloat = 180
-
 
         let onDelete: () -> Void
         let onPersist: () -> Void
 
-        // Local draft so typing spaces doesn't get nuked by sanitize-on-save
         @State private var nameDraft: String = ""
         @FocusState private var nameFocused: Bool
 
@@ -809,7 +978,6 @@ struct DMPPCropPreferencesView: View {
                             .focused($nameFocused)
                             .onSubmit { commitNameIfNeeded() }
                             .onChange(of: nameFocused) { _, isFocused in
-                                // When the field loses focus, commit once
                                 if !isFocused { commitNameIfNeeded() }
                             }
 
@@ -824,7 +992,6 @@ struct DMPPCropPreferencesView: View {
                     }
                 }
 
-                // Multiline description (editable even for reserved tags)
                 ZStack(alignment: .topLeading) {
                     if rec.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("Description (optional)…")
@@ -848,26 +1015,16 @@ struct DMPPCropPreferencesView: View {
             .background(.quaternary.opacity(0.25))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .onAppear {
-                // Initialize draft from record when row appears
-                if nameDraft.isEmpty {
-                    nameDraft = rec.name
-                }
+                if nameDraft.isEmpty { nameDraft = rec.name }
             }
             .onChange(of: rec.name) { _, newValue in
-                // If record name changes externally, reflect it—unless user is actively typing
-                if !nameFocused {
-                    nameDraft = newValue
-                }
+                if !nameFocused { nameDraft = newValue }
             }
-            // Keep description persisting live (your description trailing-space issue is already fixed)
             .onChange(of: rec.description) { _, _ in
                 onPersist()
             }
             .onDisappear {
-                // Defensive: commit before row goes away
-                if !isReserved {
-                    commitNameIfNeeded()
-                }
+                if !isReserved { commitNameIfNeeded() }
             }
         }
 
@@ -875,19 +1032,14 @@ struct DMPPCropPreferencesView: View {
             let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
 
-            // Only write/persist if it actually changed
             if rec.name != trimmed {
                 rec.name = trimmed
                 onPersist()
             } else if nameDraft != trimmed {
-                // User typed trailing spaces; normalize the field display without rewriting the store
                 nameDraft = trimmed
             }
         }
     }
-
-
-    // Existing helpers (keep yours as-is)
 
     private func addNewTagRecord() {
         let base = "New Tag"
@@ -917,7 +1069,6 @@ struct DMPPCropPreferencesView: View {
         persistTagRecordsAndSyncPrefs()
     }
 
-    /// Writes records to tags.json (sanitizes/keeps reserved), then syncs prefs.availableTags to names.
     private func persistTagRecordsAndSyncPrefs() {
         tagStore.persistRecordsFromUI(tagStore.tagRecords)
 
@@ -940,30 +1091,25 @@ struct DMPPCropPreferencesView: View {
         }
 
         if prefs.availableTags.isEmpty {
-            prefs.availableTags = [
-                "Do Not Display",
-                "Flagged"
-            ]
+            prefs.availableTags = ["Do Not Display", "Flagged"]
             changed = true
         }
 
         return changed
     }
 
-
+    // ============================================================
     // MARK: - Locations section (Tab)
+    // ============================================================
 
     private var locationsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
 
             HStack(alignment: .top, spacing: 12) {
 
-                // =====================================================
                 // LEFT — List + centered Add button (alphabetical)
-                // =====================================================
                 VStack(spacing: 8) {
 
-                    // Sort for display, but keep edits operating on prefs.userLocations
                     let sortedIDs: [UUID] = prefs.userLocations
                         .sorted {
                             $0.shortName
@@ -993,14 +1139,11 @@ struct DMPPCropPreferencesView: View {
                     }
                     .frame(minWidth: 220, idealWidth: 240)
                     .onAppear {
-                        // Keep selection stable / pick first when empty
-                        if selectedLocationID == nil,
-                           let firstID = sortedIDs.first {
+                        if selectedLocationID == nil, let firstID = sortedIDs.first {
                             selectedLocationID = firstID
                         }
                     }
                     .onChange(of: prefs.userLocations) { _, newList in
-                        // If selection was deleted, choose a sensible fallback (alphabetical first)
                         guard let sel = selectedLocationID else {
                             if let firstID = newList
                                 .sorted(by: {
@@ -1040,9 +1183,7 @@ struct DMPPCropPreferencesView: View {
                     .padding(.bottom, 4)
                 }
 
-                // =====================================================
                 // RIGHT — Detail editor + delete (selected only)
-                // =====================================================
                 GroupBox {
                     if let idx = selectedLocationIndex() {
                         let locBinding = $prefs.userLocations[idx]
@@ -1122,15 +1263,12 @@ struct DMPPCropPreferencesView: View {
                                 }
                             }
 
-                            // =====================================================
                             // Linked file (advanced)
-                            // =====================================================
                             GroupBox {
                                 DisclosureGroup("Linked file (advanced)") {
                                     VStack(alignment: .leading, spacing: 10) {
                                         if let url = locationStore.locationsFileURL() {
 
-                                            // “Fingerprint chip” style: icon + filename capsule
                                             HStack(spacing: 10) {
                                                 Image(systemName: "touchid")
                                                     .foregroundStyle(.secondary)
@@ -1154,15 +1292,9 @@ struct DMPPCropPreferencesView: View {
                                                 .lineLimit(2)
 
                                             HStack(spacing: 10) {
-                                                Button("Copy file name") {
-                                                    copyToClipboard(url.lastPathComponent)
-                                                }
-                                                Button("Copy full path") {
-                                                    copyToClipboard(url.path)
-                                                }
-                                                Button("Show in Finder") {
-                                                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                                                }
+                                                Button("Copy file name") { copyToClipboard(url.lastPathComponent) }
+                                                Button("Copy full path") { copyToClipboard(url.path) }
+                                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                                             }
                                             .controlSize(.small)
 
@@ -1196,137 +1328,6 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
-
-
-
-    // MARK: - Helpers
-
-    private func addBlankCustomPreset() {
-        let newPreset = DMPPUserPreferences.CustomCropPreset(
-            id: UUID(),
-            label: "New preset",
-            aspectWidth: 4,
-            aspectHeight: 5,
-            isDefaultForNewImages: false
-        )
-        prefs.customCropPresets.append(newPreset)
-    }
-
-    private func deleteCustomPreset(_ preset: DMPPUserPreferences.CustomCropPreset) {
-        prefs.customCropPresets.removeAll { $0.id == preset.id }
-    }
-
-    private func locationBinding(for id: UUID) -> Binding<DMPPUserLocation>? {
-        guard let idx = prefs.userLocations.firstIndex(where: { $0.id == id }) else { return nil }
-        return $prefs.userLocations[idx]
-    }
-
-
-
-    private func deleteLocation(id: UUID) {
-        guard let idx = prefs.userLocations.firstIndex(where: { $0.id == id }) else { return }
-
-        prefs.userLocations.remove(at: idx)
-
-        // Choose a new selection (same index if possible, otherwise previous, otherwise nil)
-        if prefs.userLocations.isEmpty {
-            selectedLocationID = nil
-        } else {
-            let nextIndex = min(idx, prefs.userLocations.count - 1)
-            selectedLocationID = prefs.userLocations[nextIndex].id
-        }
-    }
-
-    private struct LocationDetailEditor: View {
-        @Binding var loc: DMPPUserLocation
-
-        var onDelete: () -> Void
-        var nonOptional: (Binding<String?>) -> Binding<String>
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 12) {
-
-                // Top row: short + description + delete
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Short Name")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("", text: $loc.shortName)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    .frame(maxWidth: 280)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Description")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("", text: nonOptional($loc.description))
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        onDelete()
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                Divider()
-
-                // Address fields
-                VStack(alignment: .leading, spacing: 10) {
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Street Address")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        TextField("", text: nonOptional($loc.streetAddress))
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("City")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("", text: nonOptional($loc.city))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        .frame(width: 160)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("State")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("", text: nonOptional($loc.state))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        .frame(width: 80)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Country")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            TextField("", text: nonOptional($loc.country))
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        .frame(width: 160)
-
-                        Spacer()
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(12)
-            .background(.quaternary.opacity(0.25))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-    }
     private func selectedLocationIndex() -> Int? {
         guard let id = selectedLocationID else { return nil }
         return prefs.userLocations.firstIndex(where: { $0.id == id })
@@ -1340,16 +1341,16 @@ struct DMPPCropPreferencesView: View {
             streetAddress: nil,
             city: nil,
             state: nil,
-            country: defaultCountryName(),   // <- default here
-            
+            country: defaultCountryName()
         )
         prefs.userLocations.append(newLoc)
         selectedLocationID = newLoc.id
-        
+
         DispatchQueue.main.async {
             focusedField = .locationShortName(newLoc.id)
         }
     }
+
     private func locationSubtitle(_ loc: DMPPUserLocation) -> String {
         let desc = (loc.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !desc.isEmpty { return desc }
@@ -1358,7 +1359,6 @@ struct DMPPCropPreferencesView: View {
         let state = (loc.state ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let country = (loc.country ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Prefer "City, ST" then fall back to "Country" then "—"
         if !city.isEmpty && !state.isEmpty { return "\(city), \(state)" }
         if !city.isEmpty { return city }
         if !state.isEmpty { return state }
@@ -1368,15 +1368,12 @@ struct DMPPCropPreferencesView: View {
     }
 
     private func defaultCountryName() -> String? {
-        // macOS Region setting (not GPS)
         if let code = Locale.current.region?.identifier, !code.isEmpty {
-            // Convert "US" -> "United States" (localized)
             return Locale.current.localizedString(forRegionCode: code) ?? code
         }
         return nil
     }
 
-    
     private func deleteSelectedLocation() {
         guard let idx = selectedLocationIndex() else { return }
 
@@ -1388,32 +1385,12 @@ struct DMPPCropPreferencesView: View {
             return
         }
 
-        // Pick next item if possible; otherwise previous; otherwise first
         let newIndex = min(idx, prefs.userLocations.count - 1)
         selectedLocationID = prefs.userLocations[newIndex].id
 
-        // sanity: if somehow still pointing at deleted
         if selectedLocationID == deletedID {
             selectedLocationID = prefs.userLocations.first?.id
         }
-    }
-
-    
-    private func addBlankUserLocation() {
-        let newLoc = DMPPUserLocation(
-            id: UUID(),
-            shortName: "New location",
-            description: nil,
-            streetAddress: nil,
-            city: nil,
-            state: nil,
-            country: nil
-        )
-        prefs.userLocations.append(newLoc)
-    }
-
-    private func deleteUserLocation(_ loc: DMPPUserLocation) {
-        prefs.userLocations.removeAll { $0.id == loc.id }
     }
 
     private func nonOptional(_ binding: Binding<String?>) -> Binding<String> {
@@ -1426,3 +1403,4 @@ struct DMPPCropPreferencesView: View {
         )
     }
 }
+

@@ -430,6 +430,7 @@ private extension URL {
 struct DMPPCropEditorPane: View {
 
     @Environment(\.openSettings) private var openSettings
+    @EnvironmentObject var cropStore: DMPPCropStore
 
     /// For the crop editor we only need read access to the view model.
     var vm: DMPPImageEditorViewModel
@@ -837,9 +838,43 @@ struct DMPPCropEditorPane: View {
                 // Custom Presets
                 // ---------------------------------------------------------
                 Menu("Custom Presets") {
-                    if customPresets.isEmpty {
+
+                    // Prefer portable registry presets when available.
+                    let portablePresets = cropStore.presets
+                    let _ = print("DMPP Custom Presets source: portable=\(portablePresets.count) legacy=\(customPresets.count)")
+
+
+                    if !portablePresets.isEmpty {
+
+                        ForEach(portablePresets, id: \.id) { preset in
+                            let presetIDString = preset.id
+                            let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
+
+                            // Prevent duplicates using durable link first.
+                            let alreadyExists = vm.metadata.virtualCrops.contains { crop in
+                                if crop.sourceCustomPresetID == presetIDString { return true }
+                                return crop.aspectRatio == presetRatio && crop.label == preset.label
+                            }
+
+                            Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
+                                // Step 4 will add this VM method.
+                                vm.addCropFromPortablePreset(
+                                    presetID: presetIDString,
+                                    label: preset.label,
+                                    aspectWidth: preset.aspectWidth,
+                                    aspectHeight: preset.aspectHeight
+                                )
+                            }
+                            .disabled(alreadyExists)
+                        }
+
+                    } else if customPresets.isEmpty {
+
                         Text("No custom presets yet")
+
                     } else {
+
+                        // Legacy fallback (prefs-backed) until we fully migrate.
                         ForEach(customPresets) { preset in
                             let presetIDString = preset.id.uuidString
                             let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
@@ -861,6 +896,7 @@ struct DMPPCropEditorPane: View {
 
                     Button("Manage Custom Presets…") { openSettings() }
                 }
+
             }
             .padding(.top, 2)
         }

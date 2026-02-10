@@ -343,6 +343,32 @@ class DMPPImageEditorViewModel {
         )
     }
 
+    /// Create a crop from a portable registry preset (crops.json).
+    /// De-dupes by numeric aspect ratio (same behavior as legacy custom presets).
+    func addCropFromPortablePreset(
+        presetID: String,
+        label: String,
+        aspectWidth: Int,
+        aspectHeight: Int
+    ) {
+        // Don’t create duplicate crops for a single image (ratio-only).
+        if hasCrop(aspectWidth: aspectWidth, aspectHeight: aspectHeight) { return }
+
+        let rect = defaultRect(
+            forAspectWidth: aspectWidth,
+            aspectHeight: aspectHeight
+        )
+
+        addCrop(
+            label: label,
+            aspectWidth: aspectWidth,
+            aspectHeight: aspectHeight,
+            rect: rect,
+            sourceCustomPresetID: presetID
+        )
+    }
+
+    
     /// [CR-PRESET-CUSTOM-NAMED] Custom preset crop (internal convenience)
     private func addPresetCustomCrop(
         label: String,
