@@ -5,7 +5,22 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
+// ================================================================
+// DMPPImageEditorView.swift
 // dMPP-2025-11-21-NAV2+UI — Folder navigation + crops + dMPMS sidecar read/write
+//
+// Purpose
+// - This is the main “editor screen” for dMagy Picture Prep.
+// - Left pane: crop chips + image preview + crop creation menu (including portable custom presets).
+// - Right pane: metadata form (title/description/date/tags/people/location).
+// - Bottom bar: save + navigation + export crop.
+//
+// Data / Storage Notes
+// - Per-photo metadata and crops are stored in `<photo>.dmpms.json` sidecar files.
+// - Custom crop preset *definitions* are stored in the portable archive at:
+//     <Picture Library Folder>/dMagy Portable Archive Data/Crops/crops.json
+// - This view reads portable presets via `DMPPCropStore` and can create crops that reference them.
+// ================================================================
 
 // MARK: - Editor Root View
 
@@ -465,16 +480,6 @@ struct DMPPCropEditorPane: View {
         !peopleInPhotoForHeadshots.isEmpty
     }
 
-    /// Convenience accessor: current saved custom presets.
-    /// [PREFS-REFRESH] Tie to refresh token so Menu items update after Settings edits.
-    private var customPresets: [DMPPUserPreferences.CustomCropPreset] {
-        _ = customPresetsRefreshToken
-        return DMPPUserPreferences
-            .load()
-            .customCropPresets
-            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-    }
-
     // [PREFS-REFRESH] Forces the New Crop menu to rebuild after Settings changes.
     @State private var customPresetsRefreshToken: Int = 0
 
@@ -532,8 +537,17 @@ struct DMPPCropEditorPane: View {
 
         let cropLabel = crop.label.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Find a matching custom preset by label + ratio
-        for preset in customPresets {
+        // Portable-only custom preset matching:
+        // Try durable link first (sourceCustomPresetID), fall back to label+ratio.
+        let portablePresets = cropStore.presets
+
+        if let sourceID = crop.sourceCustomPresetID,
+           portablePresets.contains(where: { $0.id == sourceID }) {
+            // Keep existing display behavior: Label (W:H)
+            return "\(cropLabel) (\(ratio))"
+        }
+
+        for preset in portablePresets {
             let presetLabel = preset.label.trimmingCharacters(in: .whitespacesAndNewlines)
             let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
 
@@ -835,17 +849,15 @@ struct DMPPCropEditorPane: View {
                     .disabled(vm.hasPresetSquare1x1)
 
                 // ---------------------------------------------------------
-                // Custom Presets
+                // Custom Presets (portable only)
                 // ---------------------------------------------------------
                 Menu("Custom Presets") {
 
-                    // Prefer portable registry presets when available.
                     let portablePresets = cropStore.presets
-                    let _ = print("DMPP Custom Presets source: portable=\(portablePresets.count) legacy=\(customPresets.count)")
 
-
-                    if !portablePresets.isEmpty {
-
+                    if portablePresets.isEmpty {
+                        Text("No custom presets yet")
+                    } else {
                         ForEach(portablePresets, id: \.id) { preset in
                             let presetIDString = preset.id
                             let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
@@ -856,8 +868,7 @@ struct DMPPCropEditorPane: View {
                                 return crop.aspectRatio == presetRatio && crop.label == preset.label
                             }
 
-                            Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
-                                // Step 4 will add this VM method.
+                            Button("\(preset.label) (\(presetRatio))") {
                                 vm.addCropFromPortablePreset(
                                     presetID: presetIDString,
                                     label: preset.label,
@@ -867,36 +878,11 @@ struct DMPPCropEditorPane: View {
                             }
                             .disabled(alreadyExists)
                         }
-
-                    } else if customPresets.isEmpty {
-
-                        Text("No custom presets yet")
-
-                    } else {
-
-                        // Legacy fallback (prefs-backed) until we fully migrate.
-                        ForEach(customPresets) { preset in
-                            let presetIDString = preset.id.uuidString
-                            let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
-
-                            // Prevent duplicates using durable link first.
-                            let alreadyExists = vm.metadata.virtualCrops.contains { crop in
-                                if crop.sourceCustomPresetID == presetIDString { return true }
-                                return crop.aspectRatio == presetRatio && crop.label == preset.label
-                            }
-
-                            Button("\(preset.label) (\(preset.aspectWidth):\(preset.aspectHeight))") {
-                                vm.addCrop(fromCustomPreset: preset)
-                            }
-                            .disabled(alreadyExists)
-                        }
                     }
 
                     Divider()
-
                     Button("Manage Custom Presets…") { openSettings() }
                 }
-
             }
             .padding(.top, 2)
         }
@@ -1038,10 +1024,6 @@ struct DMPPCropEditorPane: View {
         return (w, h)
     }
 }
-
-
-
-
 
 // MARK: - Right Pane (Metadata)
 
@@ -1203,6 +1185,106 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
+    private var tagsSection: some View {
+        GroupBox("Tags") {
+            VStack(alignment: .leading, spacing: 10) {
+
+                if availableTags.isEmpty {
+                    Text("No tags defined. Use Settings to add tags.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    let columns = [
+                        GridItem(.flexible(), alignment: .leading),
+                        GridItem(.flexible(), alignment: .leading)
+                    ]
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
+                        ForEach(availableTags, id: \.self) { tag in
+                            Toggle(tag, isOn: bindingForTag(tag))
+                                .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+
+                let unknownTags = unknownTagsInCurrentFile()
+
+                if !unknownTags.isEmpty {
+                    Divider().padding(.vertical, 2)
+
+                    Text("Tags in this file not in Settings")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(unknownTags, id: \.self) { t in
+                            Text(t)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var peopleSection: some View {
+        GroupBox("People") {
+            VStack(alignment: .leading, spacing: 8) {
+
+                Text("Check people in this photo left to right, row by row")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                peopleSummaryBlock
+
+                HStack(spacing: 10) {
+                    Button("Add one-off person…") {
+                        unknownLabelDraft = "One-off person"
+                        showAddUnknownSheet = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Button("Start next row") {
+                        let before = activeRowIndex
+                        let maxRow = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
+                        activeRowIndex = max(before, maxRow) + 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Spacer()
+                }
+                .padding(.top, 6)
+
+                Divider().padding(.vertical, 6)
+
+                DisclosureGroup("Advanced") {
+                    advancedPeopleBlock
+                        .padding(.top, 2)
+                }
+                .font(.caption)
+
+                if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
+                    Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .padding(.top, 2)
+                }
+
+                Divider().padding(.vertical, 4)
+
+                checklistBlock
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+    }
+
     // cp-2025-12-26-LOC-UI2(SECTION)
     private var locationSection: some View {
         GroupBox("Location") {
@@ -1340,107 +1422,7 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
-    private var tagsSection: some View {
-        GroupBox("Tags") {
-            VStack(alignment: .leading, spacing: 10) {
-
-                if availableTags.isEmpty {
-                    Text("No tags defined. Use Settings to add tags.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else {
-                    let columns = [
-                        GridItem(.flexible(), alignment: .leading),
-                        GridItem(.flexible(), alignment: .leading)
-                    ]
-
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                        ForEach(availableTags, id: \.self) { tag in
-                            Toggle(tag, isOn: bindingForTag(tag))
-                                .toggleStyle(.checkbox)
-                        }
-                    }
-                }
-
-                let unknownTags = unknownTagsInCurrentFile()
-
-                if !unknownTags.isEmpty {
-                    Divider().padding(.vertical, 2)
-
-                    Text("Tags in this file not in Settings")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(unknownTags, id: \.self) { t in
-                            Text(t)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-        }
-    }
-
-    private var peopleSection: some View {
-        GroupBox("People") {
-            VStack(alignment: .leading, spacing: 8) {
-
-                Text("Check people in this photo left to right, row by row")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                peopleSummaryBlock
-
-                HStack(spacing: 10) {
-                    Button("Add one-off person…") {
-                        unknownLabelDraft = "One-off person"
-                        showAddUnknownSheet = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-
-                    Button("Start next row") {
-                        let before = activeRowIndex
-                        let maxRow = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
-                        activeRowIndex = max(before, maxRow) + 1
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-
-                    Spacer()
-                }
-                .padding(.top, 6)
-
-                Divider().padding(.vertical, 6)
-
-                DisclosureGroup("Advanced") {
-                    advancedPeopleBlock
-                        .padding(.top, 2)
-                }
-                .font(.caption)
-
-                if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
-                    Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .padding(.top, 2)
-                }
-
-                Divider().padding(.vertical, 4)
-
-                checklistBlock
-                    .padding(.top, 4)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
-        }
-    }
-
-    // MARK: Sub-blocks
+    // MARK: Sub-blocks (these are the ones your errors complain about)
 
     @ViewBuilder
     private var peopleSummaryBlock: some View {
@@ -1525,60 +1507,6 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func snapshotRow(_ snap: DmpmsPeopleSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(snap.createdAtISO8601)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Restore") {
-                    restoreSnapshot(id: snap.id)
-                    activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-                Button(role: .destructive) {
-                    deleteSnapshot(id: snap.id)
-                } label: {
-                    Text("Delete")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            let rows = peopleRowsForSnapshot(snap)
-            if rows.isEmpty {
-                Text("No people recorded in this snapshot.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(rows, id: \.rowIndex) { row in
-                        Text("\(rowLabel(for: row.rowIndex)): \(row.line)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-
-            TextField(
-                "",
-                text: Binding(
-                    get: { snap.note },
-                    set: { updateSnapshotNote(id: snap.id, note: $0) }
-                )
-            )
-            .textFieldStyle(.roundedBorder)
         }
     }
 
@@ -1726,7 +1654,64 @@ struct DMPPMetadataFormPane: View {
         .padding()
         .frame(minWidth: 520)
     }
+
+    // MARK: Snapshot row renderer
+
+    @ViewBuilder
+    private func snapshotRow(_ snap: DmpmsPeopleSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(snap.createdAtISO8601)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Restore") {
+                    restoreSnapshot(id: snap.id)
+                    activeRowIndex = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button(role: .destructive) {
+                    deleteSnapshot(id: snap.id)
+                } label: {
+                    Text("Delete")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            let rows = peopleRowsForSnapshot(snap)
+            if rows.isEmpty {
+                Text("No people recorded in this snapshot.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(rows, id: \.rowIndex) { row in
+                        Text("\(rowLabel(for: row.rowIndex)): \(row.line)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            TextField(
+                "",
+                text: Binding(
+                    get: { snap.note },
+                    set: { updateSnapshotNote(id: snap.id, note: $0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+        }
+    }
 }
+
 
 // MARK: - Helpers (Metadata Pane)
 
@@ -2114,7 +2099,6 @@ private extension DMPPMetadataFormPane {
                             roleHint: nil
                         )
 
-
                         vm.metadata.peopleV2.append(newRow)
                     }
                 } else {
@@ -2134,6 +2118,8 @@ private extension DMPPMetadataFormPane {
 // MARK: - Navigation + Sidecar Helpers
 
 extension DMPPImageEditorView {
+  
+
     // (Everything below here is unchanged from your version except for
     // being left as-is — your crop + metadata IO pipeline stays intact.)
 
