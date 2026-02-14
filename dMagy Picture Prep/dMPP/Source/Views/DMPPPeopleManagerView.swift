@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 import AppKit
 
 // cp-2025-12-18-34(PEOPLE-MANAGER-FULLFILE)
@@ -37,6 +38,10 @@ struct DMPPPeopleManagerView: View {
     @State private var deleteTargetPersonID: String? = nil
     
     @State private var showLinkedFileDetails: Bool = false
+   
+    
+
+
 
 
 
@@ -71,10 +76,24 @@ struct DMPPPeopleManagerView: View {
 
         mainContent
             .alert("Delete person?", isPresented: $showDeleteConfirm) {
-                // unchanged
+
+                Button("Delete", role: .destructive) {
+                    guard let pid = deleteTargetPersonID else { return }
+
+                    deletePerson(personID: pid)
+
+                    deleteTargetPersonID = nil
+                    showLinkedFileDetails = false
+                }
+
+                Button("Cancel", role: .cancel) {
+                    deleteTargetPersonID = nil
+                }
+
             } message: {
-                // unchanged
+                Text("This will remove the person and all identity versions for them. This cannot be undone.")
             }
+
             .onAppear(perform: handleAppear)
 
             // [IDS] Point the IdentityStore at the currently selected Picture Library Folder
@@ -375,13 +394,6 @@ struct DMPPPeopleManagerView: View {
                     .padding(.top, 8)
 
                     
-                    
-                    // ------------------------------------------------------------
-                    // [PEOPLE] Linked JSON file (fingerprint chip + copy/reveal)
-                    // ------------------------------------------------------------
-                    if let pid = selectedPersonID {
-                        linkedPersonFilePanel(personID: pid)
-                    }
 
                     Spacer()
                 }
@@ -390,71 +402,7 @@ struct DMPPPeopleManagerView: View {
         }
     }
 
-    // ------------------------------------------------------------
-    // [PEOPLE] Linked file panel (portable People/person_<id>.json)
-    // ------------------------------------------------------------
-    @ViewBuilder
-    private func linkedPersonFilePanel(personID: String) -> some View {
-        GroupBox("Files") {
-            DisclosureGroup(isExpanded: $showLinkedFileDetails) {
 
-                VStack(alignment: .leading, spacing: 10) {
-
-                    if let url = identityStore.personRecordURL(for: personID) {
-
-                        // “Fingerprint chip” style: icon + filename capsule
-                        HStack(spacing: 10) {
-                            Image(systemName: "touchid")
-                                .foregroundStyle(.secondary)
-
-                            Text(url.lastPathComponent)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.quaternary.opacity(0.6))
-                                .clipShape(Capsule())
-
-                            Spacer()
-                        }
-
-                        Text(url.path)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-
-                        HStack(spacing: 10) {
-                            Button("Copy file name") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url.lastPathComponent, forType: .string)
-                            }
-
-                            Button("Copy full path") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url.path, forType: .string)
-                            }
-
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
-                        }
-                        .controlSize(.small)
-
-                    } else {
-                        Text("Picture Library Folder isn’t configured yet, so the linked file can’t be shown.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 8)
-
-            } label: {
-                Label("Linked file (advanced)", systemImage: "doc.text.magnifyingglass")
-                    .font(.callout.weight(.semibold))
-            }
-            .padding(8)
-        }
-    }
 
 
 
@@ -878,6 +826,47 @@ struct DMPPPeopleManagerView: View {
 
         return Int.min
     }
+    
+    // ============================================================
+    // MARK: - Helpers (Fingerprint chip + clipboard)
+    // ============================================================
+
+    private func copyToClipboard(_ s: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(s, forType: .string)
+    }
+
+    private func fingerprint(for url: URL) -> String {
+        let input = Data(url.path.utf8)
+        let digest = SHA256.hash(data: input)
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(12)).uppercased()
+    }
+
+    @ViewBuilder
+    private func fingerprintChip(label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label + ":")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Text(value)
+                .font(.caption2.monospaced())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .textSelection(.enabled)
+        }
+    }
+
 }
 
 #Preview {

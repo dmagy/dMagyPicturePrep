@@ -22,7 +22,9 @@ import Combine
 
 final class DMPPCropStore: ObservableObject {
 
+    // ============================================================
     // MARK: - Model
+    // ============================================================
 
     struct Preset: Codable, Identifiable, Equatable, Hashable {
         /// Store as UUID string for portability and stability.
@@ -39,13 +41,17 @@ final class DMPPCropStore: ObservableObject {
         var isDefaultForNewImages: Bool = false
     }
 
+    // ============================================================
     // MARK: - Published state
+    // ============================================================
 
     @Published private(set) var presets: [Preset] = []
 
     private var archiveRootURL: URL? = nil
 
+    // ============================================================
     // MARK: - Configure
+    // ============================================================
 
     func configureForArchiveRoot(_ root: URL?, fallbackPresets: [Preset]? = nil) {
         archiveRootURL = root
@@ -72,7 +78,9 @@ final class DMPPCropStore: ObservableObject {
         }
     }
 
+    // ============================================================
     // MARK: - Persist from UI
+    // ============================================================
 
     func persistPresetsFromUI(_ uiPresets: [Preset]) {
         guard let root = archiveRootURL else { return }
@@ -83,7 +91,43 @@ final class DMPPCropStore: ObservableObject {
         writeCropsFile(url: url, presets: cleaned)
     }
 
+    // ============================================================
+    // MARK: - Migration (legacy prefs → portable)
+    // ============================================================
+
+  
+    func migrateLegacyPrefsIfNeeded(legacyPresets: [DMPPUserPreferences.CustomCropPreset]) {
+
+        // Must be configured first (otherwise persist is a no-op)
+        guard archiveRootURL != nil else { return }
+
+        // If portable already has presets, do nothing.
+        guard presets.isEmpty else { return }
+
+        // If legacy is empty, do nothing.
+        guard !legacyPresets.isEmpty else { return }
+
+        let converted: [Preset] = legacyPresets.map { lp in
+            Preset(
+                id: lp.id.uuidString,
+                label: lp.label,
+                aspectWidth: lp.aspectWidth,
+                aspectHeight: lp.aspectHeight,
+                isDefaultForNewImages: lp.isDefaultForNewImages
+            )
+        }
+
+        persistPresetsFromUI(converted)
+
+        // Clear legacy so we don’t keep carrying two sources.
+        var prefs = DMPPUserPreferences.load()
+        prefs.customCropPresets.removeAll()
+        prefs.save()
+    }
+
+    // ============================================================
     // MARK: - URLs (for “Linked file (advanced)”)
+    // ============================================================
 
     func cropsFileURL() -> URL? {
         guard let root = archiveRootURL else { return nil }
@@ -100,7 +144,9 @@ final class DMPPCropStore: ObservableObject {
         cropsFolderURL(forRoot: root).appendingPathComponent("crops.json")
     }
 
+    // ============================================================
     // MARK: - Read / Write
+    // ============================================================
 
     private struct WrappedCrops: Codable {
         let presets: [Preset]
@@ -140,7 +186,9 @@ final class DMPPCropStore: ObservableObject {
         }
     }
 
+    // ============================================================
     // MARK: - Normalize
+    // ============================================================
 
     private func sanitize(_ incoming: [Preset]) -> [Preset] {
 
@@ -198,67 +246,5 @@ final class DMPPCropStore: ObservableObject {
 
         return cleaned
     }
-    
-    func migrateLegacyPrefsIfNeeded(legacyPresets: [DMPPUserPreferences.CustomCropPreset]) {
-
-        // Must be configured first (otherwise persist is a no-op)
-        guard archiveRootURL != nil else { return }
-
-        // If portable already has presets, do nothing.
-        guard presets.isEmpty else { return }
-
-        // If legacy is empty, do nothing.
-        guard !legacyPresets.isEmpty else { return }
-
-        let converted: [Preset] = legacyPresets.map { lp in
-            Preset(
-                id: lp.id.uuidString,
-                label: lp.label,
-                aspectWidth: lp.aspectWidth,
-                aspectHeight: lp.aspectHeight,
-                isDefaultForNewImages: lp.isDefaultForNewImages
-            )
-        }
-
-        persistPresetsFromUI(converted)
-
-        var prefs = DMPPUserPreferences.load()
-        prefs.customCropPresets.removeAll()
-        prefs.save()
-    }
-    /// Merge legacy prefs into portable when BOTH have data, then clear legacy.
-    /// This prevents "portable=1 legacy=1" lasting forever.
-    func mergeLegacyPrefsIntoPortableThenClear(legacyPresets: [DMPPUserPreferences.CustomCropPreset]) {
-
-        // Must be configured first (otherwise persist is a no-op)
-        guard archiveRootURL != nil else { return }
-
-        // If legacy is empty, nothing to do.
-        guard !legacyPresets.isEmpty else { return }
-
-        // If portable is empty, let migrateLegacyPrefsIfNeeded handle seeding instead.
-        guard !presets.isEmpty else { return }
-
-        // Convert legacy → portable model
-        let converted: [Preset] = legacyPresets.map { lp in
-            Preset(
-                id: lp.id.uuidString,
-                label: lp.label,
-                aspectWidth: lp.aspectWidth,
-                aspectHeight: lp.aspectHeight,
-                isDefaultForNewImages: lp.isDefaultForNewImages
-            )
-        }
-
-        // Merge + de-dupe using your store sanitize() by just persisting combined list
-        let combined = presets + converted
-        persistPresetsFromUI(combined)
-
-        // Clear legacy so we don’t keep reporting both sources
-        var prefs = DMPPUserPreferences.load()
-        prefs.customCropPresets.removeAll()
-        prefs.save()
-    }
-
-
 }
+

@@ -6,9 +6,8 @@
 // What this file owns (high level)
 // - A multi-tab Settings view (Crops, Locations, People, Tags, General).
 // - Crop defaults UI (built-in presets toggles).
-// - Custom crop preset management:
-//     - Portable registry (preferred): crops.json in the Picture Library Folder
-//     - Legacy prefs (fallback): UserDefaults via DMPPUserPreferences
+// - Custom crop preset management (portable only):
+//     - crops.json in the Picture Library Folder (dMagy Portable Archive Data)
 //
 // Inputs
 // - archiveStore (EnvironmentObject): provides the active Picture Library Folder (archive root)
@@ -18,29 +17,15 @@
 // - prefs (State): cached UserDefaults preferences (DMPPUserPreferences.load())
 //
 // Outputs (side effects)
-// - Writes UserDefaults when prefs change (default built-in crops; legacy custom presets fallback)
-// - Writes portable registry files when an archive root is selected:
-//     - Crops/crops.json via cropStore
-//     - Tags/tags.json via tagStore
-//     - Locations/locations.json via locationStore
-//
-// Data flow / source of truth rules
-// - Built-in default crop selections live in UserDefaults (prefs.defaultCropPresets).
-// - Custom crop presets should be portable when an archive root exists.
-//   Legacy custom presets exist only as a fallback or migration source.
-// - When a Picture Library Folder is selected, portable registries are configured
-//   onAppear and whenever archiveStore.archiveRootURL changes.
-//
-// Debug notes
-// - “DMPP Custom Presets source …” logs are only to confirm which source is active.
+// - Writes UserDefaults when built-in crop defaults change (prefs.defaultCropPresets).
+// - Writes portable registry files when an archive root is selected.
 // ================================================================
-
 
 import SwiftUI
 import AppKit
 import CryptoKit
 
-// cp-2025-12-29-02(SETTINGS-TABS-HOSTFIX)
+// cp-2026-02-13-01(SETTINGS-CROPS-PORTABLE-ONLY)
 
 struct DMPPCropPreferencesView: View {
 
@@ -59,27 +44,18 @@ struct DMPPCropPreferencesView: View {
 
     @StateObject private var tagStore = DMPPTagStore()
     @StateObject private var locationStore = DMPPLocationStore()
+    @EnvironmentObject var identityStore: DMPPIdentityStore
 
-    @State private var showLinkedFileDetails: Bool = false
-    @State private var showLinkedTagsFileDetails: Bool = false
 
-    // [CROPS-PORTABLE-DRAFT] Editable working copy for the Settings UI (portable registry)
+
+    // [CROPS-PORTABLE] Editable working copy for the Settings UI (portable registry)
     @State private var cropDraftPresets: [DMPPCropStore.Preset] = []
 
     // [CROPS-PORTABLE-LOCK] Prevent recursive onChange loops while persisting/sanitizing.
     @State private var isPersistingCropDraft: Bool = false
-
-    // ============================================================
-    // MARK: - [DEBUG] Custom Presets source indicator
-    // ============================================================
-
-    private var debugCustomPresetSourceLine: String {
-        let portableCount = cropStore.presets.count
-        let legacyCount = DMPPUserPreferences.load().customCropPresets.count
-        return "DMPP Custom Presets source: portable=\(portableCount > 0 ? 1 : 0) legacy=\(legacyCount > 0 ? 1 : 0)"
-    }
-
     
+    @State private var showLinkedCropsFileDetails: Bool = false
+
     private enum FocusField: Hashable {
         case locationShortName(UUID)
     }
@@ -216,6 +192,9 @@ struct DMPPCropPreferencesView: View {
 
                 Divider()
 
+                // =====================================================
+                // Picture Library Folder
+                // =====================================================
                 GroupBox("Picture Library Folder") {
                     VStack(alignment: .leading, spacing: 10) {
 
@@ -243,42 +222,6 @@ struct DMPPCropPreferencesView: View {
                             }
                             .padding(.top, 2)
 
-                            DisclosureGroup(isExpanded: $showLinkedFileDetails) {
-                                let portable = root.appendingPathComponent("dMagy Portable Archive Data", isDirectory: true)
-
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Divider().padding(.vertical, 2)
-
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Portable Archive Data (advanced)")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-
-                                        Text(portable.path)
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .textSelection(.enabled)
-                                            .lineLimit(2)
-                                    }
-
-                                    HStack(spacing: 12) {
-                                        Button("Show Portable Data in Finder") {
-                                            NSWorkspace.shared.activateFileViewerSelecting([portable])
-                                        }
-
-                                        Button("Copy Path") {
-                                            NSPasteboard.general.clearContents()
-                                            NSPasteboard.general.setString(portable.path, forType: .string)
-                                        }
-                                    }
-                                }
-                                .padding(.top, 6)
-                            } label: {
-                                Label("Linked files (advanced)", systemImage: "doc.text.magnifyingglass")
-                                    .font(.callout.weight(.semibold))
-                            }
-                            .padding(.top, 6)
-
                         } else {
 
                             Text("No Picture Library Folder is selected yet.")
@@ -293,11 +236,56 @@ struct DMPPCropPreferencesView: View {
                     .padding(10)
                 }
 
+                // =====================================================
+                // Diagnostics (Registry files)
+                // =====================================================
+                GroupBox("Diagnostics") {
+                    VStack(alignment: .leading, spacing: 10) {
+
+                        // -----------------------------
+                        // Registry files (match tab icons)
+                        // -----------------------------
+
+                        linkedRegistryFileRow(
+                            title: "Crops registry",
+                            systemImage: "crop",
+                            url: cropStore.cropsFileURL()
+                        )
+
+                        Divider()
+
+                        linkedRegistryFileRow(
+                            title: "Locations registry",
+                            systemImage: "mappin.and.ellipse",
+                            url: locationStore.locationsFileURL()
+                        )
+
+                        Divider()
+
+                        linkedRegistryFolderRow(
+                            title: "People registry",
+                            systemImage: "person.2",
+                            folder: identityStore.peopleFolderURL()
+                        )
+
+                        Divider()
+
+                        linkedRegistryFileRow(
+                            title: "Tags registry",
+                            systemImage: "tag",
+                            url: tagStore.tagsFileURL()
+                        )
+                    }
+                    .padding(.top, 6)
+                }
+
+
                 Spacer(minLength: 0)
             }
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .tabItem { Label("General", systemImage: "gearshape") }
+
         }
         .frame(
             minWidth: 820,
@@ -315,11 +303,6 @@ struct DMPPCropPreferencesView: View {
 
         // [PREFS-SAVE] Save when built-in defaults change
         .onChange(of: prefs.defaultCropPresets) { _, _ in
-            prefs.save()
-        }
-
-        // [PREFS-SAVE] Save when legacy custom presets change (only edited when NO archive root)
-        .onChange(of: prefs.customCropPresets) { _, _ in
             prefs.save()
         }
 
@@ -349,10 +332,15 @@ struct DMPPCropPreferencesView: View {
 
     private func configureForCurrentArchiveRoot() {
 
-        // Reload prefs (keeps Settings window honest if other screens changed UserDefaults)
-        prefs = DMPPUserPreferences.load()
+
 
         let root = archiveStore.archiveRootURL
+        
+        // -------------------------------
+        // PEOPLE
+        // -------------------------------
+        identityStore.configureForArchiveRoot(root)
+
 
         // -------------------------------
         // TAGS
@@ -368,48 +356,14 @@ struct DMPPCropPreferencesView: View {
         syncLocationsFromPortableIntoPrefs()
 
         // -------------------------------
-        // CROPS (portable registry)
+        // CROPS (portable only)
         // -------------------------------
         guard let root else {
-            // No archive root: portable registries are unavailable.
-            // Show legacy custom presets editor only.
             cropDraftPresets = []
             return
         }
 
-        // 1) Load portable presets (or seed empty)
         cropStore.configureForArchiveRoot(root, fallbackPresets: [])
-
-        // 2) One-time migration from legacy prefs if portable is empty
-        //    (this function also clears legacy to prevent “portable=1 legacy=1” forever)
-        cropStore.migrateLegacyPrefsIfNeeded(legacyPresets: prefs.customCropPresets)
-
-        // 3) Refresh the UI draft from portable truth
-        cropDraftPresets = cropStore.presets
-
-        // Optional: if you want the debug line to reflect reality immediately
-        // (not required, but keeps the Settings window consistent)
-        prefs = DMPPUserPreferences.load()
-    }
-
-
-    private func configureCropsForCurrentRoot() {
-
-        // No root => portable not available; UI will show legacy editor
-        guard let root = archiveStore.archiveRootURL else {
-            cropDraftPresets = []
-            return
-        }
-
-        // Ensure store is pointed at root and has current file loaded
-        cropStore.configureForArchiveRoot(root, fallbackPresets: nil)
-
-        // Merge legacy prefs into portable, then clear legacy to stop “portable=1 legacy=1”.
-        // IMPORTANT: only call ONE migration method (the merge+clear one).
-        let legacy = DMPPUserPreferences.load().customCropPresets
-        cropStore.mergeLegacyPrefsIntoPortableThenClear(legacyPresets: legacy)
-
-        // Pull portable truth into our UI draft
         cropDraftPresets = cropStore.presets
     }
 
@@ -423,6 +377,99 @@ struct DMPPCropPreferencesView: View {
         pb.setString(s, forType: .string)
     }
 
+    // ============================================================
+    // MARK: - [GENERAL-DIAG] Registry row helpers (consistent icons + typography)
+    // ============================================================
+
+    @ViewBuilder
+    private func linkedRegistryFileRow(title: String, systemImage: String, url: URL?) -> some View {
+
+        VStack(alignment: .leading, spacing: 6) {
+
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .font(.callout.weight(.semibold))
+
+                Spacer()
+
+                Text(url?.lastPathComponent ?? "—")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            if let url {
+                fingerprintChip(label: "Fingerprint", value: fingerprint(for: url))
+
+                Text(url.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+
+                HStack(spacing: 12) {
+                    Button("Copy file name") { copyToClipboard(url.lastPathComponent) }
+                    Button("Copy full path") { copyToClipboard(url.path) }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+                .controlSize(.small)
+            } else {
+                Text("Picture Library Folder isn’t configured yet, so this file can’t be shown.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func linkedRegistryFolderRow(title: String, systemImage: String, folder: URL?) -> some View {
+
+        VStack(alignment: .leading, spacing: 6) {
+
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .font(.callout.weight(.semibold))
+
+                Spacer()
+
+                Text(folder?.lastPathComponent ?? "—")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            if let folder {
+                fingerprintChip(label: "Fingerprint", value: fingerprint(for: folder))
+
+                Text(folder.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+
+                HStack(spacing: 12) {
+                    Button("Copy folder name") { copyToClipboard(folder.lastPathComponent) }
+                    Button("Copy full path")   { copyToClipboard(folder.path) }
+                    Button("Show in Finder")   { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                }
+                .controlSize(.small)
+            } else {
+                Text("Picture Library Folder isn’t configured yet, so this folder can’t be shown.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    
+    // ============================================================
+    // MARK: - People (portable folder link)
+    // ============================================================
+
+    private func peopleFolderFingerprint(for url: URL) -> String {
+        // Folder fingerprint: hash the path (good enough as a stable identifier for “this folder”).
+        fingerprint(for: url)
+    }
+
+    
     private func fingerprint(for url: URL) -> String {
         let input = Data(url.path.utf8)
         let digest = SHA256.hash(data: input)
@@ -512,66 +559,62 @@ struct DMPPCropPreferencesView: View {
     }
 
     @ViewBuilder
-    private func linkedTagsFilePanel() -> some View {
-        GroupBox {
-            DisclosureGroup(isExpanded: $showLinkedTagsFileDetails) {
+    private func linkedFileRow(
+        title: String,
+        url: URL?
+    ) -> some View {
 
-                VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "doc")
+                    .foregroundStyle(.secondary)
 
-                    if let url = tagStore.tagsFileURL() {
+                Text(title)
+                    .font(.caption.weight(.semibold))
 
-                        HStack(spacing: 10) {
-                            Image(systemName: "touchid")
-                                .foregroundStyle(.secondary)
+                Spacer()
 
-                            Text(url.lastPathComponent)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.quaternary.opacity(0.6))
-                                .clipShape(Capsule())
-
-                            Spacer()
-                        }
-
-                        Text(url.path)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-
-                        HStack(spacing: 10) {
-                            Button("Copy file name") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url.lastPathComponent, forType: .string)
-                            }
-
-                            Button("Copy full path") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url.path, forType: .string)
-                            }
-
-                            Button("Show in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
-                        }
-                        .controlSize(.small)
-
-                    } else {
-                        Text("Picture Library Folder isn’t configured yet, so the linked file can’t be shown.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                if let url {
+                    Text(url.lastPathComponent)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Not available")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
-
-            } label: {
-                Label("Linked file (advanced)", systemImage: "doc.text.magnifyingglass")
-                    .font(.callout.weight(.semibold))
             }
-            .padding(8)
+
+            if let url {
+                fingerprintChip(label: "Fingerprint", value: fingerprint(for: url))
+
+                Text(url.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+
+                HStack(spacing: 10) {
+                    Button("Copy file name") { copyToClipboard(url.lastPathComponent) }
+                    Button("Copy full path") { copyToClipboard(url.path) }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+                .controlSize(.small)
+            } else {
+                Text("Select a Picture Library Folder to enable this file.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .padding(.vertical, 8)
     }
+
+    
+
+
+
+
+    
 
     // ============================================================
     // MARK: - Sections (Crops tab)
@@ -666,7 +709,7 @@ struct DMPPCropPreferencesView: View {
     }
 
     // ============================================================
-    // MARK: - Custom presets section (portable-first)
+    // MARK: - Custom presets section (portable only)
     // ============================================================
 
     private var customPresetsSection: some View {
@@ -675,19 +718,15 @@ struct DMPPCropPreferencesView: View {
             Text("Custom crops")
                 .font(.headline)
 
-            // No root => show legacy editor
             if archiveStore.archiveRootURL == nil {
 
-                Text("Select a Picture Library Folder to manage portable custom crops.")
+                Text("Select a Picture Library Folder to manage custom crops (stored in crops.json).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 4)
 
-                legacyCustomPresetsEditor
-
             } else {
 
-                // Portable editor (crops.json)
                 if cropDraftPresets.isEmpty {
                     Text("No custom presets yet. Click “Add Crop” to create one.")
                         .font(.caption)
@@ -702,10 +741,12 @@ struct DMPPCropPreferencesView: View {
                 } label: {
                     Label("Add Crop", systemImage: "plus")
                 }
+   
                 .padding(.top, 6)
             }
         }
     }
+
 
     private var portableCustomPresetsEditor: some View {
         VStack(spacing: 8) {
@@ -766,90 +807,17 @@ struct DMPPCropPreferencesView: View {
         .frame(maxWidth: 420, alignment: .leading)
         .padding(.top, 4)
         .onChange(of: cropDraftPresets) { _, newValue in
-            // Prevent infinite onChange churn while we normalize and assign back
             guard !isPersistingCropDraft else { return }
             isPersistingCropDraft = true
 
             cropStore.persistPresetsFromUI(newValue)
 
-            // Store sanitizes + sorts; reflect it back into the editor.
             let cleaned = cropStore.presets
             if cleaned != cropDraftPresets {
                 cropDraftPresets = cleaned
             }
 
             isPersistingCropDraft = false
-        }
-    }
-
-    // Legacy editor (prefs-backed) only used when there is NO archive root selected.
-    private var legacyCustomPresetsEditor: some View {
-        Group {
-            if prefs.customCropPresets.isEmpty {
-                EmptyView()
-            } else {
-                VStack(spacing: 8) {
-
-                    HStack {
-                        Text("Crop name")
-                            .font(.caption.bold())
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text("Width : Height")
-                            .font(.caption.bold())
-                            .frame(width: 110, alignment: .leading)
-
-                        Text("Default")
-                            .font(.caption.bold())
-                            .frame(width: 70, alignment: .center)
-
-                        Spacer().frame(width: 24)
-                    }
-                    .padding(.bottom, 2)
-
-                    Divider()
-
-                    let sortedIndices = prefs.customCropPresets.indices.sorted {
-                        prefs.customCropPresets[$0].label.localizedCaseInsensitiveCompare(prefs.customCropPresets[$1].label) == .orderedAscending
-                    }
-
-                    ForEach(sortedIndices, id: \.self) { i in
-                        HStack(alignment: .center, spacing: 8) {
-
-                            TextField("Preset name", text: $prefs.customCropPresets[i].label)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                            HStack(spacing: 4) {
-                                TextField("W", value: $prefs.customCropPresets[i].aspectWidth, formatter: NumberFormatter())
-                                    .frame(width: 40)
-                                    .textFieldStyle(.roundedBorder)
-
-                                Text(":")
-
-                                TextField("H", value: $prefs.customCropPresets[i].aspectHeight, formatter: NumberFormatter())
-                                    .frame(width: 40)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            .frame(width: 110, alignment: .leading)
-
-                            Toggle("", isOn: $prefs.customCropPresets[i].isDefaultForNewImages)
-                                .labelsHidden()
-                                .frame(width: 70, alignment: .center)
-
-                            Button(role: .destructive) {
-                                deleteCustomPreset(prefs.customCropPresets[i])
-                            } label: {
-                                Image(systemName: "trash")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Delete this custom preset")
-                        }
-                    }
-                }
-                .frame(maxWidth: 420, alignment: .leading)
-                .padding(.top, 4)
-            }
         }
     }
 
@@ -877,27 +845,6 @@ struct DMPPCropPreferencesView: View {
         cropDraftPresets = cropStore.presets
     }
 
-    
-    
-    // ============================================================
-    // MARK: - Legacy custom preset helpers (prefs-backed)
-    // ============================================================
-
-    private func addBlankCustomPreset() {
-        let newPreset = DMPPUserPreferences.CustomCropPreset(
-            id: UUID(),
-            label: "New preset",
-            aspectWidth: 4,
-            aspectHeight: 5,
-            isDefaultForNewImages: false
-        )
-        prefs.customCropPresets.append(newPreset)
-    }
-
-    private func deleteCustomPreset(_ preset: DMPPUserPreferences.CustomCropPreset) {
-        prefs.customCropPresets.removeAll { $0.id == preset.id }
-    }
-
     // ============================================================
     // MARK: - Tags section (Tags tab)
     // ============================================================
@@ -915,14 +862,16 @@ struct DMPPCropPreferencesView: View {
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach($tagStore.tagRecords) { $rec in
+                    ForEach(tagStore.tagRecords, id: \.id) { rec in
                         TagRowView(
-                            rec: $rec,
+                            rec: bindingForTagRecord(id: rec.id),
                             onDelete: { deleteTagRecord(id: rec.id) },
                             onPersist: { persistTagRecordsAndSyncPrefs() }
                         )
+                        .id(rec.id) // keep row state tied to the record, not the list position
                     }
                 }
+
             }
 
             HStack(spacing: 10) {
@@ -943,10 +892,27 @@ struct DMPPCropPreferencesView: View {
                 .padding(.top, 6)
             }
 
-            linkedTagsFilePanel()
+    
         }
     }
+    // ============================================================
+    // MARK: - [TAGS] Stable binding lookup (prevents delete “row reuse” bugs)
+    // ============================================================
 
+    private func bindingForTagRecord(id: String) -> Binding<DMPPTagStore.TagRecord> {
+        Binding<DMPPTagStore.TagRecord>(
+            get: {
+                tagStore.tagRecords.first(where: { $0.id == id })
+                ?? DMPPTagStore.TagRecord(id: id, name: "", description: "", isReserved: false)
+            },
+            set: { newValue in
+                guard let idx = tagStore.tagRecords.firstIndex(where: { $0.id == id }) else { return }
+                tagStore.tagRecords[idx] = newValue
+            }
+        )
+    }
+
+    
     private struct TagRowView: View {
         @Binding var rec: DMPPTagStore.TagRecord
 
@@ -1028,6 +994,8 @@ struct DMPPCropPreferencesView: View {
             }
         }
 
+        
+        
         private func commitNameIfNeeded() {
             let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
@@ -1076,26 +1044,6 @@ struct DMPPCropPreferencesView: View {
         if prefs.availableTags != portableNames {
             prefs.availableTags = portableNames
         }
-    }
-
-    @discardableResult
-    private func ensureReservedTagsExist() -> Bool {
-        let reserved = ["Do Not Display", "Flagged"]
-        var changed = false
-
-        for r in reserved {
-            if !prefs.availableTags.contains(r) {
-                prefs.availableTags.insert(r, at: 0)
-                changed = true
-            }
-        }
-
-        if prefs.availableTags.isEmpty {
-            prefs.availableTags = ["Do Not Display", "Flagged"]
-            changed = true
-        }
-
-        return changed
     }
 
     // ============================================================
@@ -1263,51 +1211,7 @@ struct DMPPCropPreferencesView: View {
                                 }
                             }
 
-                            // Linked file (advanced)
-                            GroupBox {
-                                DisclosureGroup("Linked file (advanced)") {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        if let url = locationStore.locationsFileURL() {
-
-                                            HStack(spacing: 10) {
-                                                Image(systemName: "touchid")
-                                                    .foregroundStyle(.secondary)
-
-                                                Text(url.lastPathComponent)
-                                                    .font(.caption.weight(.semibold))
-                                                    .padding(.horizontal, 10)
-                                                    .padding(.vertical, 6)
-                                                    .background(.quaternary.opacity(0.6))
-                                                    .clipShape(Capsule())
-
-                                                Spacer()
-                                            }
-
-                                            fingerprintChip(label: "Fingerprint", value: fingerprint(for: url))
-
-                                            Text(url.path)
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                                .textSelection(.enabled)
-                                                .lineLimit(2)
-
-                                            HStack(spacing: 10) {
-                                                Button("Copy file name") { copyToClipboard(url.lastPathComponent) }
-                                                Button("Copy full path") { copyToClipboard(url.path) }
-                                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                                            }
-                                            .controlSize(.small)
-
-                                        } else {
-                                            Text("Picture Library Folder isn’t configured yet, so the linked file can’t be shown.")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .padding(.top, 8)
-                                }
-                                .padding(8)
-                            }
+        
 
                             Spacer(minLength: 0)
                         }
