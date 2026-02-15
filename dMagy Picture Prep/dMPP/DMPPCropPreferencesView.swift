@@ -36,7 +36,7 @@ struct DMPPCropPreferencesView: View {
     /// User-level preferences (loaded from UserDefaults).
     @State private var prefs: DMPPUserPreferences = .load()
 
-    @State private var selectedLocationID: UUID? = nil
+
     @FocusState private var focusedField: FocusField?
 
     @EnvironmentObject var archiveStore: DMPPArchiveStore
@@ -53,8 +53,20 @@ struct DMPPCropPreferencesView: View {
 
     // [CROPS-PORTABLE-LOCK] Prevent recursive onChange loops while persisting/sanitizing.
     @State private var isPersistingCropDraft: Bool = false
-    
-    @State private var showLinkedCropsFileDetails: Bool = false
+
+    // ============================================================
+    // MARK: - Locations (portable)
+    // ============================================================
+
+    @State private var selectedLocationID: UUID? = nil
+
+    // [LOC-PORTABLE] Editable working copy for the Settings UI (portable registry)
+    @State private var locationDrafts: [DMPPUserLocation] = []
+
+    // [LOC-PORTABLE-LOCK] Prevent recursive onChange loops while persisting/sanitizing.
+    @State private var isPersistingLocationDraft: Bool = false
+
+
 
     private enum FocusField: Hashable {
         case locationShortName(UUID)
@@ -317,13 +329,8 @@ struct DMPPCropPreferencesView: View {
             configureForCurrentArchiveRoot()
         }
 
-        // Tags + Locations portable write-back (unchanged)
-        .onChange(of: prefs.availableTags) { _, _ in
-            persistPrefsTagsToPortable()
-        }
-        .onChange(of: prefs.userLocations) { _, _ in
-            persistPrefsLocationsToPortable()
-        }
+
+
     }
 
     // ============================================================
@@ -343,17 +350,31 @@ struct DMPPCropPreferencesView: View {
 
 
         // -------------------------------
-        // TAGS
+        // TAGS (portable only)
         // -------------------------------
-        tagStore.configureForArchiveRoot(root, fallbackTags: prefs.availableTags)
-        tagStore.migrateFromLegacyPrefsIfNeeded(legacyTags: prefs.availableTags)
-        syncTagsFromPortableIntoPrefs()
+        tagStore.configureForArchiveRoot(root, fallbackTags: [])
+ 
+
+
+
 
         // -------------------------------
-        // LOCATIONS
+        // LOCATIONS (portable only)
         // -------------------------------
-        locationStore.configureForArchiveRoot(root, fallbackLocations: prefs.userLocations)
-        syncLocationsFromPortableIntoPrefs()
+        locationStore.configureForArchiveRoot(root, fallbackLocations: [])
+
+        locationDrafts = locationStore.locations
+
+        // Ensure selection is valid for current drafts
+        if let sel = selectedLocationID,
+           !locationDrafts.contains(where: { $0.id == sel }) {
+            selectedLocationID = locationDrafts.first?.id
+        } else if selectedLocationID == nil {
+            selectedLocationID = locationDrafts.first?.id
+        }
+
+
+
 
         // -------------------------------
         // CROPS (portable only)
@@ -477,59 +498,7 @@ struct DMPPCropPreferencesView: View {
         return String(hex.prefix(12)).uppercased()
     }
 
-    // ============================================================
-    // MARK: - Tags portable sync
-    // ============================================================
 
-    private func syncTagsFromPortableIntoPrefs() {
-        tagStore.configureForArchiveRoot(
-            archiveStore.archiveRootURL,
-            fallbackTags: prefs.availableTags
-        )
-
-        let portable = tagStore.tags
-        guard !portable.isEmpty else { return }
-
-        if prefs.availableTags != portable {
-            prefs.availableTags = portable
-        }
-    }
-
-    private func persistPrefsTagsToPortable() {
-        tagStore.persistTagsFromUI(prefs.availableTags)
-
-        let portable = tagStore.tags
-        if !portable.isEmpty, prefs.availableTags != portable {
-            prefs.availableTags = portable
-        }
-    }
-
-    // ============================================================
-    // MARK: - Locations portable sync
-    // ============================================================
-
-    private func syncLocationsFromPortableIntoPrefs() {
-        locationStore.configureForArchiveRoot(
-            archiveStore.archiveRootURL,
-            fallbackLocations: prefs.userLocations
-        )
-
-        let portable = locationStore.locations
-        guard !portable.isEmpty else { return }
-
-        if prefs.userLocations != portable {
-            prefs.userLocations = portable
-        }
-    }
-
-    private func persistPrefsLocationsToPortable() {
-        locationStore.persistLocationsFromUI(prefs.userLocations)
-
-        let portable = locationStore.locations
-        if !portable.isEmpty, prefs.userLocations != portable {
-            prefs.userLocations = portable
-        }
-    }
 
     // ============================================================
     // MARK: - Shared UI bits
@@ -1039,15 +1008,12 @@ struct DMPPCropPreferencesView: View {
 
     private func persistTagRecordsAndSyncPrefs() {
         tagStore.persistRecordsFromUI(tagStore.tagRecords)
-
-        let portableNames = tagStore.tags
-        if prefs.availableTags != portableNames {
-            prefs.availableTags = portableNames
-        }
+        // Tags are portable-source-of-truth now; do not write back to prefs.
     }
 
+
     // ============================================================
-    // MARK: - Locations section (Tab)
+    // MARK: - Locations section (portable)
     // ============================================================
 
     private var locationsSection: some View {
@@ -1058,19 +1024,19 @@ struct DMPPCropPreferencesView: View {
                 // LEFT — List + centered Add button (alphabetical)
                 VStack(spacing: 8) {
 
-                    let sortedIDs: [UUID] = prefs.userLocations
+                    let sortedIDs: [UUID] = locationDrafts
                         .sorted {
                             $0.shortName
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                                 .localizedCaseInsensitiveCompare(
-                                    $1.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    $1.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                                 ) == .orderedAscending
                         }
                         .map(\.id)
 
                     List(selection: $selectedLocationID) {
                         ForEach(sortedIDs, id: \.self) { id in
-                            if let loc = prefs.userLocations.first(where: { $0.id == id }) {
+                            if let loc = locationDrafts.first(where: { $0.id == id }) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(loc.shortName.isEmpty ? "Untitled" : loc.shortName)
                                         .font(.headline)
@@ -1087,34 +1053,17 @@ struct DMPPCropPreferencesView: View {
                     }
                     .frame(minWidth: 220, idealWidth: 240)
                     .onAppear {
-                        if selectedLocationID == nil, let firstID = sortedIDs.first {
-                            selectedLocationID = firstID
+                        if selectedLocationID == nil {
+                            selectedLocationID = sortedIDs.first
                         }
                     }
-                    .onChange(of: prefs.userLocations) { _, newList in
-                        guard let sel = selectedLocationID else {
-                            if let firstID = newList
-                                .sorted(by: {
-                                    $0.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        .localizedCaseInsensitiveCompare(
-                                            $1.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        ) == .orderedAscending
-                                })
-                                .first?.id {
-                                selectedLocationID = firstID
-                            }
-                            return
-                        }
-
-                        if !newList.contains(where: { $0.id == sel }) {
-                            selectedLocationID = newList
-                                .sorted(by: {
-                                    $0.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        .localizedCaseInsensitiveCompare(
-                                            $1.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        ) == .orderedAscending
-                                })
-                                .first?.id
+                    .onChange(of: locationDrafts) { _, newList in
+                        // Keep selection valid when list changes
+                        if let sel = selectedLocationID,
+                           !newList.contains(where: { $0.id == sel }) {
+                            selectedLocationID = newList.first?.id
+                        } else if selectedLocationID == nil {
+                            selectedLocationID = newList.first?.id
                         }
                     }
 
@@ -1134,7 +1083,9 @@ struct DMPPCropPreferencesView: View {
                 // RIGHT — Detail editor + delete (selected only)
                 GroupBox {
                     if let idx = selectedLocationIndex() {
-                        let locBinding = $prefs.userLocations[idx]
+
+                        // IMPORTANT: idx is based on locationDrafts (same array we index)
+                        let locBinding = $locationDrafts[idx]
 
                         VStack(alignment: .leading, spacing: 12) {
 
@@ -1211,8 +1162,6 @@ struct DMPPCropPreferencesView: View {
                                 }
                             }
 
-        
-
                             Spacer(minLength: 0)
                         }
                         .padding(10)
@@ -1230,11 +1179,33 @@ struct DMPPCropPreferencesView: View {
                 }
             }
         }
+        // Persist portable changes
+        .onChange(of: locationDrafts) { _, newValue in
+            guard !isPersistingLocationDraft else { return }
+            isPersistingLocationDraft = true
+
+            locationStore.persistLocationsFromUI(newValue)
+
+            let cleaned = locationStore.locations
+            if cleaned != locationDrafts {
+                locationDrafts = cleaned
+            }
+
+            // keep selection valid after cleaning
+            if let sel = selectedLocationID,
+               !locationDrafts.contains(where: { $0.id == sel }) {
+                selectedLocationID = locationDrafts.first?.id
+            } else if selectedLocationID == nil {
+                selectedLocationID = locationDrafts.first?.id
+            }
+
+            isPersistingLocationDraft = false
+        }
     }
 
     private func selectedLocationIndex() -> Int? {
         guard let id = selectedLocationID else { return nil }
-        return prefs.userLocations.firstIndex(where: { $0.id == id })
+        return locationDrafts.firstIndex(where: { $0.id == id })
     }
 
     private func addBlankUserLocationAndSelect() {
@@ -1247,7 +1218,8 @@ struct DMPPCropPreferencesView: View {
             state: nil,
             country: defaultCountryName()
         )
-        prefs.userLocations.append(newLoc)
+
+        locationDrafts.append(newLoc)
         selectedLocationID = newLoc.id
 
         DispatchQueue.main.async {
@@ -1255,13 +1227,27 @@ struct DMPPCropPreferencesView: View {
         }
     }
 
+    private func deleteSelectedLocation() {
+        guard let idx = selectedLocationIndex() else { return }
+
+        locationDrafts.remove(at: idx)
+
+        if locationDrafts.isEmpty {
+            selectedLocationID = nil
+            return
+        }
+
+        let newIndex = min(idx, locationDrafts.count - 1)
+        selectedLocationID = locationDrafts[newIndex].id
+    }
+
     private func locationSubtitle(_ loc: DMPPUserLocation) -> String {
-        let desc = (loc.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc = (loc.description ?? "").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         if !desc.isEmpty { return desc }
 
-        let city = (loc.city ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let state = (loc.state ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let country = (loc.country ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let city = (loc.city ?? "").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let state = (loc.state ?? "").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let country = (loc.country ?? "").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
 
         if !city.isEmpty && !state.isEmpty { return "\(city), \(state)" }
         if !city.isEmpty { return city }
@@ -1278,33 +1264,16 @@ struct DMPPCropPreferencesView: View {
         return nil
     }
 
-    private func deleteSelectedLocation() {
-        guard let idx = selectedLocationIndex() else { return }
-
-        let deletedID = prefs.userLocations[idx].id
-        prefs.userLocations.remove(at: idx)
-
-        if prefs.userLocations.isEmpty {
-            selectedLocationID = nil
-            return
-        }
-
-        let newIndex = min(idx, prefs.userLocations.count - 1)
-        selectedLocationID = prefs.userLocations[newIndex].id
-
-        if selectedLocationID == deletedID {
-            selectedLocationID = prefs.userLocations.first?.id
-        }
-    }
-
     private func nonOptional(_ binding: Binding<String?>) -> Binding<String> {
         Binding<String>(
             get: { binding.wrappedValue ?? "" },
             set: { newValue in
-                let t = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let t = newValue.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                 binding.wrappedValue = t.isEmpty ? nil : t
             }
         )
     }
+
+
 }
 
