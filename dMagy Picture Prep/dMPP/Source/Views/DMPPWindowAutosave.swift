@@ -3,15 +3,17 @@ import AppKit
 
 // ================================================================
 // DMPPWindowAutosave.swift
-// cp-2026-01-21-03 — resilient window frame restore + explicit save
+// cp-2026-02-16-01 — Manual window frame save/restore (beats SwiftUI autosave)
+// ================================================================
 //
 // [WIN] Attach as .background(DMPPWindowAutosave(name: "...")) on the
 // root view in a WindowGroup.
 //
 // Why this version:
-// - Some SwiftUI layouts can override window sizing after the window appears.
-// - We re-apply the saved frame on the next runloop (and again slightly later).
-// - We explicitly call saveFrame(usingName:) after resize/end-resize.
+// - SwiftUI often overrides NSWindow autosave names, so "NSWindow Frame <name>"
+//   may never be created even if you call setFrameAutosaveName(...).
+// - We store our OWN frame string in UserDefaults under a stable key and restore it.
+// - We save on resize AND move, so position persists too.
 // ================================================================
 
 struct DMPPWindowAutosave: NSViewRepresentable {
@@ -35,8 +37,11 @@ struct DMPPWindowAutosave: NSViewRepresentable {
         private let autosaveName: String
         private let desiredMinSize: NSSize
 
-        private var didApply = false
+        private var didBindToWindow = false
         private var observers: [NSObjectProtocol] = []
+
+        // Our stable defaults key (NOT the system "NSWindow Frame ..." key)
+        private var userDefaultsFrameKey: String { "DMPP.WindowFrame.\(autosaveName)" }
 
         init(name: String, minSize: NSSize) {
             self.autosaveName = name
@@ -53,56 +58,96 @@ struct DMPPWindowAutosave: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+
             guard let window else { return }
-            guard !didApply else { return }
-            didApply = true
+            guard !didBindToWindow else { return }
+            didBindToWindow = true
 
-            // 1) Enable autosave
-            window.setFrameAutosaveName(autosaveName)
+            bind(to: window)
+        }
 
-            // 2) Apply a sensible minimum size (prevents collapsing)
+        // MARK: - Bind + Restore + Observe
+
+        private func bind(to window: NSWindow) {
+
+            // 1) Minimum size guardrails
             window.minSize = desiredMinSize
 
-            // 3) Restore any saved frame.
-            // SwiftUI can still override sizing right after this, so we re-apply.
+            // 2) Restore our saved frame (manual, stable)
             applySavedFrame(window)
 
-            // Re-apply on next runloop (after SwiftUI finishes initial layout)
-            DispatchQueue.main.async { [weak window] in
-                guard let window else { return }
+            // SwiftUI can override sizing right after first draw,
+            // so re-apply a couple times.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window else { return }
                 self.applySavedFrame(window)
             }
 
-            // And once more very shortly after (cheap insurance)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak window] in
-                guard let window else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak window] in
+                guard let self, let window else { return }
                 self.applySavedFrame(window)
             }
 
-            // 4) Explicitly save frame on resize events (so it definitely persists)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self, weak window] in
+                guard let self, let window else { return }
+                self.applySavedFrame(window)
+            }
+
+            // 3) Save on resize AND move
+            installObservers(for: window)
+        }
+
+        private func installObservers(for window: NSWindow) {
             let nc = NotificationCenter.default
 
+            // Save while resizing
             observers.append(
                 nc.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak self] _ in
-                    guard let self else { return }
-                    window.saveFrame(usingName: self.autosaveName)
+                    self?.persistCurrentFrame(window)
                 }
             )
 
             observers.append(
                 nc.addObserver(forName: NSWindow.didEndLiveResizeNotification, object: window, queue: .main) { [weak self] _ in
-                    guard let self else { return }
-                    window.saveFrame(usingName: self.autosaveName)
+                    self?.persistCurrentFrame(window)
+                }
+            )
+
+            // Save while moving (this is what your current version was missing)
+            observers.append(
+                nc.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main) { [weak self] _ in
+                    self?.persistCurrentFrame(window)
+                }
+            )
+
+            // Also save when the window is about to close (belt + suspenders)
+            observers.append(
+                nc.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                    self?.persistCurrentFrame(window)
                 }
             )
         }
 
-        private func applySavedFrame(_ window: NSWindow) {
-            // If no saved frame exists yet, setFrameUsingName returns false.
-            _ = window.setFrameUsingName(autosaveName)
+        // MARK: - Save / Restore (Manual)
 
-            // Re-assert min size (some layouts can reset constraints)
+        private func applySavedFrame(_ window: NSWindow) {
             window.minSize = desiredMinSize
+
+            guard let frameString = UserDefaults.standard.string(forKey: userDefaultsFrameKey),
+                  let rect = NSRectFromString(frameString) as NSRect?
+            else {
+                return
+            }
+
+            // Don’t animate on launch.
+            window.setFrame(rect, display: true)
+        }
+
+        private func persistCurrentFrame(_ window: NSWindow) {
+            window.minSize = desiredMinSize
+
+            let frameString = NSStringFromRect(window.frame)
+            UserDefaults.standard.set(frameString, forKey: userDefaultsFrameKey)
         }
     }
 }
