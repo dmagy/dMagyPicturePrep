@@ -80,6 +80,36 @@ struct DMPPImageEditorView: View {
         return metadataHash(vm.metadata) != loadedMetadataHash
     }
 
+    // MARK: - [REVIEW] Review Mode
+
+    private enum ReviewMode: String, CaseIterable {
+        case allPictures
+        case neverReviewed
+        case flagged
+
+        var title: String {
+            switch self {
+            case .allPictures: return "All Pictures"
+            case .neverReviewed: return "Never Reviewed"
+            case .flagged: return "Flagged"
+            }
+        }
+
+        var helpText: String {
+            switch self {
+            case .allPictures:
+                return "Show all pictures in the selected folder."
+            case .neverReviewed:
+                return "Show pictures with no saved prep data (.dmpms.json)."
+            case .flagged:
+                return "Show pictures tagged as Flagged."
+            }
+        }
+    }
+
+    @State private var reviewMode: ReviewMode = .allPictures
+
+    
     // MARK: View
 
     var body: some View {
@@ -121,7 +151,7 @@ struct DMPPImageEditorView: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - [UI-TOOLBAR] Toolbar
 
     @ViewBuilder
     private var toolbarView: some View {
@@ -165,21 +195,57 @@ struct DMPPImageEditorView: View {
                 }
 
                 if folderURL != nil {
-                    Toggle("Include subfolders", isOn: $includeSubfolders)
-                        .toggleStyle(.checkbox)
-                        .font(.callout)
-                        .help("Scan this folder and all subfolders for pictures.")
 
-                    Toggle("Show only unprepped pictures", isOn: $advanceToNextWithoutSidecar)
+                    // ---------------------------------------------------------
+                    // Scope
+                    // ---------------------------------------------------------
+                    Toggle("Subfolders", isOn: $includeSubfolders)
                         .toggleStyle(.checkbox)
                         .font(.callout)
-                        .help("Skip photos that already have saved prep data.")
+                        .help("Also review pictures in nested folders.")
+
+
+                    
+                    Divider()
+                        .frame(height: 18)
+                        .padding(.horizontal, 4)
+
+                    
+                    // ---------------------------------------------------------
+                    // Review (dropdown)
+                    // ---------------------------------------------------------
+                    HStack(spacing: 6) {
+                        Text("Review:")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        Menu {
+                            Button("All Pictures") { reviewMode = .allPictures }
+                            Button("Never Reviewed") { reviewMode = .neverReviewed }
+                            Button("Flagged") { reviewMode = .flagged }
+
+        
+
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(reviewMode.title)
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.callout.weight(.semibold))
+                        }
+                        .help(reviewMode.helpText)
+                    }
+
                 }
             }
 
             Spacer(minLength: 16)
 
+            // ---------------------------------------------------------
             // Right cluster
+            // ---------------------------------------------------------
             if let folderURL {
                 let currentURL = vm?.imageURL
                 let filename = currentURL?.lastPathComponent ?? vm?.metadata.sourceFile ?? "—"
@@ -226,17 +292,120 @@ struct DMPPImageEditorView: View {
             guard let folderURL else { return }
             loadImages(from: folderURL)
         }
+        .onChange(of: reviewMode) { _, newValue in
+            // Keep legacy behavior working: Never Reviewed maps to the old bool.
+            advanceToNextWithoutSidecar = (newValue == .neverReviewed)
+
+            guard let folderURL else { return }
+            loadImages(from: folderURL)
+        }
+
+
         .padding()
         .background(.thinMaterial)
     }
 
+
+    // MARK: - [UI-EMPTY] Main Area Empty States
+
+    @ViewBuilder
+    private var emptyEditorStateView: some View {
+
+        if folderURL == nil {
+
+            VStack(spacing: 10) {
+                Text("Choose a folder to begin.")
+                    .font(.title2.weight(.semibold))
+
+                Text("Pick a working folder inside your Picture Library Folder.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    chooseFolder()
+                } label: {
+                    Label("Choose Folder…", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        } else if imageURLs.isEmpty {
+
+            VStack(spacing: 10) {
+                Text("This folder is picture-free. Include Subfolders or pick a different folder.")
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+
+                Text(includeSubfolders
+                     ? "No pictures found in this folder (even including subfolders)."
+                     : "No pictures found in this folder. Try including subfolders.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+                HStack(spacing: 10) {
+
+                    if !includeSubfolders {
+                        Button {
+                            includeSubfolders = true
+                            if let folderURL { loadImages(from: folderURL) }
+                        } label: {
+                            Label("Include Subfolders", systemImage: "folder.badge.plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Scan this folder and all subfolders for pictures.")
+                    }
+
+                    Button {
+                        chooseFolder()
+                    } label: {
+                        Label("Choose Different Folder…", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal, 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        } else {
+            EmptyView()
+        }
+    }
+
+    
+    // MARK: - [UI-MAIN] Main Content Routing
+
     @ViewBuilder
     private var mainContentView: some View {
-        if let vm {
+
+        // 1) No folder OR no images found → show the improved empty state
+        if folderURL == nil || imageURLs.isEmpty {
+            emptyEditorStateView
+
+        // 2) We have images, but VM is missing (unexpected) → still show consistent empty state
+        } else if vm == nil {
+            emptyEditorStateView
+
+        // 3) Normal editor UI
+        } else if let vm {
+
             HStack(spacing: 0) {
 
                 // LEFT — Crops + Preview
-                DMPPCropEditorPane(vm: vm)
+                DMPPCropEditorPane(
+                    vm: vm,
+                    onDeleteCropRequested: {
+                        vm.deleteSelectedCrop()
+                    },
+                    onExportCropRequested: {
+                        exportSelectedCrop()
+                    },
+                    onExportCropToRequested: {
+                        exportSelectedCropTo()
+                    }
+                )
+
                     .frame(minWidth: 400)
                     .padding()
                     .background(Color(nsColor: .windowBackgroundColor))
@@ -280,9 +449,12 @@ struct DMPPImageEditorView: View {
             bottomBarView(vm: vm)
 
         } else {
-            emptyStateView
+            // Defensive fallback (should never hit)
+            emptyEditorStateView
         }
     }
+
+
 
     @ViewBuilder
     private func bottomBarView(vm: DMPPImageEditorViewModel) -> some View {
@@ -291,47 +463,7 @@ struct DMPPImageEditorView: View {
             if vm.selectedCrop != nil {
                 HStack(spacing: 10) {
 
-                    Button {
-                        vm.deleteSelectedCrop()
-                    } label: {
-                        Text("Delete Crop")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.red)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(nsColor: .windowBackgroundColor))
-                    )
-                    .padding(.top, -24)
-                    .padding(.leading, 16)
-
-                    Button {
-                        exportSelectedCrop()
-                    } label: {
-                        Text("Export Crop")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Export the current crop as a new image file")
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(nsColor: .windowBackgroundColor))
-                    )
-                    .padding(.top, -24)
-                    .padding(.leading, 6)
+                   
                 }
             }
 
@@ -410,18 +542,13 @@ struct DMPPImageEditorView: View {
         }
     }
 
+    // MARK: - [UI-EMPTY] Legacy wrapper (keep until we’re sure nothing references it)
+
     @ViewBuilder
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
-            Text("Choose a folder to begin")
-                .font(.title2.weight(.semibold))
-            Text("dMagy Picture Prep will scan the folder for images and let you step through them with default crops.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 420)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        emptyEditorStateView
     }
+
 }
 
 // ================================================================
@@ -441,7 +568,10 @@ private extension URL {
 
 // MARK: - Left Pane
 
-/// [DMPP-SI-LEFT] Crops + image preview + crop controls (chips above preview).
+import SwiftUI
+
+// MARK: - DMPPCropEditorPane
+
 struct DMPPCropEditorPane: View {
 
     @Environment(\.openSettings) private var openSettings
@@ -449,6 +579,16 @@ struct DMPPCropEditorPane: View {
 
     /// For the crop editor we only need read access to the view model.
     var vm: DMPPImageEditorViewModel
+
+    // MARK: - [CROP-ACTIONS] Callbacks (owned by parent view)
+
+    var onDeleteCropRequested: () -> Void
+    var onExportCropRequested: () -> Void
+    var onExportCropToRequested: () -> Void
+
+    // MARK: - [CROP-ACTIONS] Local UI state
+
+    @State private var showDeleteConfirm: Bool = false
 
     // MARK: - [HEADSHOT-PICKER] People list for Headshot menu (from current photo)
 
@@ -650,7 +790,7 @@ struct DMPPCropEditorPane: View {
                                     image: nsImage,
                                     rect: selectedCrop.rect,
                                     isHeadshot: isHeadshot,
-                                    headshotVariant: selectedCrop.headshotVariant,   // <-- add this
+                                    headshotVariant: selectedCrop.headshotVariant,
                                     isFreeform: isFreeform
                                 ) { newRect in
                                     vm.updateVirtualCropRect(
@@ -658,7 +798,6 @@ struct DMPPCropEditorPane: View {
                                         newRect: newRect
                                     )
                                 }
-
                             }
                         }
                     }
@@ -667,10 +806,19 @@ struct DMPPCropEditorPane: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(.secondary.opacity(0.3))
                     )
+
+                    // Bottom-left: crop action panel (NEW)
+                    .overlay(alignment: .bottomLeading) {
+                        cropActionPanel
+                            .padding(10)
+                    }
+
+                    // Bottom-right: existing crop size pill
                     .overlay(alignment: .bottomTrailing) {
                         cropSizePill(nsImage: nsImage, cropRect: selectedCrop.rect)
                             .padding(10)
                     }
+
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.secondary.opacity(0.1))
@@ -716,7 +864,74 @@ struct DMPPCropEditorPane: View {
         .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
             customPresetsRefreshToken &+= 1
         }
+        .alert("Delete this crop?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                onDeleteCropRequested()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes the crop preset for this photo. Your original image is never changed.")
+        }
     }
+
+    // MARK: - [CROP-ACTIONS] Floating panel
+
+    @ViewBuilder
+    private var cropActionPanel: some View {
+        if vm.selectedCrop != nil {
+
+            // Consistent button width (enough for “Export To…”)
+            let buttonWidth: CGFloat = 100
+
+            VStack(alignment: .leading, spacing: 8) {
+
+                
+
+                Button {
+                    onExportCropRequested()
+                } label: {
+                    Label("Export Crop", systemImage: "square.and.arrow.down")
+                        .frame(width: buttonWidth, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .help("Export using the last selected folder (or choose one if needed)")
+
+                Button {
+                    onExportCropToRequested()
+                } label: {
+                    Label("Export To…", systemImage: "folder")
+                        .frame(width: buttonWidth, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .help("Choose a folder for this export (and remember it for next time)")
+                
+                Spacer().frame(height: 6)
+                
+                Button {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete Crop", systemImage: "trash")
+                        .frame(width: buttonWidth, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .help("Delete the selected crop")
+                
+            }
+            .font(.callout)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(.secondary.opacity(0.25))
+            )
+
+        } else {
+            EmptyView()
+        }
+    }
+
 
     // MARK: - Header (chips + menu)
 
@@ -747,14 +962,8 @@ struct DMPPCropEditorPane: View {
             }
 
             Menu("New Crop") {
-                // ---------------------------------------------------------
-                // Freeform
-                // ---------------------------------------------------------
                 Button("Freeform") { vm.addFreeformCrop() }
 
-                // ---------------------------------------------------------
-                // Headshot (Full / Tight)
-                // ---------------------------------------------------------
                 Menu("Headshot") {
 
                     Menu("Full") {
@@ -786,71 +995,32 @@ struct DMPPCropEditorPane: View {
                     .disabled(!hasAnyPeopleForHeadshots)
                 }
                 .disabled(!hasAnyPeopleForHeadshots)
-                .help(hasAnyPeopleForHeadshots
-                      ? ""
-                      : "Add at least one person in the People section to enable headshots.")
+                .help(hasAnyPeopleForHeadshots ? "" : "Add at least one person in the People section to enable headshots.")
 
-                // ---------------------------------------------------------
-                // Landscape
-                // ---------------------------------------------------------
                 Menu("Landscape") {
-                    Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }
-                        .disabled(vm.hasPresetLandscape3x2)
-
-                    Button("4:3 (18×24…)") { vm.addPresetLandscape4x3() }
-                        .disabled(vm.hasPresetLandscape4x3)
-
-                    Button("5:4 (4×5, 8×10…)") { vm.addPresetLandscape5x4() }
-                        .disabled(vm.hasPresetLandscape5x4)
-
-                    Button("7:5 (5×7…)") { vm.addPresetLandscape7x5() }
-                        .disabled(vm.hasPresetLandscape7x5)
-
-                    Button("14:11 (11×14…)") { vm.addPresetLandscape14x11() }
-                        .disabled(vm.hasPresetLandscape14x11)
-
-                    Button("16:9") { vm.addPresetLandscape16x9() }
-                        .disabled(vm.hasPresetLandscape16x9)
+                    Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }.disabled(vm.hasPresetLandscape3x2)
+                    Button("4:3 (18×24…)") { vm.addPresetLandscape4x3() }.disabled(vm.hasPresetLandscape4x3)
+                    Button("5:4 (4×5, 8×10…)") { vm.addPresetLandscape5x4() }.disabled(vm.hasPresetLandscape5x4)
+                    Button("7:5 (5×7…)") { vm.addPresetLandscape7x5() }.disabled(vm.hasPresetLandscape7x5)
+                    Button("14:11 (11×14…)") { vm.addPresetLandscape14x11() }.disabled(vm.hasPresetLandscape14x11)
+                    Button("16:9") { vm.addPresetLandscape16x9() }.disabled(vm.hasPresetLandscape16x9)
                 }
 
-                // ---------------------------------------------------------
-                // Original
-                // ---------------------------------------------------------
                 Button("Original (full image)") { vm.addPresetOriginalCrop() }
                     .disabled(vm.hasPresetOriginal)
 
-                // ---------------------------------------------------------
-                // Portrait
-                // ---------------------------------------------------------
                 Menu("Portrait") {
-                    Button("2:3 (4×6, 8×12…)") { vm.addPresetPortrait2x3() }
-                        .disabled(vm.hasCrop(aspectWidth: 2, aspectHeight: 3))
-
-                    Button("3:4 (18×24…)") { vm.addPresetPortrait3x4() }
-                        .disabled(vm.hasCrop(aspectWidth: 3, aspectHeight: 4))
-
-                    Button("4:5 (4×5, 8×10…)") { vm.addPresetPortrait4x5() }
-                        .disabled(vm.hasCrop(aspectWidth: 4, aspectHeight: 5))
-
-                    Button("5:7 (5×7…)") { vm.addPresetPortrait5x7() }
-                        .disabled(vm.hasCrop(aspectWidth: 5, aspectHeight: 7))
-
-                    Button("11:14 (11×14…)") { vm.addPresetPortrait11x14() }
-                        .disabled(vm.hasCrop(aspectWidth: 11, aspectHeight: 14))
-
-                    Button("9:16") { vm.addPresetPortrait9x16() }
-                        .disabled(vm.hasPresetPortrait9x16)
+                    Button("2:3 (4×6, 8×12…)") { vm.addPresetPortrait2x3() }.disabled(vm.hasCrop(aspectWidth: 2, aspectHeight: 3))
+                    Button("3:4 (18×24…)") { vm.addPresetPortrait3x4() }.disabled(vm.hasCrop(aspectWidth: 3, aspectHeight: 4))
+                    Button("4:5 (4×5, 8×10…)") { vm.addPresetPortrait4x5() }.disabled(vm.hasCrop(aspectWidth: 4, aspectHeight: 5))
+                    Button("5:7 (5×7…)") { vm.addPresetPortrait5x7() }.disabled(vm.hasCrop(aspectWidth: 5, aspectHeight: 7))
+                    Button("11:14 (11×14…)") { vm.addPresetPortrait11x14() }.disabled(vm.hasCrop(aspectWidth: 11, aspectHeight: 14))
+                    Button("9:16") { vm.addPresetPortrait9x16() }.disabled(vm.hasPresetPortrait9x16)
                 }
 
-                // ---------------------------------------------------------
-                // Square
-                // ---------------------------------------------------------
                 Button("Square 1:1") { vm.addPresetSquare1x1() }
                     .disabled(vm.hasPresetSquare1x1)
 
-                // ---------------------------------------------------------
-                // Custom Presets (portable only)
-                // ---------------------------------------------------------
                 Menu("Custom Presets") {
 
                     let portablePresets = cropStore.presets
@@ -862,7 +1032,6 @@ struct DMPPCropEditorPane: View {
                             let presetIDString = preset.id
                             let presetRatio = "\(preset.aspectWidth):\(preset.aspectHeight)"
 
-                            // Prevent duplicates using durable link first.
                             let alreadyExists = vm.metadata.virtualCrops.contains { crop in
                                 if crop.sourceCustomPresetID == presetIDString { return true }
                                 return crop.aspectRatio == presetRatio && crop.label == preset.label
@@ -900,7 +1069,7 @@ struct DMPPCropEditorPane: View {
                 Text(title)
                     .font(.callout)
                     .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false) // prevents “overlap squeeze”
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
             }
@@ -1003,7 +1172,6 @@ struct DMPPCropEditorPane: View {
     }
 
     private func cropPixelSize(nsImage: NSImage, cropRect: RectNormalized) -> (w: Int, h: Int)? {
-        // Prefer true pixel dimensions (not points)
         if let rep = nsImage.representations.first {
             let imgW = rep.pixelsWide
             let imgH = rep.pixelsHigh
@@ -1014,7 +1182,6 @@ struct DMPPCropEditorPane: View {
             }
         }
 
-        // Fallback: points-based (less accurate, but better than nothing)
         let imgW = Int(nsImage.size.width.rounded())
         let imgH = Int(nsImage.size.height.rounded())
         guard imgW > 0, imgH > 0 else { return nil }
@@ -1024,6 +1191,7 @@ struct DMPPCropEditorPane: View {
         return (w, h)
     }
 }
+
 
 // MARK: - Right Pane (Metadata)
 
@@ -2143,24 +2311,57 @@ extension DMPPImageEditorView {
             showExportError = true
         }
     }
+    // MARK: - [EXPORT] Folder picking + "Export To…"
 
+    private func exportSelectedCropTo() {
+        guard let vm else { return }
+        guard vm.selectedCrop != nil else { return }
+
+        guard let folder = chooseExportFolder() else { return }
+        exportFolderURL = folder
+        persistExportFolder(folder)
+
+        // Now export using the selected folder (and remember it)
+        exportSelectedCrop()
+    }
+
+    /// Ensures there is an export folder.
+    /// If none is set yet, behaves like “Export To…” (your requested behavior).
     private func ensureExportFolder() -> URL? {
-        if let url = exportFolderURL, FileManager.default.fileExists(atPath: url.path) {
-            return url
+        if let exportFolderURL,
+           FileManager.default.fileExists(atPath: exportFolderURL.path) {
+            return exportFolderURL
         }
 
+        guard let folder = chooseExportFolder() else { return nil }
+        exportFolderURL = folder
+        persistExportFolder(folder)
+        return folder
+    }
+
+
+    /// Directory picker (AppKit). No `NSOpen...` import needed — this is NSOpenPanel.
+    private func chooseExportFolder() -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Export Folder"
+        panel.prompt = "Choose"
 
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        // If we already have an export folder, start there.
+        if let exportFolderURL {
+            panel.directoryURL = exportFolderURL
+        } else if let root = archiveStore.archiveRootURL {
+            // Otherwise start in the Picture Library Folder for convenience.
+            panel.directoryURL = root
+        }
 
-        persistExportFolder(url)
-        exportFolderURL = url
+        let result = panel.runModal()
+        guard result == .OK, let url = panel.url else { return nil }
         return url
     }
+
+
 
     private func persistExportFolder(_ url: URL) {
         let defaults = UserDefaults.standard
@@ -2372,8 +2573,11 @@ extension DMPPImageEditorView {
         return nil
     }
 
+    // MARK: - [LOAD] Scan folder + apply review filter
+
     private func loadImages(from folder: URL) {
         saveCurrentMetadata()
+        let previousImageURL = vm?.imageURL
 
         guard let root = archiveStore.archiveRootURL else {
             continueErrorMessage = "Picture Library Folder is not set. Please set it first."
@@ -2402,8 +2606,24 @@ extension DMPPImageEditorView {
             ? recursiveImageURLs(in: folder)
             : immediateImageURLs(in: folder)
 
+        // ---------------------------------------------------------
+        // [REVIEW] Apply review filter BEFORE sorting
+        // ---------------------------------------------------------
+        let filtered: [URL] = found.filter { url in
+            switch reviewMode {
+            case .allPictures:
+                return true
+
+            case .neverReviewed:
+                return !hasSidecar(for: url)
+
+            case .flagged:
+                return isFlaggedPhoto(url)
+            }
+        }
+
         let basePath = folder.path
-        imageURLs = found.sorted {
+        imageURLs = filtered.sorted {
             $0.path.replacingOccurrences(of: basePath + "/", with: "")
                 < $1.path.replacingOccurrences(of: basePath + "/", with: "")
         }
@@ -2416,9 +2636,33 @@ extension DMPPImageEditorView {
             currentIndex = 0
             activeRowIndex = 0
         } else {
-            loadImage(at: 0)
+            if let previousImageURL,
+               let idx = imageURLs.firstIndex(of: previousImageURL) {
+                currentIndex = idx
+                loadImage(at: idx)
+            } else {
+                loadImage(at: 0)
+            }
         }
+
     }
+
+    // MARK: - [REVIEW] Sidecar + Flagged helpers
+
+    private func hasSidecar(for imageURL: URL) -> Bool {
+        let url = sidecarURL(for: imageURL)
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func isFlaggedPhoto(_ imageURL: URL) -> Bool {
+        let url = sidecarURL(for: imageURL)
+
+        guard let data = try? Data(contentsOf: url) else { return false }
+        guard let meta = try? JSONDecoder().decode(DmpmsMetadata.self, from: data) else { return false }
+
+        return meta.tags.contains(where: { $0.caseInsensitiveCompare("Flagged") == .orderedSame })
+    }
+
 
     private func immediateImageURLs(in folder: URL) -> [URL] {
         let fm = FileManager.default
