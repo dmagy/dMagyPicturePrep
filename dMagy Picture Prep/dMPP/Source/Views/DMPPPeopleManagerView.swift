@@ -441,7 +441,7 @@ struct DMPPPeopleManagerView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .frame(width: 120, alignment: .leading)
+                   // .frame(width: 120, alignment: .leading)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -456,7 +456,7 @@ struct DMPPPeopleManagerView: View {
                     .toggleStyle(.button)
                     .help("Mark this person as a favorite for quick access.")
                 }
-                .frame(width: 80, alignment: .leading)
+             //   .frame(width: 80, alignment: .leading)
             }
 
             // LINE 1b: Preferred + Aliases (person-level)
@@ -604,11 +604,13 @@ struct DMPPPeopleManagerView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
                     .background(.quaternary.opacity(0.35))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
+        .padding(4)
     }
 
     // MARK: - Actions

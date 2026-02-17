@@ -107,7 +107,9 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
+            .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
             .tabItem { Label("Crops", systemImage: "crop") }
 
             // =====================================================
@@ -185,6 +187,7 @@ struct DMPPCropPreferencesView: View {
                 Spacer(minLength: 0)
             }
             .padding()
+            //.frame(maxWidth: 540, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .tabItem { Label("Tags", systemImage: "tag") }
 
@@ -300,9 +303,9 @@ struct DMPPCropPreferencesView: View {
 
         }
         .frame(
-            minWidth: 820,
-            idealWidth: 980,
-            maxWidth: .infinity,
+            minWidth: 940,
+            idealWidth: 1080,
+            maxWidth: 1080,
             minHeight: 760,
             idealHeight: 820,
             maxHeight: .infinity,
@@ -900,16 +903,19 @@ struct DMPPCropPreferencesView: View {
                     if isReserved {
                         Text(rec.name)
                             .font(.headline)
+                           // .frame(maxWidth: 150)
 
-                        Spacer()
+                       // Spacer()
 
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.secondary)
                             .help("This tag name is required and cannot be renamed or deleted.")
+                        Spacer()
                     } else {
                         TextField("Tag", text: $nameDraft)
                             .textFieldStyle(.roundedBorder)
                             .font(.headline)
+                            .frame(maxWidth: 150)
                             .focused($nameFocused)
                             .onSubmit { commitNameIfNeeded() }
                             .onChange(of: nameFocused) { _, isFocused in
@@ -924,6 +930,7 @@ struct DMPPCropPreferencesView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Remove tag")
+                        Spacer()
                     }
                 }
 
