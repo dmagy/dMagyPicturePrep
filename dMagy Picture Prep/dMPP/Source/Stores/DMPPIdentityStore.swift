@@ -354,9 +354,10 @@ final class DMPPIdentityStore: ObservableObject {
             // Person-level birth (propagated)
             let (b0, _) = LooseYMD.birthRange(person.birthDate)
 
-            // Option B: death comes from the Death event date
-            let deathDateString = deathEventDate(from: person.versions)
-            let (_, d1) = LooseYMD.birthRange(deathDateString)
+            // Option B+: end-of-presence comes from “Death” OR other end events (Lost contact / Rehomed)
+            let endDateString = effectiveEndEventDate(from: person.versions)
+            let (_, d1) = LooseYMD.birthRange(endDateString)
+
 
             let earliestAlive = b0
             let latestAlive   = d1
@@ -380,6 +381,24 @@ final class DMPPIdentityStore: ObservableObject {
         return s.isEmpty ? nil : s
     }
 
+    private func effectiveEndEventDate(from versions: [DmpmsIdentity]) -> String? {
+
+        // Normalize once
+        let endReasons: Set<String> = ["death", "lost contact", "rehomed"]
+
+        let endEvents = versions.filter { endReasons.contains(normalize($0.idReason)) }
+        guard !endEvents.isEmpty else { return nil }
+
+        // IMPORTANT CHOICE:
+        // We want the earliest “end-of-presence” date to act as the cutoff.
+        // Example: Rehomed in 2019, Death in 2030 -> cutoff should be 2019.
+        let best = endEvents.min(by: { sortKey(for: $0.idDate) < sortKey(for: $1.idDate) })
+
+        let s = (best?.idDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
+    }
+
+    
     // ============================================================
     // MARK: [IDS] Shared fields propagation
     // ============================================================

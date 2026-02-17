@@ -63,8 +63,10 @@ struct DMPPPeopleManagerView: View {
         "Marriage",
         "Name Change",
         "Name Variant",
+        "No longer in contact",
         "Paternity established",
         "Pen name",
+        "Rehomed",
         "Religious conversion",
         "Spelling correction",
         "Stage name",
@@ -123,11 +125,11 @@ struct DMPPPeopleManagerView: View {
                 HSplitView {
                     leftPane
                         .padding(8)
-                        .frame(minWidth: 300, idealWidth: 300, maxWidth: 300)
+                      //  .frame(minWidth: 300, idealWidth: 300, maxWidth: 300)
 
                     detailEditor
-                        .padding(12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                     //   .padding(12)
+                      //  .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             } else {
                 NavigationSplitView {
@@ -137,7 +139,7 @@ struct DMPPPeopleManagerView: View {
                 } detail: {
                     detailEditor
                 }
-                .frame(minWidth: 910, minHeight: 660)
+               // .frame(minWidth: 910, minHeight: 660)
             }
         }
     }
@@ -339,6 +341,7 @@ struct DMPPPeopleManagerView: View {
                 VStack(alignment: .leading, spacing: 12) {
 
                     GroupBox {
+                        //Life events - changed to center
                         VStack(alignment: .leading, spacing: 7) {
 
                             // BIRTH IDENTITY (always first)
@@ -363,7 +366,7 @@ struct DMPPPeopleManagerView: View {
                                 )
                             }
                         }
-                        .padding(8)
+                        .padding(4)
                     }
 
                     HStack {
@@ -391,7 +394,7 @@ struct DMPPPeopleManagerView: View {
                         }
                         .keyboardShortcut("s", modifiers: [.command])
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 4)
 
                     
 

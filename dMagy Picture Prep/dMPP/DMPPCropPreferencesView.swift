@@ -96,18 +96,26 @@ struct DMPPCropPreferencesView: View {
                 Divider()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    HStack(alignment: .top, spacing: 28) {
+
+                        // LEFT: Standard crops
                         builtInPresetsSection
+                         //   .frame(maxWidth: 460, alignment: .topLeading)
                         Divider()
+                        // RIGHT: Custom crops
                         customPresetsSection
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
+
                     }
                     .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+
 
                 Spacer(minLength: 0)
             }
             .padding()
-            .frame(maxWidth: 760, alignment: .leading)
+           // .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             .tabItem { Label("Crops", systemImage: "crop") }
@@ -156,7 +164,7 @@ struct DMPPCropPreferencesView: View {
                 Divider()
 
                 DMPPPeopleManagerView(host: .settingsTab)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                 //   .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding()
             .tabItem { Label("People", systemImage: "person.2") }
