@@ -61,27 +61,9 @@ struct dMagy_Picture_PrepApp: App {
         }
 
 
-        // (Leave these commented unless you intentionally want to force sizing.)
-        // .defaultSize(width: 980, height: 820)
-        // .windowResizability(.contentMinSize)
 
-        // ============================================================
-        // [APP-PEOPLE] Dedicated People Manager window
-        // ============================================================
-        WindowGroup("People Manager", id: "People-Manager") {
-            DMPPPeopleManagerView()
-                .environmentObject(identityStore)
-                .environmentObject(archiveStore)
-                .environmentObject(tagStore)
-                .environmentObject(locationStore)
-                .environmentObject(cropStore)
-                .background(DMPPWindowAutosave(name: "DMPP.PeopleWindow.v1"))
-        }
 
-        // Optional: also include People menu (if you want it globally, keep it here)
-        .commands {
-            PeopleCommands()
-        }
+   
     }
 }
 
@@ -353,20 +335,4 @@ private struct DMPPSettingsLockGateView: View {
 }
 
 
-// ================================================================
-// [CMD] Commands live outside the App so they can use openWindow cleanly.
-// ================================================================
 
-private struct PeopleCommands: Commands {
-
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some Commands {
-        CommandMenu("People") {
-            Button("Open People Manager") {
-                openWindow(id: "People-Manager")
-            }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
-        }
-    }
-}

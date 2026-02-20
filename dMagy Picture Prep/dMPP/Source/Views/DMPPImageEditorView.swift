@@ -62,6 +62,11 @@ struct DMPPImageEditorView: View {
     @State private var currentPhotoRelPathForLock: String? = nil
     // [LOCK] Heartbeat timer (updates our lock timestamp while we’re on a picture)
     @State private var softLockHeartbeatTimer: Timer? = nil
+    // MARK: - [DICT] Speech dictation controller (Description field)
+    @StateObject private var dictationController = DMPPSpeechDictationController()
+
+
+
 
     // [ARCH] Access the chosen Photo Library Folder (archive root)
     @EnvironmentObject private var archiveStore: DMPPArchiveStore
@@ -440,7 +445,8 @@ struct DMPPImageEditorView: View {
 
                         vm.metadata.peopleV2.append(newRow)
                         vm.recomputeAgesForCurrentImage()
-                    }
+                    },
+                    dictationController: dictationController
                 )
                 .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                 .padding()
@@ -568,7 +574,6 @@ private extension URL {
 
 // MARK: - Left Pane
 
-import SwiftUI
 
 // MARK: - DMPPCropEditorPane
 
@@ -1230,12 +1235,22 @@ struct DMPPMetadataFormPane: View {
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
+    
+    // MARK: - [DICT] Input
+    @ObservedObject var dictationController: DMPPSpeechDictationController
+    // MARK: - [DICT] Help + focus
+
+    @State private var showDictationHelp: Bool = false
+    @FocusState private var descriptionFocused: Bool
+
+
 
     @EnvironmentObject private var identityStore: DMPPIdentityStore
 
     // MARK: View
 
     var body: some View {
+        
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
 
@@ -1283,6 +1298,7 @@ struct DMPPMetadataFormPane: View {
     // MARK: Sections
 
     private var titleAndDescriptionSection: some View {
+        
         GroupBox("Title and Description") {
             VStack(alignment: .leading, spacing: 8) {
 
@@ -1303,13 +1319,75 @@ struct DMPPMetadataFormPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    TextField("", text: $vm.metadata.description, axis: .vertical)
-                        .lineLimit(2...6)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity)
+                    HStack(alignment: .top, spacing: 8) {
+
+                        TextEditor(text: $vm.metadata.description)
+                            .font(.body)
+                            .lineSpacing(2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .frame(minHeight: 80, maxHeight: 160)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color(nsColor: .textBackgroundColor))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .strokeBorder(.secondary.opacity(0.35))
+                            )
+                            .scrollContentBackground(.hidden)
+                            // [DICT-FOCUS] Track focus so we can stop dictation on Ctrl-Tab (or any focus change)
+                            .focused($descriptionFocused)
+                            .onChange(of: descriptionFocused) { _, isFocused in
+                                if !isFocused {
+                                    dictationController.stop()
+                                }
+                            }
+
+                        // Right-side control stack: (i) above mic
+                        VStack(spacing: 6) {
+
+                            Button {
+                                showDictationHelp.toggle()
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.title3)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Dictation shortcuts")
+                            .popover(isPresented: $showDictationHelp, arrowEdge: .leading) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Dictation shortcuts")
+                                        .font(.headline)
+
+                                    Text("Cmd–Shift–D: Start/stop dictation")
+                                    Text("Ctrl–Tab: Leave Description and stop dictation")
+
+                                    Text("Tip: Dictation also stops if you click out of Description.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .frame(width: 320)
+                            }
+
+                            Button {
+                                dictationController.toggleDictation(into: $vm.metadata.description)
+                            } label: {
+                                Image(systemName: dictationController.isDictating ? "mic.circle.fill" : "mic.fill")
+                                    .font(.title)              // keeps it big
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.borderless)
+                            .keyboardShortcut("d", modifiers: [.command, .shift])
+                            .help(dictationController.isDictating ? "Stop dictation" : "Dictate description")
+                        }
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
+
             }
         }
     }
@@ -1683,7 +1761,7 @@ struct DMPPMetadataFormPane: View {
         let ordered = orderedChecklistPeople()
 
         if ordered.isEmpty {
-            Text("No identities defined yet. Open People Manager to add some.")
+            Text("No identities defined yet. Go to Settings → People to add some.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         } else {
@@ -1750,7 +1828,7 @@ struct DMPPMetadataFormPane: View {
             Text("Add one-off person")
                 .font(.headline)
 
-            Text("Adds a label for this photo only (not added to People Manager).")
+            Text("Adds a label for this photo only (not added to Settings → People).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
