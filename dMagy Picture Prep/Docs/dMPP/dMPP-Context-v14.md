@@ -374,7 +374,7 @@ A consistent status indicator (“prepped”, “needs people”, “needs tags�
 
 ---
 
-**(4) Voice input / automation hooks**
+**(4) Voice input / automation hooks** - Done
 *Definition of done:*
 
 * Voice input can reliably populate one scoped field (first target TBD)

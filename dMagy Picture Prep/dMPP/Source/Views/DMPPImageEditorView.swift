@@ -65,6 +65,13 @@ struct DMPPImageEditorView: View {
     // MARK: - [DICT] Speech dictation controller (Description field)
     @StateObject private var dictationController = DMPPSpeechDictationController()
 
+    // MARK: - [FACES] Identify Faces (per-photo, no scanning)
+
+    @State private var identifyFacesEnabled: Bool = false
+    @State private var detectedFaces: [DMPPFaceDetectionService.DetectedFace] = []
+    @State private var facesAreLoading: Bool = false
+
+    private let faceService = DMPPFaceDetectionService()
 
 
 
@@ -128,6 +135,13 @@ struct DMPPImageEditorView: View {
             loadPersistedLastFolder()
             loadPersistedExportFolder()
         }
+        .onChange(of: vm?.imageURL) { _, _ in
+            // [FACES] New photo → turn off face mode (prevents “stale boxes”)
+            identifyFacesEnabled = false
+            detectedFaces = []
+            facesAreLoading = false
+        }
+
         .onDisappear {
             // [ARCH] End security-scoped access
             endScopedAccess()
@@ -400,6 +414,8 @@ struct DMPPImageEditorView: View {
                 // LEFT — Crops + Preview
                 DMPPCropEditorPane(
                     vm: vm,
+                    identifyFacesEnabled: identifyFacesEnabled,
+                    detectedFaces: detectedFaces,
                     onDeleteCropRequested: {
                         vm.deleteSelectedCrop()
                     },
@@ -446,7 +462,16 @@ struct DMPPImageEditorView: View {
                         vm.metadata.peopleV2.append(newRow)
                         vm.recomputeAgesForCurrentImage()
                     },
-                    dictationController: dictationController
+                 
+                    identifyFacesEnabled: $identifyFacesEnabled,
+                    onToggleIdentifyFaces: { isOn in
+                        if isOn {
+                            refreshFacesForCurrentPhoto()
+                        } else {
+                            detectedFaces = []
+                        }
+                    },
+                    dictationController: dictationController,
                 )
                 .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                 .padding()
@@ -512,6 +537,23 @@ struct DMPPImageEditorView: View {
         .background(.thinMaterial)
     }
 
+    // MARK: - [FACES] Detect faces for current image
+
+    private func refreshFacesForCurrentPhoto() {
+        guard let vm, let img = vm.nsImage else {
+            detectedFaces = []
+            return
+        }
+
+        facesAreLoading = true
+        Task { @MainActor in
+            let faces = await faceService.detectFaces(in: img)
+            self.detectedFaces = faces
+            self.facesAreLoading = false
+        }
+    }
+
+    
     // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)
     @ViewBuilder
     private var softLockBannerView: some View {
@@ -585,6 +627,12 @@ struct DMPPCropEditorPane: View {
     /// For the crop editor we only need read access to the view model.
     var vm: DMPPImageEditorViewModel
 
+    // MARK: - [FACES] Inputs (overlay)
+
+    var identifyFacesEnabled: Bool
+    var detectedFaces: [DMPPFaceDetectionService.DetectedFace]
+
+    
     // MARK: - [CROP-ACTIONS] Callbacks (owned by parent view)
 
     var onDeleteCropRequested: () -> Void
@@ -791,6 +839,85 @@ struct DMPPCropEditorPane: View {
                                 let isHeadshot = (selectedCrop.kind == .headshot)
                                 let isFreeform = (selectedCrop.aspectRatio == "custom" || selectedCrop.label == "Freeform")
 
+                                // ---------------------------------------------------------
+                                // [FACES] Numbered face boxes overlay (Identify Faces mode)
+                                // ---------------------------------------------------------
+                                if identifyFacesEnabled, !detectedFaces.isEmpty {
+
+                                    // ---------------------------------------------------------
+                                    // [FACES] Map normalized face rects into the *displayed* image
+                                    // frame (scaledToFit letterboxing-aware).
+                                    // ---------------------------------------------------------
+                                    GeometryReader { geo in
+
+                                        let containerW = geo.size.width
+                                        let containerH = geo.size.height
+
+                                        let imgW = max(nsImage.size.width, 1)
+                                        let imgH = max(nsImage.size.height, 1)
+
+                                        let imgAspect = imgW / imgH
+                                        let containerAspect = containerW / max(containerH, 1)
+
+                                        // (displayW, displayH, offsetX, offsetY)
+                                        let display: (CGFloat, CGFloat, CGFloat, CGFloat) = {
+                                            if containerAspect > imgAspect {
+                                                // Height-limited
+                                                let h = containerH
+                                                let w = containerH * imgAspect
+                                                let x = (containerW - w) / 2
+                                                return (w, h, x, 0)
+                                            } else {
+                                                // Width-limited
+                                                let w = containerW
+                                                let h = containerW / imgAspect
+                                                let y = (containerH - h) / 2
+                                                return (w, h, 0, y)
+                                            }
+                                        }()
+
+                                        let displayW = display.0
+                                        let displayH = display.1
+                                        let offsetX  = display.2
+                                        let offsetY  = display.3
+
+                                        ForEach(Array(detectedFaces.enumerated()), id: \.element.id) { (idx, face) in
+                                            let n = idx + 1
+                                            let r = face.rect  // normalized, top-left origin
+
+                                            let x = offsetX + (r.x * displayW)
+                                            let y = offsetY + (r.y * displayH)
+                                            let w = r.width * displayW
+                                            let h = r.height * displayH
+
+                                            let clampedW = max(w, 2)
+                                            let clampedH = max(h, 2)
+
+                                            ZStack(alignment: .topLeading) {
+
+                                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                    .strokeBorder(Color.accentColor.opacity(0.85), lineWidth: 2)
+                                                    .frame(width: clampedW, height: clampedH)
+                                                    .position(x: x + (clampedW / 2), y: y + (clampedH / 2))
+
+                                                Text("\(n)")
+                                                    .font(.title3.weight(.bold))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+                                                    .overlay(
+                                                        Capsule(style: .continuous)
+                                                            .strokeBorder(.secondary.opacity(0.35))
+                                                    )
+                                                    .position(x: x + 14, y: y + 10)
+                                            }
+                                        }
+                                    }
+
+                                }
+
+
+                                
                                 DMPPCropOverlayView(
                                     image: nsImage,
                                     rect: selectedCrop.rect,
@@ -1217,6 +1344,12 @@ struct DMPPMetadataFormPane: View {
 
     var addUnknownPersonRow: (String) -> Void
 
+
+    // MARK: - [FACES] Identify Faces (toggle + callback)
+    @Binding var identifyFacesEnabled: Bool
+    var onToggleIdentifyFaces: (Bool) -> Void
+
+
     // MARK: Env
 
     @Environment(\.openSettings) private var openSettings
@@ -1533,6 +1666,27 @@ struct DMPPMetadataFormPane: View {
 
     private var peopleSection: some View {
         GroupBox("People") {
+            
+            HStack(spacing: 10) {
+                Button {
+                    identifyFacesEnabled.toggle()
+                    onToggleIdentifyFaces(identifyFacesEnabled)
+                } label: {
+                    Label(
+                        identifyFacesEnabled ? "Hide Face Boxes" : "Identify Faces",
+                        systemImage: "person.crop.square"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .help("Show numbered face boxes (left-to-right). Use manual People assignment if the photo is too complex.")
+
+                Spacer()
+
+                Text("Tip: If this photo is too busy, turn this off and tag people manually.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
 
                 Text("Check people in this photo left to right, row by row")
