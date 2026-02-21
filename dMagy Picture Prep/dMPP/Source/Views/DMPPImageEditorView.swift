@@ -1347,6 +1347,7 @@ struct DMPPMetadataFormPane: View {
                         // Right-side control stack: (i) above mic
                         VStack(spacing: 6) {
 
+                            // (i) Help
                             Button {
                                 showDictationHelp.toggle()
                             } label: {
@@ -1372,17 +1373,30 @@ struct DMPPMetadataFormPane: View {
                                 .frame(width: 320)
                             }
 
+                            // Clean up (safe, deterministic)
+                            Button {
+                                vm.metadata.description = cleanUpDescription(vm.metadata.description)
+                            } label: {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.title3)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Clean up description (spacing + basic punctuation)")
+
+                            // Mic
                             Button {
                                 dictationController.toggleDictation(into: $vm.metadata.description)
                             } label: {
                                 Image(systemName: dictationController.isDictating ? "mic.circle.fill" : "mic.fill")
-                                    .font(.title)              // keeps it big
+                                    .font(.title)
                                     .frame(width: 32, height: 32)
                             }
                             .buttonStyle(.borderless)
                             .keyboardShortcut("d", modifiers: [.command, .shift])
                             .help(dictationController.isDictating ? "Stop dictation" : "Dictate description")
                         }
+
                     }
                 }
                 .padding(.horizontal, 8)
@@ -1391,7 +1405,48 @@ struct DMPPMetadataFormPane: View {
             }
         }
     }
+    // MARK: - [DESC] Safe cleanup (no AI)
 
+    private func cleanUpDescription(_ input: String) -> String {
+        var s = input
+
+        // Normalize line endings
+        s = s.replacingOccurrences(of: "\r\n", with: "\n")
+        s = s.replacingOccurrences(of: "\r", with: "\n")
+
+        // Trim overall
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Trim trailing spaces per line
+        s = s
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                line.replacingOccurrences(of: #"[ \t]+$"#, with: "", options: .regularExpression)
+            }
+            .joined(separator: "\n")
+
+        // Collapse multiple spaces/tabs inside lines (preserve newlines)
+        s = s.replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
+
+        // Remove spaces before punctuation like "hello ," -> "hello,"
+        s = s.replacingOccurrences(of: #" +([,.;:!?])"#, with: "$1", options: .regularExpression)
+
+        // Collapse 3+ blank lines to max 1 blank line
+        s = s.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
+
+        // Final trim
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If it ends with a letter/number and no terminal punctuation, add a period.
+        if let last = s.last,
+           last.isLetter || last.isNumber {
+            s.append(".")
+        }
+
+        return s
+    }
+
+    
     private var dateSection: some View {
         GroupBox("Date Taken or Era") {
             VStack(alignment: .leading, spacing: 6) {
