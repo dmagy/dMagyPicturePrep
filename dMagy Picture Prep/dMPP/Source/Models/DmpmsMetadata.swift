@@ -1,7 +1,32 @@
+// ================================================================
+// DmpmsMetadata.swift
 //
-//  DmpmsMetadata.swift
-//  dMagy Picture Prep
+// Purpose
+// - Defines the core dMPMS sidecar metadata models written to and read from
+//   `<photo>.dmpms.json`.
+// - This is the single “source of truth” structure for per-photo metadata:
+//   title/description/date, tags, people, location, crops, and history.
 //
+// Dependencies & Effects
+// - Codable models consumed by dMPP views + stores (editor + settings).
+// - Changes here affect:
+//   - Sidecar read/write compatibility
+//   - Sorting/filtering logic
+//   - Any downstream tools reading dMPMS (future dMPS, etc.)
+//
+// Data Flow
+// - dMPP loads `<photo>.dmpms.json` → decodes into `DmpmsMetadata`.
+// - UI edits fields on the in-memory model.
+// - Save writes back to `<photo>.dmpms.json`.
+// - Some fields have “helper sync” to keep legacy fields compatible.
+//
+// Section Index
+// - DmpmsDateRange
+// - DmpmsMetadata
+// - HistoryEvent
+// - DmpmsMetadata sync helpers (legacy people list)
+// - Location models (DmpmsGPS, DmpmsLocation)
+// ================================================================
 
 import Foundation
 
@@ -165,6 +190,13 @@ struct DmpmsMetadata: Codable, Hashable {
     // cp-2025-12-19-PS2(METADATA-ADD-SNAPSHOTS)
     var peopleV2Snapshots: [DmpmsPeopleSnapshot] = []
 
+    // MARK: - [FACES] Optional per-photo face workflow state (v1.4+ concept)
+    // Numbers correspond to the Identify Faces overlay ordering: left-to-right, 1..N
+    var ignoredFaceNumbers: [Int] = []
+
+    // Face number -> personID (keys stored as strings for JSON stability)
+    var faceAssignments: [String: String] = [:]
+
     // Crops + history
     var virtualCrops: [VirtualCrop] = []
     var history: [HistoryEvent] = []
@@ -185,6 +217,8 @@ struct DmpmsMetadata: Codable, Hashable {
         case people
         case peopleV2
         case peopleV2Snapshots
+        case ignoredFaceNumbers
+        case faceAssignments
         case virtualCrops
         case history
     }
@@ -205,6 +239,8 @@ struct DmpmsMetadata: Codable, Hashable {
         people: [String] = [],
         peopleV2: [DmpmsPersonInPhoto] = [],
         peopleV2Snapshots: [DmpmsPeopleSnapshot] = [],
+        ignoredFaceNumbers: [Int] = [],
+        faceAssignments: [String: String] = [:],
         virtualCrops: [VirtualCrop] = [],
         history: [HistoryEvent] = []
     ) {
@@ -221,6 +257,8 @@ struct DmpmsMetadata: Codable, Hashable {
         self.people = people
         self.peopleV2 = peopleV2
         self.peopleV2Snapshots = peopleV2Snapshots
+        self.ignoredFaceNumbers = ignoredFaceNumbers
+        self.faceAssignments = faceAssignments
         self.virtualCrops = virtualCrops
         self.history = history
     }
@@ -253,6 +291,10 @@ struct DmpmsMetadata: Codable, Hashable {
         // NEW (v1.2+)
         peopleV2Snapshots = (try? container.decode([DmpmsPeopleSnapshot].self, forKey: .peopleV2Snapshots)) ?? []
 
+        // NEW (v1.4+ concept)
+        ignoredFaceNumbers = (try? container.decode([Int].self, forKey: .ignoredFaceNumbers)) ?? []
+        faceAssignments = (try? container.decode([String: String].self, forKey: .faceAssignments)) ?? [:]
+
         virtualCrops = try container.decode([VirtualCrop].self, forKey: .virtualCrops)
         history      = try container.decode([HistoryEvent].self, forKey: .history)
     }
@@ -278,6 +320,10 @@ struct DmpmsMetadata: Codable, Hashable {
 
         // NEW (v1.2+)
         try c.encode(peopleV2Snapshots, forKey: .peopleV2Snapshots)
+
+        // NEW (v1.4+ concept)
+        try c.encode(ignoredFaceNumbers, forKey: .ignoredFaceNumbers)
+        try c.encode(faceAssignments, forKey: .faceAssignments)
 
         try c.encode(virtualCrops, forKey: .virtualCrops)
         try c.encode(history, forKey: .history)
@@ -342,4 +388,3 @@ struct DmpmsLocation: Codable, Hashable {
     var state: String? = nil
     var country: String? = nil
 }
-

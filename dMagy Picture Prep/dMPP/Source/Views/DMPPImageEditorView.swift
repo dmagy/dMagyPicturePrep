@@ -462,7 +462,6 @@ struct DMPPImageEditorView: View {
                         vm.metadata.peopleV2.append(newRow)
                         vm.recomputeAgesForCurrentImage()
                     },
-                 
                     identifyFacesEnabled: $identifyFacesEnabled,
                     onToggleIdentifyFaces: { isOn in
                         if isOn {
@@ -471,7 +470,8 @@ struct DMPPImageEditorView: View {
                             detectedFaces = []
                         }
                     },
-                    dictationController: dictationController,
+                    detectedFaceCount: detectedFaces.count,
+                    dictationController: dictationController
                 )
                 .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
                 .padding()
@@ -881,8 +881,16 @@ struct DMPPCropEditorPane: View {
                                         let offsetX  = display.2
                                         let offsetY  = display.3
 
-                                        ForEach(Array(detectedFaces.enumerated()), id: \.element.id) { (idx, face) in
+                                        let ignored = Set(vm.metadata.ignoredFaceNumbers)
+
+
+                                        ForEach(
+                                            Array(detectedFaces.enumerated()).filter { !ignored.contains($0.offset + 1) },
+                                            id: \.element.id
+                                        ) { (idx, face) in
                                             let n = idx + 1
+
+
                                             let r = face.rect  // normalized, top-left origin
 
                                             let x = offsetX + (r.x * displayW)
@@ -1368,7 +1376,8 @@ struct DMPPMetadataFormPane: View {
     // cp-2025-12-26-LOC-UI2(STATE)
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
-    
+    // MARK: - [FACES] Inputs
+    var detectedFaceCount: Int
     // MARK: - [DICT] Input
     @ObservedObject var dictationController: DMPPSpeechDictationController
     // MARK: - [DICT] Help + focus
@@ -1666,7 +1675,7 @@ struct DMPPMetadataFormPane: View {
 
     private var peopleSection: some View {
         GroupBox("People") {
-            
+
             HStack(spacing: 10) {
                 Button {
                     identifyFacesEnabled.toggle()
@@ -1686,6 +1695,12 @@ struct DMPPMetadataFormPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // [FACES] Ignored chips row (restore)
+            ignoredFacesRow
+
+            // [FACES] Numbered blanks (1..N), excluding ignored
+            faceNumberedBlanksRow
 
             VStack(alignment: .leading, spacing: 8) {
 
@@ -1739,7 +1754,10 @@ struct DMPPMetadataFormPane: View {
             .padding(.vertical, 8)
         }
     }
+    // MARK: - [FACES] Ignored face chips (click to restore)
 
+
+    
     // cp-2025-12-26-LOC-UI2(SECTION)
     private var locationSection: some View {
         GroupBox("Location") {
@@ -1877,7 +1895,267 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
-    // MARK: Sub-blocks (these are the ones your errors complain about)
+
+    // ---------------------------------------------------------
+    // MARK: - [FACES] State (active slot + temporary assignments)
+    //
+    // NOTE: This is “phase 1B”: assignments live in view state for now.
+    // Next step will persist these into dmpms.json (faceNumber -> personID).
+    // ---------------------------------------------------------
+
+    @State private var activeFaceNumber: Int? = nil
+
+    /// Temporary (non-persisted) mapping: faceNumber (1..N) -> personID
+    @State private var faceAssignments: [Int: String] = [:]
+
+    // ---------------------------------------------------------
+    // MARK: - [FACES] Helpers
+    // ---------------------------------------------------------
+
+    /// Face numbers to show in the UI (1..N), excluding ignored.
+    private var activeFaceNumbersForUI: [Int] {
+        guard identifyFacesEnabled, detectedFaceCount > 0 else { return [] }
+        let ignored = Set(vm.metadata.ignoredFaceNumbers)
+        return (1...detectedFaceCount).filter { !ignored.contains($0) }
+    }
+
+    // MARK: - [FACES] Label helpers
+
+    private func faceDisplayLabel(for n: Int) -> String? {
+        // faceAssignments stores tagged Strings:
+        // - "id:<identityID>"
+        // - "oneoff:<label>"
+        // - (or legacy) "<some display text>"
+
+        guard let raw = vm.metadata.faceAssignments[faceKey(n)],
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+
+        if raw.hasPrefix("oneoff:") {
+            let label = String(raw.dropFirst("oneoff:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return label.isEmpty ? nil : label
+        }
+
+        if raw.hasPrefix("id:") {
+            let idString = String(raw.dropFirst("id:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !idString.isEmpty else { return nil }
+
+            // Resolve via identities you already have in the checklist
+            // (this avoids guessing IdentityStore API surface area).
+            let all = orderedChecklistPeople()
+
+            // If your identity ID is a String:
+            if let person = all.first(where: { String(describing: $0.id) == idString }) {
+                return identityStore.checklistLabel(for: person)
+            }
+
+            // If your identity ID is a UUID:
+            if let uuid = UUID(uuidString: idString),
+               let person = all.first(where: { ($0.id as? UUID) == uuid }) {
+                return identityStore.checklistLabel(for: person)
+            }
+
+            // If we can’t resolve, treat as unassigned (avoids “Unknown” confusion)
+            return nil
+        }
+
+        // Legacy / fallback: if it’s already a human label, just show it
+        return raw
+    }
+
+    private func resetActiveFaceToFirstUnassigned() {
+        let nums = activeFaceNumbersForUI
+        for n in nums {
+            if vm.metadata.faceAssignments[faceKey(n)] == nil {
+                activeFaceNumber = n
+                return
+            }
+        }
+        activeFaceNumber = nums.first
+    }
+    
+    private func personLabel(for personID: String) -> String {
+        if let p = identityStore.peopleSortedForUI.first(where: { $0.id == personID }) {
+            return p.shortName.isEmpty ? "Unnamed" : p.shortName
+        }
+        return "Unknown"
+    }
+
+    /// Advance active slot to the next unassigned visible face.
+    /// If none remain, clear active slot.
+    private func advanceActiveFaceAfterAssign() {
+        let visible = activeFaceNumbersForUI
+        guard !visible.isEmpty else {
+            activeFaceNumber = nil
+            return
+        }
+
+        // Prefer “next after current”, then wrap.
+        let start = activeFaceNumber ?? visible.first!
+        let startIdx = visible.firstIndex(of: start) ?? 0
+
+        let ordered = Array(visible[startIdx...]) + Array(visible[..<startIdx])
+        if let next = ordered.first(where: { faceAssignments[$0] == nil }) {
+            activeFaceNumber = next
+        } else {
+            activeFaceNumber = nil
+        }
+    }
+
+    private func setActiveFace(_ n: Int) {
+        activeFaceNumber = n
+    }
+
+    /// Assign currently active face to a person, then auto-advance.
+    private func assignActiveFace(to personID: String) {
+        guard let n = activeFaceNumber else { return }
+        faceAssignments[n] = personID
+        advanceActiveFaceAfterAssign()
+    }
+
+    /// Ignore a face (adds to sidecar list) and clears any temp assignment.
+    private func ignoreFace(_ n: Int) {
+        if !vm.metadata.ignoredFaceNumbers.contains(n) {
+            vm.metadata.ignoredFaceNumbers.append(n)
+        }
+        faceAssignments.removeValue(forKey: n)
+
+        if activeFaceNumber == n {
+            advanceActiveFaceAfterAssign()
+        }
+    }
+
+    private func restoreIgnoredFace(_ n: Int) {
+        vm.metadata.ignoredFaceNumbers.removeAll { $0 == n }
+        // If nothing active, restore sets you up to work immediately.
+        if activeFaceNumber == nil {
+            activeFaceNumber = n
+        }
+    }
+
+    // ---------------------------------------------------------
+    // MARK: - [FACES] Ignored face chips (click to restore)
+    // ---------------------------------------------------------
+
+    private var ignoredFacesRow: some View {
+        let ignoredSorted: [Int] = vm.metadata.ignoredFaceNumbers.sorted()
+
+        return Group {
+            if ignoredSorted.isEmpty {
+                EmptyView()
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("Ignored:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(ignoredSorted, id: \.self) { n in
+                                Button {
+                                    restoreIgnoredFace(n)
+                                } label: {
+                                    Text("\(n)")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.secondary.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .strokeBorder(Color.secondary.opacity(0.25))
+                                )
+                                .help("Restore face \(n)")
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button("Clear") {
+                        vm.metadata.ignoredFaceNumbers = []
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Restore all ignored faces")
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - [FACES] Numbered blanks (1..N), excluding ignored
+
+    private var faceNumberedBlanksRow: some View {
+        let nums = activeFaceNumbersForUI
+        let columns: [GridItem] = [
+            GridItem(.adaptive(minimum: 120), spacing: 8, alignment: .leading)
+        ]
+
+        return Group {
+            if nums.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+
+                    Text("Faces:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                        ForEach(nums, id: \.self) { n in
+                            let isActive = (activeFaceNumber == n)
+                            let label = faceDisplayLabel(for: n) // nil means unassigned
+
+                            Button {
+                                activeFaceNumber = n
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text("\(n)")
+                                        .font(.caption.weight(.bold))
+                                        .frame(width: 22, alignment: .center)
+
+                                    Text(label ?? "—")
+                                        .font(.caption)
+                                        .foregroundStyle(label == nil ? .secondary : .primary)
+
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color.secondary.opacity(0.10))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(isActive ? Color.accentColor.opacity(0.9) : Color.secondary.opacity(0.25),
+                                                      lineWidth: isActive ? 2 : 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Ignore face \(n)") {
+                                    ignoreFace(n)
+                                }
+                            }
+                            .help(label == nil ? "Face \(n) (unassigned)" : "Face \(n): \(label!)")
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
+    // MARK: - (Existing) People summary block
+    // ---------------------------------------------------------
 
     @ViewBuilder
     private var peopleSummaryBlock: some View {
@@ -1904,7 +2182,6 @@ struct DMPPMetadataFormPane: View {
             }
         }
     }
-
     private var advancedPeopleBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
 
@@ -1982,7 +2259,34 @@ struct DMPPMetadataFormPane: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(leftColumn) { person in
-                        Toggle(isOn: bindingForPerson(person)) {
+                        // Build a wrapper binding so we can run side-effects when user checks a person.
+                        let baseBinding = bindingForPerson(person)
+
+                        let faceAwareBinding = Binding<Bool>(
+                            get: { baseBinding.wrappedValue },
+                            set: { newValue in
+                                baseBinding.wrappedValue = newValue
+
+                                // Only auto-assign when turning ON and a face slot is active.
+                                guard newValue else {
+                                    // Optional: if they were assigned to any face slot, remove that assignment too.
+                                    let label = identityStore.checklistLabel(for: person)
+                                    faceAssignments = faceAssignments.filter { $0.value != label }
+                                    return
+                                }
+
+                                guard let active = activeFaceNumber else { return }
+
+                                // Store the label for now (later we’ll store a stable personID for persistence).
+                                let label = identityStore.checklistLabel(for: person)
+                                faceAssignments[active] = label
+
+                                // Move to next available face slot.
+                                advanceActiveFaceAfterAssign()
+                            }
+                        )
+
+                        Toggle(isOn: faceAwareBinding) {
                             HStack(spacing: 6) {
                                 Text(identityStore.checklistLabel(for: person))
                                 if person.kind == "pet" {
@@ -2345,6 +2649,31 @@ private extension DMPPMetadataFormPane {
         return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    private func faceKey(_ n: Int) -> String { String(n) }
+
+    private func assignedPersonLabel(forFace n: Int) -> String {
+        if let pid = vm.metadata.faceAssignments[faceKey(n)] {
+            if let p = identityStore.peopleSortedForUI.first(where: { $0.id == pid }) {
+                return identityStore.checklistLabel(for: p)
+            }
+            return "Assigned"
+        }
+        return "—"
+    }
+
+    private func assignFace(_ n: Int, to personID: String) {
+        // assign
+        vm.metadata.faceAssignments[faceKey(n)] = personID
+        // if it was ignored, restore it
+        vm.metadata.ignoredFaceNumbers.removeAll { $0 == n }
+    }
+
+    private func clearFace(_ n: Int) {
+        vm.metadata.faceAssignments.removeValue(forKey: faceKey(n))
+    }
+
+  
+    
     func shortNowStamp() -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
