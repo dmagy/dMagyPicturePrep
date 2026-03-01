@@ -178,6 +178,10 @@ struct DmpmsMetadata: Codable, Hashable {
 
     var tags: [String] = []
 
+    // MARK: - [PEOPLE] How people were identified for this photo
+    // "manual" (row workflow) or "faces" (face slots workflow)
+    var peopleMethod: String = "manual"
+    
     /// Legacy flat list of people names.
     /// Retained for simple/older workflows.
     var people: [String] = []
@@ -190,12 +194,88 @@ struct DmpmsMetadata: Codable, Hashable {
     // cp-2025-12-19-PS2(METADATA-ADD-SNAPSHOTS)
     var peopleV2Snapshots: [DmpmsPeopleSnapshot] = []
 
-    // MARK: - [FACES] Optional per-photo face workflow state (v1.4+ concept)
-    // Numbers correspond to the Identify Faces overlay ordering: left-to-right, 1..N
-    var ignoredFaceNumbers: [Int] = []
+    // BEGIN REPLACE: // MARK: - [FACES] Optional per-photo face workflow state
 
-    // Face number -> personID (keys stored as strings for JSON stability)
-    var faceAssignments: [String: String] = [:]
+        // MARK: - [FACES] Optional per-photo face workflow state (Face Mode)
+        // Numbers correspond to the Identify Faces overlay ordering: left-to-right, 1..N
+        var ignoredFaceNumbers: [Int] = []
+
+        // Face number -> assignment (keys stored as strings for JSON stability)
+        // Value format (preferred):
+        // - "id:<personID>"      (known person)
+        // - "oneoff:<label>"     (one-off label)
+        //
+        // Back-compat:
+        // - If the value has NO prefix, treat it as legacy "personID".
+        var faceAssignments: [String: String] = [:]
+
+        // MARK: - [FACES] Helpers (assignment + ignore)
+
+        /// Stable JSON key for a face number (1-based).
+        static func faceKey(_ n: Int) -> String { String(n) }
+
+        enum FaceAssignmentKind: String {
+            case id
+            case oneoff
+            case none
+        }
+
+        /// Parse an assignment string into (kind, payload).
+        /// - Supports the preferred "id:" / "oneoff:" formats.
+        /// - Treats unprefixed values as legacy `.id` payload.
+        static func parseFaceAssignment(_ raw: String?) -> (kind: FaceAssignmentKind, payload: String)? {
+            guard let raw = raw, raw.isEmpty == false else { return nil }
+
+            if raw.hasPrefix("id:") {
+                return (.id, String(raw.dropFirst(3)))
+            }
+            if raw.hasPrefix("oneoff:") {
+                return (.oneoff, String(raw.dropFirst(7)))
+            }
+
+            // Legacy: raw == personID
+            return (.id, raw)
+        }
+
+        /// Returns the parsed assignment for face `n`, if any.
+        func faceAssignment(for n: Int) -> (kind: FaceAssignmentKind, payload: String)? {
+            let key = Self.faceKey(n)
+            return Self.parseFaceAssignment(faceAssignments[key])
+        }
+
+        /// Assign face `n` to a known personID (stored as "id:<personID>").
+        mutating func assignFace(_ n: Int, toPersonID personID: String) {
+            let key = Self.faceKey(n)
+            faceAssignments[key] = "id:" + personID
+            ignoredFaceNumbers.removeAll(where: { $0 == n })
+            ignoredFaceNumbers.sort()
+        }
+
+        /// Assign face `n` to a one-off label (stored as "oneoff:<label>").
+        mutating func assignFace(_ n: Int, toOneOffLabel label: String) {
+            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = Self.faceKey(n)
+            faceAssignments[key] = "oneoff:" + trimmed
+            ignoredFaceNumbers.removeAll(where: { $0 == n })
+            ignoredFaceNumbers.sort()
+        }
+
+        /// Clears any assignment for face `n` (does not change ignore state).
+        mutating func clearFaceAssignment(_ n: Int) {
+            let key = Self.faceKey(n)
+            faceAssignments.removeValue(forKey: key)
+        }
+
+        /// Marks face `n` as ignored and clears any assignment.
+        mutating func ignoreFace(_ n: Int) {
+            clearFaceAssignment(n)
+            if ignoredFaceNumbers.contains(n) == false {
+                ignoredFaceNumbers.append(n)
+            }
+            ignoredFaceNumbers.sort()
+        }
+
+    // END REPLACE: // MARK: - [FACES] Optional per-photo face workflow state
 
     // Crops + history
     var virtualCrops: [VirtualCrop] = []
@@ -217,6 +297,7 @@ struct DmpmsMetadata: Codable, Hashable {
         case people
         case peopleV2
         case peopleV2Snapshots
+        case peopleMethod
         case ignoredFaceNumbers
         case faceAssignments
         case virtualCrops
@@ -236,6 +317,7 @@ struct DmpmsMetadata: Codable, Hashable {
         gps: DmpmsGPS? = nil,
         location: DmpmsLocation? = nil,
         tags: [String] = [],
+        peopleMethod: String = "manual",
         people: [String] = [],
         peopleV2: [DmpmsPersonInPhoto] = [],
         peopleV2Snapshots: [DmpmsPeopleSnapshot] = [],
@@ -254,6 +336,7 @@ struct DmpmsMetadata: Codable, Hashable {
         self.gps = gps
         self.location = location
         self.tags = tags
+        self.peopleMethod = peopleMethod
         self.people = people
         self.peopleV2 = peopleV2
         self.peopleV2Snapshots = peopleV2Snapshots
@@ -291,6 +374,8 @@ struct DmpmsMetadata: Codable, Hashable {
         // NEW (v1.2+)
         peopleV2Snapshots = (try? container.decode([DmpmsPeopleSnapshot].self, forKey: .peopleV2Snapshots)) ?? []
 
+        peopleMethod = (try? container.decode(String.self, forKey: .peopleMethod)) ?? "manual"
+        
         // NEW (v1.4+ concept)
         ignoredFaceNumbers = (try? container.decode([Int].self, forKey: .ignoredFaceNumbers)) ?? []
         faceAssignments = (try? container.decode([String: String].self, forKey: .faceAssignments)) ?? [:]
@@ -320,7 +405,7 @@ struct DmpmsMetadata: Codable, Hashable {
 
         // NEW (v1.2+)
         try c.encode(peopleV2Snapshots, forKey: .peopleV2Snapshots)
-
+        try c.encode(peopleMethod, forKey: .peopleMethod)
         // NEW (v1.4+ concept)
         try c.encode(ignoredFaceNumbers, forKey: .ignoredFaceNumbers)
         try c.encode(faceAssignments, forKey: .faceAssignments)

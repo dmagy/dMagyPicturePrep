@@ -389,16 +389,9 @@ A consistent status indicator (“prepped”, “needs people”, “needs tags�
 
 ---
 
-**(5) Investigate facial recognition** *(investigation only unless explicitly promoted)*
-*Definition of done:*
+**(5) Implement facial recognition** 
 
-* Written decision memo: feasibility, privacy stance, technical approach, and “nope” criteria
-* Identifies whether we can support offline-only and what data would be stored
 
-*Likely files/components touched:*
-
-* Docs (new)
-* Prototype sandbox code (optional, isolated)
 
 ---
 
