@@ -69,6 +69,7 @@ struct DMPPImageEditorView: View {
 
     @State private var identifyFacesEnabled: Bool = false
     @State private var detectedFaces: [DMPPFaceDetectionService.DetectedFace] = []
+    @State private var showFaceBoxes: Bool = true
     @State private var facesAreLoading: Bool = false
 
     private let faceService = DMPPFaceDetectionService()
@@ -135,12 +136,15 @@ struct DMPPImageEditorView: View {
             loadPersistedLastFolder()
             loadPersistedExportFolder()
         }
+        // BEGIN PASTE-OVER 1: don't force mode off on photo change
         .onChange(of: vm?.imageURL) { _, _ in
-            // [FACES] New photo → turn off face mode (prevents “stale boxes”)
-            identifyFacesEnabled = false
+            // [FACES] New photo → clear transient detection state only.
+            // Mode (Manual vs Auto-Detect) is restored by the metadata pane from sidecar data.
             detectedFaces = []
             facesAreLoading = false
+            showFaceBoxes = true
         }
+        // END PASTE-OVER 1
 
         .onDisappear {
             // [ARCH] End security-scoped access
@@ -416,6 +420,7 @@ struct DMPPImageEditorView: View {
                     vm: vm,
                     identifyFacesEnabled: identifyFacesEnabled,
                     detectedFaces: detectedFaces,
+                    showFaceBoxes: $showFaceBoxes,
                     onDeleteCropRequested: {
                         vm.deleteSelectedCrop()
                     },
@@ -468,6 +473,7 @@ struct DMPPImageEditorView: View {
                             refreshFacesForCurrentPhoto()
                         } else {
                             detectedFaces = []
+                            showFaceBoxes = true
                         }
                     },
                     detectedFaceCount: detectedFaces.count,
@@ -619,6 +625,8 @@ private extension URL {
 
 // MARK: - DMPPCropEditorPane
 
+// BEGIN PASTE-OVER: struct DMPPCropEditorPane
+
 struct DMPPCropEditorPane: View {
 
     @Environment(\.openSettings) private var openSettings
@@ -631,8 +639,8 @@ struct DMPPCropEditorPane: View {
 
     var identifyFacesEnabled: Bool
     var detectedFaces: [DMPPFaceDetectionService.DetectedFace]
+    @Binding var showFaceBoxes: Bool
 
-    
     // MARK: - [CROP-ACTIONS] Callbacks (owned by parent view)
 
     var onDeleteCropRequested: () -> Void
@@ -824,7 +832,7 @@ struct DMPPCropEditorPane: View {
 
             headerChipsAndMenu
 
-            // Preview + overlay + crop size slider (unchanged)
+            // Preview + overlay + crop size slider
             HStack(alignment: .center, spacing: 12) {
 
                 if let nsImage = vm.nsImage, let selectedCrop = vm.selectedCrop {
@@ -840,13 +848,12 @@ struct DMPPCropEditorPane: View {
                                 let isFreeform = (selectedCrop.aspectRatio == "custom" || selectedCrop.label == "Freeform")
 
                                 // ---------------------------------------------------------
-                                // [FACES] Numbered face boxes overlay (Identify Faces mode)
+                                // MARK: - [FACES] Numbered face boxes overlay (Auto-Detect mode)
                                 // ---------------------------------------------------------
-                                if identifyFacesEnabled, !detectedFaces.isEmpty {
+                                if identifyFacesEnabled, showFaceBoxes, !detectedFaces.isEmpty {
 
                                     // ---------------------------------------------------------
-                                    // [FACES] Map normalized face rects into the *displayed* image
-                                    // frame (scaledToFit letterboxing-aware).
+                                    // MARK: - [FACES] Map normalized face rects into the displayed image
                                     // ---------------------------------------------------------
                                     GeometryReader { geo in
 
@@ -883,14 +890,11 @@ struct DMPPCropEditorPane: View {
 
                                         let ignored = Set(vm.metadata.ignoredFaceNumbers)
 
-
                                         ForEach(
                                             Array(detectedFaces.enumerated()).filter { !ignored.contains($0.offset + 1) },
                                             id: \.element.id
                                         ) { (idx, face) in
                                             let n = idx + 1
-
-
                                             let r = face.rect  // normalized, top-left origin
 
                                             let x = offsetX + (r.x * displayW)
@@ -908,24 +912,25 @@ struct DMPPCropEditorPane: View {
                                                     .frame(width: clampedW, height: clampedH)
                                                     .position(x: x + (clampedW / 2), y: y + (clampedH / 2))
 
+                                                // Badge centered on the *corner* so it overlaps top + left evenly
                                                 Text("\(n)")
-                                                    .font(.title3.weight(.bold))
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-                                                    .overlay(
-                                                        Capsule(style: .continuous)
-                                                            .strokeBorder(.secondary.opacity(0.35))
+                                                    .font(.caption.weight(.heavy))
+                                                    .foregroundStyle(.white)
+                                                    .frame(width: 22, height: 22)
+                                                    .background(
+                                                        Circle()
+                                                            .fill(Color.accentColor.opacity(0.85))
                                                     )
-                                                    .position(x: x + 14, y: y + 10)
+                                                    .overlay(
+                                                        Circle()
+                                                            .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
+                                                    )
+                                                    .position(x: x, y: y)
                                             }
                                         }
                                     }
-
                                 }
 
-
-                                
                                 DMPPCropOverlayView(
                                     image: nsImage,
                                     rect: selectedCrop.rect,
@@ -947,16 +952,35 @@ struct DMPPCropEditorPane: View {
                             .strokeBorder(.secondary.opacity(0.3))
                     )
 
-                    // Bottom-left: crop action panel (NEW)
+                    // Bottom-left: crop action panel
                     .overlay(alignment: .bottomLeading) {
                         cropActionPanel
                             .padding(10)
                     }
 
-                    // Bottom-right: existing crop size pill
+                    // Bottom-right: Hide/Show Face Boxes (Auto-Detect only) + crop pill
                     .overlay(alignment: .bottomTrailing) {
-                        cropSizePill(nsImage: nsImage, cropRect: selectedCrop.rect)
-                            .padding(10)
+                        VStack(alignment: .trailing, spacing: 8) {
+
+                            if identifyFacesEnabled {
+                                Button(showFaceBoxes ? "Hide Face Boxes" : "Show Face Boxes") {
+                                    showFaceBoxes.toggle()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help(showFaceBoxes ? "Hide face boxes for this photo (temporary)." : "Show face boxes for this photo.")
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(.secondary.opacity(0.25))
+                                )
+                            }
+
+                            cropSizePill(nsImage: nsImage, cropRect: selectedCrop.rect)
+                        }
+                        .padding(10)
                     }
 
                 } else {
@@ -1025,8 +1049,6 @@ struct DMPPCropEditorPane: View {
 
             VStack(alignment: .leading, spacing: 8) {
 
-                
-
                 Button {
                     onExportCropRequested()
                 } label: {
@@ -1044,9 +1066,9 @@ struct DMPPCropEditorPane: View {
                 }
                 .buttonStyle(.bordered)
                 .help("Choose a folder for this export (and remember it for next time)")
-                
+
                 Spacer().frame(height: 6)
-                
+
                 Button {
                     showDeleteConfirm = true
                 } label: {
@@ -1056,7 +1078,6 @@ struct DMPPCropEditorPane: View {
                 .buttonStyle(.bordered)
                 .tint(.red)
                 .help("Delete the selected crop")
-                
             }
             .font(.callout)
             .padding(.horizontal, 10)
@@ -1071,7 +1092,6 @@ struct DMPPCropEditorPane: View {
             EmptyView()
         }
     }
-
 
     // MARK: - Header (chips + menu)
 
@@ -1332,6 +1352,8 @@ struct DMPPCropEditorPane: View {
     }
 }
 
+// END PASTE-OVER: struct DMPPCropEditorPane
+
 
 // MARK: - Right Pane (Metadata)
 
@@ -1382,6 +1404,7 @@ struct DMPPMetadataFormPane: View {
 
     // MARK: - [FACES] Local State
     @State private var activeFaceNumber: Int? = nil
+    @State private var suppressModeReset: Bool = false
 
     // MARK: - [DICT] Input
     @ObservedObject var dictationController: DMPPSpeechDictationController
@@ -1414,57 +1437,60 @@ struct DMPPMetadataFormPane: View {
                     .tint(.accentColor)
                     .padding(.top, 4)
             }
-            // BEGIN PASTE-OVER 2: onAppear (restore face/manual mode)
             .onAppear {
                 reloadAvailableTags()
                 reloadUserLocations()
                 syncSavedLocationSelectionForCurrentPhoto()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
 
-                // MARK: - [FACES] Auto-restore Face mode when photo was previously face-tagged
+                // [FACES] Auto-restore Auto-detect on first load without triggering setFaceMode reset
                 let shouldRestoreFaceMode =
                     (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
 
-                if shouldRestoreFaceMode, !identifyFacesEnabled {
-                    identifyFacesEnabled = true
-                    // IMPORTANT: do NOT wipe existing assignments; just initialize UI state
-                    if activeFaceNumber == nil, detectedFaceCount > 0 {
-                        resetActiveFaceToFirstUnassigned()
-                    } else if activeFaceNumber == nil {
-                        activeFaceNumber = 1
-                    }
-                    onToggleIdentifyFaces(true) // triggers detection in parent
-                }
-            }
-            // END PASTE-OVER 2
-            .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
-                reloadAvailableTags()
-                reloadUserLocations()
-            }
-            // BEGIN PASTE-OVER: onChange(of: vm.metadata.sourceFile) includes Face-mode restore
-            .onChange(of: vm.metadata.sourceFile) { _, _ in
-                syncSavedLocationSelectionForCurrentPhoto()
-                selectedUserLocationID = nil
-
-                // MARK: - [FACES] Restore Face mode for photos that already have face data
-                let shouldRestoreFaceMode =
-                    (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
+                suppressModeReset = true
+                identifyFacesEnabled = shouldRestoreFaceMode
+                DispatchQueue.main.async { suppressModeReset = false }
 
                 if shouldRestoreFaceMode {
-                    if !identifyFacesEnabled {
-                        identifyFacesEnabled = true
-                        onToggleIdentifyFaces(true) // re-detect faces for this photo
-                    }
+                    onToggleIdentifyFaces(true)
 
-                    // Ensure we have an active slot (common after navigation)
                     if activeFaceNumber == nil, detectedFaceCount > 0 {
                         resetActiveFaceToFirstUnassigned()
                     } else if activeFaceNumber == nil {
                         activeFaceNumber = 1
                     }
                 } else {
-                    // If the photo doesn't use face mode, keep UI consistent
-                    identifyFacesEnabled = false
+                    activeFaceNumber = nil
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
+                reloadAvailableTags()
+                reloadUserLocations()
+            }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                syncSavedLocationSelectionForCurrentPhoto()
+                selectedUserLocationID = nil
+
+                let shouldRestoreFaceMode =
+                    (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
+
+                // Hold suppress flag through the Picker's onChange delivery.
+                suppressModeReset = true
+                identifyFacesEnabled = shouldRestoreFaceMode
+
+                DispatchQueue.main.async {
+                    suppressModeReset = false
+                }
+
+                if shouldRestoreFaceMode {
+                    onToggleIdentifyFaces(true)
+
+                    if activeFaceNumber == nil, detectedFaceCount > 0 {
+                        resetActiveFaceToFirstUnassigned()
+                    } else if activeFaceNumber == nil {
+                        activeFaceNumber = 1
+                    }
+                } else {
                     activeFaceNumber = nil
                 }
             }
@@ -1723,48 +1749,56 @@ struct DMPPMetadataFormPane: View {
         GroupBox("People") {
 
             // ============================================================
-            // [FACES-MODE] Mode header (toggle always visible)
+            // MARK: - [PEOPLE-MODE] Mode selector (Manual | Auto-Detect)
             // ============================================================
-            HStack(spacing: 10) {
-                // BEGIN PASTE-OVER: Face mode toggle action
-                Button {
-                    identifyFacesEnabled.toggle()
-                    setFaceMode(identifyFacesEnabled)
-                    onToggleIdentifyFaces(identifyFacesEnabled)
+            VStack(alignment: .center, spacing: 8) {
 
-                    // MARK: - [FACES] Ensure an active slot exists after enabling
-                    if identifyFacesEnabled {
-                        // If we already know face count, pick the first available.
+                Picker("", selection: $identifyFacesEnabled) {
+                    Text("Manual").tag(false)
+                    Text("Auto-Detect").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: identifyFacesEnabled) { _, isOn in
+                    if suppressModeReset {
+                        // Programmatic restore: do NOT wipe metadata.
+                        onToggleIdentifyFaces(isOn)
+
+                        if isOn {
+                            if activeFaceNumber == nil, detectedFaceCount > 0 {
+                                resetActiveFaceToFirstUnassigned()
+                            } else if activeFaceNumber == nil {
+                                activeFaceNumber = 1
+                            }
+                        } else {
+                            activeFaceNumber = nil
+                        }
+                        return
+                    }
+
+                    // User-initiated mode switch: keep your existing reset behavior.
+                    setFaceMode(isOn)
+                    onToggleIdentifyFaces(isOn)
+
+                    if isOn {
                         if activeFaceNumber == nil, detectedFaceCount > 0 {
                             resetActiveFaceToFirstUnassigned()
+                        } else if activeFaceNumber == nil {
+                            activeFaceNumber = 1
                         }
                     } else {
                         activeFaceNumber = nil
                     }
-                } label: {
-                // END PASTE-OVER
-                    Label(
-                        identifyFacesEnabled ? "Hide Face Boxes" : "Identify Faces",
-                        systemImage: "person.crop.square"
-                    )
                 }
-                .buttonStyle(.bordered)
-                .help(
-                    identifyFacesEnabled
-                    ? "Face Mode: assign people to numbered face slots."
-                    : "Show numbered face boxes (left-to-right). Use manual People assignment if the photo is too complex."
-                )
-
-                Spacer()
 
                 Text(
                     identifyFacesEnabled
-                    ? "Face mode: assign people to numbered slots."
-                    : "Manual mode: check people left-to-right, row by row."
+                    ? "Auto-Detect: face boxes are detected; assign people to numbered slots. If not all people, or pets, are identified, use Manual "
+                    : "Manual: check people left-to-right, row by row."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            .padding(4)
 
             // ============================================================
             // [FACES-MODE] Face workflow UI (ONLY when enabled)
@@ -1778,9 +1812,7 @@ struct DMPPMetadataFormPane: View {
                     // Ignored chips row (restore / clear)
                     ignoredFacesRow
 
-                    Text("Tip: Click a slot to make it active, then choose a person from the checklist.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+         
 
                     Divider().padding(.vertical, 4)
 
@@ -1798,9 +1830,7 @@ struct DMPPMetadataFormPane: View {
                 // ============================================================
                 VStack(alignment: .leading, spacing: 8) {
 
-                    Text("Check people in this photo left to right, row by row")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+  
 
                     peopleSummaryBlock
 
@@ -2088,28 +2118,48 @@ struct DMPPMetadataFormPane: View {
 
         // MARK: - [FACES] Label helpers
 
-        private func faceDisplayLabel(for n: Int) -> String? {
-            guard let raw = assignmentRaw(for: n),
-                  !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { return nil }
+    // BEGIN PASTE-OVER: faceDisplayLabel(for:) with age suffix
 
-            let parsed = parseAssignment(raw)
+    private func faceDisplayLabel(for n: Int) -> String? {
+        guard let raw = assignmentRaw(for: n),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
 
-            if parsed.kind == "oneoff" {
-                return parsed.payload.isEmpty ? nil : parsed.payload
-            }
+        let parsed = parseAssignment(raw)
 
-            // "id" or legacy: try to resolve as a PersonSummary.id string
-            let key = parsed.payload
-            let all = orderedChecklistPeople()
+        // One-off: label only (no age)
+        if parsed.kind == "oneoff" {
+            return parsed.payload.isEmpty ? nil : parsed.payload
+        }
 
-            if let person = all.first(where: { String(describing: $0.id) == key }) {
-                return identityStore.checklistLabel(for: person)
-            }
+        // "id" or legacy: try to resolve as a PersonSummary.id string
+        let key = parsed.payload
+        let all = orderedChecklistPeople()
 
+        guard let person = all.first(where: { String(describing: $0.id) == key }) else {
             // Legacy fallback: show raw as a human label if it isn't resolvable as an id
             return (parsed.kind == "legacy") ? parsed.payload : "Unknown"
         }
+
+        let baseLabel = identityStore.checklistLabel(for: person)
+
+        // Compute age using the best identity version for this photo date
+        let versions = identityStore.identityVersions(forPersonID: person.id)
+        let photoEarliest = vm.metadata.dateRange?.earliest
+        let chosen = identityStore.bestIdentityForPhoto(
+            versions: versions,
+            photoEarliestYMD: photoEarliest
+        )
+
+        let ageText = vm.ageTextByIdentityID[chosen.id] ?? ""
+        if ageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return baseLabel
+        } else {
+            return "\(baseLabel) (\(ageText))"
+        }
+    }
+
+    // END PASTE-OVER
 
         private func isPersonAssignedToAnyFace(personKey: String) -> Bool {
             for raw in vm.metadata.faceAssignments.values {
@@ -2273,26 +2323,39 @@ struct DMPPMetadataFormPane: View {
                                 let isActive = (activeFaceNumber == n)
                                 let label = faceDisplayLabel(for: n) // nil means unassigned
 
+                                // BEGIN PASTE-OVER: Face chip button (full hit target)
+
                                 Button {
                                     activeFaceNumber = n
                                 } label: {
-                                    HStack(spacing: 6) {
-                                        Text("\(n)")
-                                            .font(.caption.weight(.semibold))
-                                            .monospacedDigit()
+                                    // Make the LABEL define the hit target, not the background.
+                                    ZStack {
+                                        // This invisible rectangle forces a real, full-size hit-test region.
+                                        Rectangle()
+                                            .fill(Color.clear)
 
-                                        Text("—")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                        HStack(spacing: 6) {
+                                            Text("\(n)")
+                                                .font(.caption.weight(.semibold))
+                                                .monospacedDigit()
 
-                                        Text(label ?? "")
-                                            .font(.caption)
-                                            .foregroundStyle(label == nil ? .secondary : .primary)
-                                            .lineLimit(1)
+                                            Text(":")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+
+                                            Text(label ?? "")
+                                                .font(.caption)
+                                                .foregroundStyle(label == nil ? .secondary : .primary)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+
+                                            Spacer(minLength: 0)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
                                     }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                                    .contentShape(Rectangle()) // hit-test the whole chip area
                                 }
                                 .buttonStyle(.plain)
                                 .background(
@@ -2303,8 +2366,9 @@ struct DMPPMetadataFormPane: View {
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .strokeBorder(isActive ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.20))
                                 )
-                                .contentShape(Rectangle())
-                                .help("Assign face \(n)")
+                                .help(label == nil ? "Face \(n): unassigned" : "Face \(n): \(label!)")
+
+                                // END PASTE-OVER
 
                                 .contextMenu {
                                     Button("Ignore face \(n)") {
@@ -2322,7 +2386,7 @@ struct DMPPMetadataFormPane: View {
 
                         // Hint
                         if identifyFacesEnabled {
-                            Text(activeFaceNumber == nil ? "All visible faces are assigned (or ignored)." : "Click a face slot, then check a person to assign.")
+                            Text(activeFaceNumber == nil ? "All visible faces are assigned (or ignored)." : "")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -3938,7 +4002,9 @@ extension DMPPImageEditorView {
         metadata.syncLegacyPeopleFromPeopleV2IfNeeded()
     }
 
-    // BEGIN PASTE-OVER: saveCurrentMetadata() with Face->peopleV2 derivation
+  
+
+    // BEGIN PASTE-OVER 2: saveCurrentMetadata() (content-based, stable across navigation)
 
     private func saveCurrentMetadata() {
         guard let vm else { return }
@@ -3946,16 +4012,26 @@ extension DMPPImageEditorView {
         var metadataToSave = vm.metadata
 
         // ============================================================
-        // MARK: - [FACES] Derive peopleV2 from faceAssignments on save
+        // MARK: - [PEOPLE] Decide peopleMethod from persisted content
         // ============================================================
-        let hasFaces = !metadataToSave.faceAssignments.isEmpty
-        if hasFaces || metadataToSave.peopleMethod == "faces" {
-            metadataToSave.peopleMethod = "faces"
+        let hasFaceAssignments = !metadataToSave.faceAssignments.isEmpty
+        let hasManualPeople = !metadataToSave.peopleV2.isEmpty
 
+        if hasFaceAssignments {
+            metadataToSave.peopleMethod = "faces"
+        } else if hasManualPeople {
+            metadataToSave.peopleMethod = "manual"
+        } else if metadataToSave.peopleMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            metadataToSave.peopleMethod = "manual"
+        }
+
+        // ============================================================
+        // MARK: - [FACES] Derive peopleV2 ONLY when faceAssignments exist
+        // ============================================================
+        if hasFaceAssignments {
             var derived: [DmpmsPersonInPhoto] = []
             var seenPersonIDs = Set<String>()
 
-            // Sort by numeric face number: "1", "2", ...
             let keysSorted = metadataToSave.faceAssignments.keys.sorted { a, b in
                 (Int(a) ?? 0) < (Int(b) ?? 0)
             }
@@ -3968,7 +4044,6 @@ extension DMPPImageEditorView {
                 let raw = raw0.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !raw.isEmpty else { continue }
 
-                // oneoff
                 if raw.hasPrefix("oneoff:") {
                     let label = String(raw.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !label.isEmpty else { continue }
@@ -3991,7 +4066,6 @@ extension DMPPImageEditorView {
                     continue
                 }
 
-                // id:<personID> (preferred) OR legacy unprefixed
                 let personID: String = {
                     if raw.hasPrefix("id:") {
                         return String(raw.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4001,7 +4075,7 @@ extension DMPPImageEditorView {
                 }()
 
                 guard !personID.isEmpty else { continue }
-                guard seenPersonIDs.insert(personID).inserted else { continue } // dedupe
+                guard seenPersonIDs.insert(personID).inserted else { continue }
 
                 let versions = identityStore.identityVersions(forPersonID: personID)
                 let chosen = identityStore.bestIdentityForPhoto(
@@ -4027,10 +4101,6 @@ extension DMPPImageEditorView {
             }
 
             metadataToSave.peopleV2 = derived
-        } else {
-            if metadataToSave.peopleMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                metadataToSave.peopleMethod = "manual"
-            }
         }
 
         // Existing normalization pipeline
@@ -4055,7 +4125,9 @@ extension DMPPImageEditorView {
         }
     }
 
-    // END PASTE-OVER: saveCurrentMetadata()
+    // END PASTE-OVER 2
+
+
 
     private func metadataHash(_ m: DmpmsMetadata) -> Int {
         var h = Hasher()
