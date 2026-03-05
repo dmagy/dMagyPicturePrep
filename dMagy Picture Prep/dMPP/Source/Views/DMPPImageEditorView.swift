@@ -1399,12 +1399,15 @@ struct DMPPMetadataFormPane: View {
     @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
 
+    @State private var showPeopleModeHelp: Bool = false
     // MARK: - [FACES] Inputs
     var detectedFaceCount: Int
 
     // MARK: - [FACES] Local State
     @State private var activeFaceNumber: Int? = nil
     @State private var suppressModeReset: Bool = false
+    @State private var showFaceOneOffSheet: Bool = false
+    @State private var faceOneOffDraft: String = ""
 
     // MARK: - [DICT] Input
     @ObservedObject var dictationController: DMPPSpeechDictationController
@@ -1443,25 +1446,8 @@ struct DMPPMetadataFormPane: View {
                 syncSavedLocationSelectionForCurrentPhoto()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
 
-                // [FACES] Auto-restore Auto-detect on first load without triggering setFaceMode reset
-                let shouldRestoreFaceMode =
-                    (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
-
-                suppressModeReset = true
-                identifyFacesEnabled = shouldRestoreFaceMode
-                DispatchQueue.main.async { suppressModeReset = false }
-
-                if shouldRestoreFaceMode {
-                    onToggleIdentifyFaces(true)
-
-                    if activeFaceNumber == nil, detectedFaceCount > 0 {
-                        resetActiveFaceToFirstUnassigned()
-                    } else if activeFaceNumber == nil {
-                        activeFaceNumber = 1
-                    }
-                } else {
-                    activeFaceNumber = nil
-                }
+                // Restore mode for the initially loaded photo
+                restorePeopleModeFromMetadata(triggerDetection: true)
             }
             .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
                 reloadAvailableTags()
@@ -1471,30 +1457,11 @@ struct DMPPMetadataFormPane: View {
                 syncSavedLocationSelectionForCurrentPhoto()
                 selectedUserLocationID = nil
 
-                let shouldRestoreFaceMode =
-                    (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
-
-                // Hold suppress flag through the Picker's onChange delivery.
-                suppressModeReset = true
-                identifyFacesEnabled = shouldRestoreFaceMode
-
-                DispatchQueue.main.async {
-                    suppressModeReset = false
-                }
-
-                if shouldRestoreFaceMode {
-                    onToggleIdentifyFaces(true)
-
-                    if activeFaceNumber == nil, detectedFaceCount > 0 {
-                        resetActiveFaceToFirstUnassigned()
-                    } else if activeFaceNumber == nil {
-                        activeFaceNumber = 1
-                    }
-                } else {
-                    activeFaceNumber = nil
-                }
+                // Restore mode for the newly loaded photo
+                restorePeopleModeFromMetadata(triggerDetection: true)
             }
-            // END PASTE-OVER
+            
+            
             .onChange(of: gpsKey) { _, _ in
                 syncSavedLocationSelectionForCurrentPhoto()
             }
@@ -1507,6 +1474,7 @@ struct DMPPMetadataFormPane: View {
         }
         .sheet(isPresented: $showAddUnknownSheet) { addUnknownSheet }
         .sheet(isPresented: $showCaptureSnapshotSheet) { captureSnapshotSheet }
+        .sheet(isPresented: $showFaceOneOffSheet) { faceOneOffSheet }
     }
 
     // MARK: Sections
@@ -1790,11 +1758,53 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
 
-                Text(
-                    identifyFacesEnabled
-                    ? "Auto-Detect: face boxes are detected; assign people to numbered slots. If not all people, or pets, are identified, use Manual "
-                    : "Manual: check people left-to-right, row by row."
-                )
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(
+                        identifyFacesEnabled
+                        ? "Auto-Detect: assign people to numbered face slots."
+                        : "Manual: check people left-to-right, row by row."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        showPeopleModeHelp.toggle()
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("People mode help")
+                    .popover(isPresented: $showPeopleModeHelp, arrowEdge: .top) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("People modes")
+                                .font(.headline)
+
+                            Group {
+                                Text("Auto-Detect")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("• Detects face boxes; you assign people to numbered slots.")
+                                Text("• Right-click a face slot to Ignore a face or Clear an assignment.")
+                                Text("• Use Manual if not all faces are found, or if you want to identify pets.")
+                            }
+                            .font(.caption)
+
+                            Divider()
+
+                            Group {
+                                Text("Manual")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("• Check people row-by-row starting with the front, then use “Start next row” to move back.")
+                            }
+                            .font(.caption)
+                        }
+                        .padding(12)
+                        .frame(width: 360)
+                    }
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
@@ -1812,7 +1822,54 @@ struct DMPPMetadataFormPane: View {
                     // Ignored chips row (restore / clear)
                     ignoredFacesRow
 
-         
+                    HStack(spacing: 10) {
+                        Button("Add one-off person…") {
+                            guard activeFaceNumber != nil else { return }
+                            faceOneOffDraft = ""
+                            showFaceOneOffSheet = true
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(activeFaceNumber == nil)
+                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Assign a one-off label to the active face slot.")
+
+                        Spacer()
+
+                        if let n = activeFaceNumber {
+                            Text("Active slot: \(n)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    HStack(spacing: 10) {
+
+                        Button("Ignore face") {
+                            guard let n = activeFaceNumber else { return }
+                            ignoreFace(n)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(activeFaceNumber == nil)
+                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Ignore the active face slot.")
+
+                        Button("Clear slot") {
+                            guard let n = activeFaceNumber else { return }
+                            clearAssignment(for: n)
+                            resetActiveFaceToFirstUnassigned()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(activeFaceNumber == nil)
+                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Clear the assignment for the active face slot.")
+
+                        Spacer()
+
+                        Text("Tip: Right-click a slot for more options.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                    .padding(.top, 2)
 
                     Divider().padding(.vertical, 4)
 
@@ -2290,6 +2347,7 @@ struct DMPPMetadataFormPane: View {
 
                         Button("Clear") {
                             vm.metadata.ignoredFaceNumbers = []
+                            resetActiveFaceToFirstUnassigned()
                         }
                         .buttonStyle(.link)
                         .font(.caption)
@@ -2386,7 +2444,16 @@ struct DMPPMetadataFormPane: View {
 
                         // Hint
                         if identifyFacesEnabled {
-                            Text(activeFaceNumber == nil ? "All visible faces are assigned (or ignored)." : "")
+                            let hasUnassignedVisibleSlot = activeFaceNumbersForUI.contains { assignmentRaw(for: $0) == nil }
+                            let message: String = {
+                                if hasUnassignedVisibleSlot {
+                                    return "Click a face slot, then check a person to assign."
+                                } else {
+                                    return "All visible faces are assigned (or ignored)."
+                                }
+                            }()
+
+                            Text(message)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -2621,9 +2688,31 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
-    // END PASTE-OVER 2
+    private func restorePeopleModeFromMetadata(triggerDetection: Bool) {
+        // Decide mode from persisted content (never from current UI state)
+        let shouldRestoreFaceMode =
+            (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
 
-    // END PASTE-OVER 1
+        // Prevent the segmented control's onChange from treating this as a user switch
+        suppressModeReset = true
+        identifyFacesEnabled = shouldRestoreFaceMode
+        DispatchQueue.main.async { suppressModeReset = false }
+
+        if shouldRestoreFaceMode {
+            if triggerDetection {
+                onToggleIdentifyFaces(true) // re-detect faces for this photo
+            }
+
+            // Ensure we have an active slot
+            if activeFaceNumber == nil, detectedFaceCount > 0 {
+                resetActiveFaceToFirstUnassigned()
+            } else if activeFaceNumber == nil {
+                activeFaceNumber = 1
+            }
+        } else {
+            activeFaceNumber = nil
+        }
+    }
 
 
     // MARK: Sheets
@@ -2664,6 +2753,48 @@ struct DMPPMetadataFormPane: View {
         .frame(minWidth: 420)
     }
 
+    private var faceOneOffSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Assign one-off label")
+                .font(.headline)
+
+            if let n = activeFaceNumber {
+                Text("Face slot \(n)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField("Label", text: $faceOneOffDraft)
+                .textFieldStyle(.roundedBorder)
+
+            Text("Examples: “Billy Joel”, “Wedding guest”, “Unknown man in red jacket”.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") { showFaceOneOffSheet = false }
+
+                Button("Assign") {
+                    let trimmed = faceOneOffDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    guard let n = activeFaceNumber else { return }
+
+                    // Store as oneoff:<label> and auto-advance
+                    setAssignmentRaw("oneoff:" + trimmed, for: n)
+                    advanceActiveFaceAfterAssign()
+
+                    showFaceOneOffSheet = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(faceOneOffDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || activeFaceNumber == nil)
+            }
+        }
+        .padding()
+        .frame(minWidth: 420)
+    }
+    
     private var captureSnapshotSheet: some View {
         VStack(alignment: .leading, spacing: 12) {
 
@@ -3005,7 +3136,7 @@ private extension DMPPMetadataFormPane {
 
     func rowLabel(for rowIndex: Int) -> String {
         switch rowIndex {
-        case 0: return "Front"
+        case 0: return "Front row"
         default: return "Row \(rowIndex + 1)"
         }
     }
