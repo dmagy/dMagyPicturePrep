@@ -65,8 +65,9 @@ struct DMPPCropPreferencesView: View {
 
     // [LOC-PORTABLE-LOCK] Prevent recursive onChange loops while persisting/sanitizing.
     @State private var isPersistingLocationDraft: Bool = false
+    @State private var showPeopleDefaultsHelp: Bool = false
 
-
+    @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual"
 
     private enum FocusField: Hashable {
         case locationShortName(UUID)
@@ -161,14 +162,72 @@ struct DMPPCropPreferencesView: View {
                 }
                 .padding(.bottom, 4)
 
+                GroupBox("Defaults") {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("People identifying mode for new (never reviewed) pictures")
+                            .font(.callout)
+
+                        Picker("", selection: $defaultPeopleMode) {
+                            Text("Manual").tag("manual")
+                            Text("Auto-Detect").tag("faces")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 260)
+
+                        Button {
+                            showPeopleDefaultsHelp.toggle()
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("About People modes")
+                        .popover(isPresented: $showPeopleDefaultsHelp, arrowEdge: .top) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("People modes")
+                                    .font(.headline)
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Manual")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Check people row-by-row, left to right. Best when faces are missed, the photo is complex, or you want to identify pets.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Divider()
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Auto-Detect")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Detects face boxes and lets you assign people to numbered slots. Best for straightforward photos with clearly visible human faces.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Divider()
+
+                                Text("This default is used only when a photo has no existing people data.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .frame(width: 360)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                }
+
                 Divider()
 
                 DMPPPeopleManagerView(host: .settingsTab)
-                 //   .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding()
             .tabItem { Label("People", systemImage: "person.2") }
-
             // =====================================================
             // TAGS TAB
             // =====================================================

@@ -1416,9 +1416,12 @@ struct DMPPMetadataFormPane: View {
     @State private var showDictationHelp: Bool = false
     @FocusState private var descriptionFocused: Bool
 
-
-
     @EnvironmentObject private var identityStore: DMPPIdentityStore
+    
+    @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual" // "manual" or "faces"
+
+    private var defaultModeIsFaces: Bool { defaultPeopleMode == "faces" }
+    private func setDefaultMode(isFaces: Bool) { defaultPeopleMode = isFaces ? "faces" : "manual" }
 
     // MARK: View
 
@@ -2689,9 +2692,21 @@ struct DMPPMetadataFormPane: View {
     }
 
     private func restorePeopleModeFromMetadata(triggerDetection: Bool) {
-        // Decide mode from persisted content (never from current UI state)
-        let shouldRestoreFaceMode =
-            (vm.metadata.peopleMethod == "faces") || !vm.metadata.faceAssignments.isEmpty
+        // Determine whether this photo already has persisted People data
+        let hasFaceAssignments = !vm.metadata.faceAssignments.isEmpty
+        let hasManualPeople = !vm.metadata.peopleV2.isEmpty
+        let hasAnyPeopleData = hasFaceAssignments || hasManualPeople
+
+        // Decide mode:
+        // - If the photo already has data, restore based on that data.
+        // - If the photo is "new" (no people data yet), use the user's default.
+        let shouldRestoreFaceMode: Bool = {
+            if hasAnyPeopleData {
+                return (vm.metadata.peopleMethod == "faces") || hasFaceAssignments
+            } else {
+                return defaultModeIsFaces
+            }
+        }()
 
         // Prevent the segmented control's onChange from treating this as a user switch
         suppressModeReset = true
@@ -2700,10 +2715,9 @@ struct DMPPMetadataFormPane: View {
 
         if shouldRestoreFaceMode {
             if triggerDetection {
-                onToggleIdentifyFaces(true) // re-detect faces for this photo
+                onToggleIdentifyFaces(true)
             }
 
-            // Ensure we have an active slot
             if activeFaceNumber == nil, detectedFaceCount > 0 {
                 resetActiveFaceToFirstUnassigned()
             } else if activeFaceNumber == nil {
