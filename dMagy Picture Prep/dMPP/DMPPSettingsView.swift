@@ -1,5 +1,5 @@
 // ================================================================
-// DMPPCropPreferencesView.swift
+// DMPPSettingsView.swift
 // Purpose: Settings UI for managing crop presets, tags, locations, and people.
 // ================================================================
 //
@@ -27,7 +27,7 @@ import CryptoKit
 
 // cp-2026-02-13-01(SETTINGS-CROPS-PORTABLE-ONLY)
 
-struct DMPPCropPreferencesView: View {
+struct DMPPSettingsView: View {
 
     // ============================================================
     // MARK: - State / Environment

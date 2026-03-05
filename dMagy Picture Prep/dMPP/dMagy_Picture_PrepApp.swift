@@ -201,7 +201,7 @@ private struct DMPPSettingsLockGateView: View {
         Group {
             if canEnterSettings {
                 // [SETTINGS] Allowed: show your real Settings UI
-                DMPPCropPreferencesView()
+                DMPPSettingsView()
                     .environmentObject(identityStore)
                     .onAppear {
                         // [LOCK] When Settings UI becomes visible, start heartbeat.
