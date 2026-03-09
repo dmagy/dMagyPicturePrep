@@ -647,9 +647,7 @@ struct DMPPCropEditorPane: View {
     var onExportCropRequested: () -> Void
     var onExportCropToRequested: () -> Void
 
-    // MARK: - [CROP-ACTIONS] Local UI state
-
-    @State private var showDeleteConfirm: Bool = false
+ 
 
     // MARK: - [HEADSHOT-PICKER] People list for Headshot menu (from current photo)
 
@@ -1029,14 +1027,7 @@ struct DMPPCropEditorPane: View {
             customPresetsRefreshToken &+= 1
         }
         
-        .alert("Delete this crop?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) {
-                onDeleteCropRequested()
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This removes the crop preset for this photo. Your original image is never changed.")
-        }
+
     }
 
     // MARK: - [CROP-ACTIONS] Floating panel
@@ -1071,7 +1062,7 @@ struct DMPPCropEditorPane: View {
                 Spacer().frame(height: 6)
 
                 Button {
-                    showDeleteConfirm = true
+                    onDeleteCropRequested()
                 } label: {
                     Label("Delete Crop", systemImage: "trash")
                         .frame(width: buttonWidth, alignment: .leading)
