@@ -42,8 +42,8 @@ struct DMPPSettingsView: View {
     @EnvironmentObject var archiveStore: DMPPArchiveStore
     @EnvironmentObject var cropStore: DMPPCropStore
 
-    @StateObject private var tagStore = DMPPTagStore()
-    @StateObject private var locationStore = DMPPLocationStore()
+    @EnvironmentObject var tagStore: DMPPTagStore
+    @EnvironmentObject var locationStore: DMPPLocationStore
     @EnvironmentObject var identityStore: DMPPIdentityStore
 
 

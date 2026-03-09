@@ -1028,6 +1028,7 @@ struct DMPPCropEditorPane: View {
         .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
             customPresetsRefreshToken &+= 1
         }
+        
         .alert("Delete this crop?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 onDeleteCropRequested()
@@ -1391,13 +1392,19 @@ struct DMPPMetadataFormPane: View {
     @State private var snapshotNoteDraft: String = ""
 
     @State private var showResetPeopleConfirm: Bool = false
-    @State private var availableTags: [String] = DMPPUserPreferences.load().availableTags
+    // MARK: - [TAGS/LOC] Stores (portable registries)
+    
+    @EnvironmentObject private var locationStore: DMPPLocationStore
+
+    // MARK: - [TAGS/LOC] Local cached lists (keeps SwiftUI diffing simple)
+    @State private var availableTags: [String] = []
+    @State private var userLocations: [DMPPUserLocation] = []
     @State private var dateWarning: String? = nil
     @State private var pendingResetAfterSnapshot: Bool = false
 
     // cp-2025-12-26-LOC-UI2(STATE)
-    @State private var userLocations: [DMPPUserLocation] = []
     @State private var selectedUserLocationID: UUID? = nil
+
 
     @State private var showPeopleModeHelp: Bool = false
     // MARK: - [FACES] Inputs
@@ -1417,6 +1424,8 @@ struct DMPPMetadataFormPane: View {
     @FocusState private var descriptionFocused: Bool
 
     @EnvironmentObject private var identityStore: DMPPIdentityStore
+    @EnvironmentObject private var tagStore: DMPPTagStore
+    
     
     @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual" // "manual" or "faces"
 
@@ -1445,7 +1454,6 @@ struct DMPPMetadataFormPane: View {
             }
             .onAppear {
                 reloadAvailableTags()
-                reloadUserLocations()
                 syncSavedLocationSelectionForCurrentPhoto()
                 activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
 
@@ -1454,7 +1462,9 @@ struct DMPPMetadataFormPane: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
                 reloadAvailableTags()
-                reloadUserLocations()
+            }
+            .onChange(of: tagStore.tagRecords.map(\.id)) { _, _ in
+                reloadAvailableTags()
             }
             .onChange(of: vm.metadata.sourceFile) { _, _ in
                 syncSavedLocationSelectionForCurrentPhoto()
@@ -1984,8 +1994,8 @@ struct DMPPMetadataFormPane: View {
                     Picker("", selection: $selectedUserLocationID) {
                         Text("—").tag(UUID?.none)
 
-                        ForEach(userLocations) { loc in
-                            Text(loc.shortName.trimmingCharacters(in: .whitespacesAndNewlines))
+                        ForEach(locationStore.locations) { loc in
+                            Text(loc.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
                                 .tag(Optional(loc.id))
                         }
                     }
@@ -3010,13 +3020,10 @@ private extension DMPPMetadataFormPane {
         fillLocationFromGPS(overwrite: true)
     }
 
-    func reloadUserLocations() {
-        userLocations = DMPPUserPreferences.load().userLocationsSortedForUI
-    }
 
     var selectedUserLocation: DMPPUserLocation? {
         guard let id = selectedUserLocationID else { return nil }
-        return userLocations.first(where: { $0.id == id })
+        return locationStore.locations.first(where: { $0.id == id })
     }
 
     private func mapsURL() -> URL? {
@@ -3049,8 +3056,12 @@ private extension DMPPMetadataFormPane {
         NSWorkspace.shared.open(url)
     }
 
+    func reloadUserLocations() {
+        userLocations = locationStore.locations
+    }
+
     func reloadAvailableTags() {
-        availableTags = DMPPUserPreferences.load().availableTags
+        availableTags = tagStore.tags
     }
 
     func bindingForTag(_ tag: String) -> Binding<Bool> {
