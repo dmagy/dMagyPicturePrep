@@ -1,7 +1,12 @@
 import SwiftUI
 import Foundation
+import UniformTypeIdentifiers
 
 // cp-2026-01-25-03(APP) — remove IdentityStore singleton; App owns IdentityStore instance
+
+extension Notification.Name {
+    static let dmppOpenImageURL = Notification.Name("dmppOpenImageURL")
+}
 
 @main
 struct dMagy_Picture_PrepApp: App {
@@ -31,10 +36,28 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(cropStore)
                 // [WIN] Restore window frame between launches
                 .background(DMPPWindowAutosave(name: "DMPP.MainWindow.v1"))
+                .onOpenURL { url in
+                    NotificationCenter.default.post(name: .dmppOpenImageURL, object: url)
+                }
         }
         // [CMD] Attach commands at the Scene level (applies to main window)
         .commands {
             CommandGroup(after: .newItem) {
+
+                Button("Open…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = true
+                    panel.canChooseDirectories = false
+                    panel.allowsMultipleSelection = false
+                    panel.allowedContentTypes = [.jpeg, .png, .heic, .tiff]
+
+                    if panel.runModal() == .OK, let url = panel.url {
+                        NotificationCenter.default.post(name: .dmppOpenImageURL, object: url)
+                    }
+                }
+                .keyboardShortcut("o", modifiers: [.command])
+
+                Divider()
 
                 Button("Select Picture Library Folder…") {
                     archiveStore.promptForArchiveRoot()

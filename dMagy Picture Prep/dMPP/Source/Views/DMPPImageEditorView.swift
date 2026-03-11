@@ -167,6 +167,10 @@ struct DMPPImageEditorView: View {
         } message: {
             Text(exportErrorMessage)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppOpenImageURL)) { note in
+            guard let url = note.object as? URL else { return }
+            openImageFromSystem(url)
+        }
         .alert("Can’t continue", isPresented: $showContinueError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -681,6 +685,10 @@ struct DMPPCropEditorPane: View {
 
     // [PREFS-REFRESH] Forces the New Crop menu to rebuild after Settings changes.
     @State private var customPresetsRefreshToken: Int = 0
+    
+    @State private var showOneOffHeadshotSheet: Bool = false
+    @State private var oneOffHeadshotLabelDraft: String = ""
+    @State private var pendingOneOffHeadshotVariant: VirtualCrop.HeadshotVariant = .full
 
     private var cropPickerSelection: Binding<String> {
         Binding(
@@ -699,9 +707,18 @@ struct DMPPCropEditorPane: View {
 
     private func headshotPersonLabel(for personID: String?) -> String {
         guard let personID, !personID.isEmpty else { return "Unlinked" }
+
+        // One-off headshot label support
+        if personID.hasPrefix("oneoff:") {
+            let label = String(personID.dropFirst("oneoff:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return label.isEmpty ? "One-off" : label
+        }
+
         if let match = peopleInPhotoForHeadshots.first(where: { $0.personID == personID }) {
             return match.label
         }
+
         // Person might not be checked anymore; keep it readable.
         return "Person \(personID.prefix(6))…"
     }
@@ -1025,11 +1042,49 @@ struct DMPPCropEditorPane: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
             customPresetsRefreshToken &+= 1
+                
         }
+        .sheet(isPresented: $showOneOffHeadshotSheet) { oneOffHeadshotSheet }
         
 
     }
 
+    private var oneOffHeadshotSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("One-off headshot")
+                .font(.headline)
+
+            Text(pendingOneOffHeadshotVariant == .full ? "Full headshot" : "Tight headshot")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("Label (e.g., Grandma, Dog, Unknown man)", text: $oneOffHeadshotLabelDraft)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") { showOneOffHeadshotSheet = false }
+
+                Button("Add") {
+                    let trimmed = oneOffHeadshotLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+
+                    // Store label inside the personID field as a oneoff token.
+                    // This is intentionally not a canonical person.
+                    let token = "oneoff:" + trimmed
+                    vm.addHeadshotCrop(variant: pendingOneOffHeadshotVariant, personID: token)
+
+                    showOneOffHeadshotSheet = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(oneOffHeadshotLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding()
+        .frame(minWidth: 480)
+    }
+    
     // MARK: - [CROP-ACTIONS] Floating panel
 
     @ViewBuilder
@@ -1119,6 +1174,14 @@ struct DMPPCropEditorPane: View {
                 Menu("Headshot") {
 
                     Menu("Full") {
+                        Button("One-off…") {
+                            pendingOneOffHeadshotVariant = .full
+                            oneOffHeadshotLabelDraft = ""
+                            showOneOffHeadshotSheet = true
+                        }
+
+                        Divider()
+
                         if peopleInPhotoForHeadshots.isEmpty {
                             Text("Add people to this photo first")
                         } else {
@@ -1130,9 +1193,16 @@ struct DMPPCropEditorPane: View {
                             }
                         }
                     }
-                    .disabled(!hasAnyPeopleForHeadshots)
 
                     Menu("Tight") {
+                        Button("One-off…") {
+                            pendingOneOffHeadshotVariant = .tight
+                            oneOffHeadshotLabelDraft = ""
+                            showOneOffHeadshotSheet = true
+                        }
+
+                        Divider()
+
                         if peopleInPhotoForHeadshots.isEmpty {
                             Text("Add people to this photo first")
                         } else {
@@ -1144,10 +1214,8 @@ struct DMPPCropEditorPane: View {
                             }
                         }
                     }
-                    .disabled(!hasAnyPeopleForHeadshots)
                 }
-                .disabled(!hasAnyPeopleForHeadshots)
-                .help(hasAnyPeopleForHeadshots ? "" : "Add at least one person in the People section to enable headshots.")
+                .help("Create a headshot crop (person-linked or one-off label).")
 
                 Menu("Landscape") {
                     Button("3:2 (4×6, 8×12…)") { vm.addPresetLandscape3x2() }.disabled(vm.hasPresetLandscape3x2)
@@ -1344,6 +1412,7 @@ struct DMPPCropEditorPane: View {
     }
 }
 
+
 // END PASTE-OVER: struct DMPPCropEditorPane
 
 
@@ -1413,6 +1482,7 @@ struct DMPPMetadataFormPane: View {
     // MARK: - [DICT] Help + focus
     @State private var showDictationHelp: Bool = false
     @FocusState private var descriptionFocused: Bool
+    @FocusState private var titleFocused: Bool
 
     @EnvironmentObject private var identityStore: DMPPIdentityStore
     @EnvironmentObject private var tagStore: DMPPTagStore
@@ -1426,53 +1496,70 @@ struct DMPPMetadataFormPane: View {
     // MARK: View
 
     var body: some View {
-        
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
 
-                titleAndDescriptionSection
-                dateSection
-                tagsSection
-                peopleSection
-                locationSection
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
 
-                Spacer(minLength: 0)
-                Button("Edit tags, people, and locations in Settings") { openSettings() }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                    .tint(.accentColor)
-                    .padding(.top, 4)
-            }
-            .onAppear {
-                reloadAvailableTags()
-                syncSavedLocationSelectionForCurrentPhoto()
-                activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
+                    // Top anchor for “scroll to title”
+                    Color.clear
+                        .frame(height: 0)
+                        .id("dmpp.top")
 
-                // Restore mode for the initially loaded photo
-                restorePeopleModeFromMetadata(triggerDetection: true)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
-                reloadAvailableTags()
-            }
-            .onChange(of: tagStore.tagRecords.map(\.id)) { _, _ in
-                reloadAvailableTags()
-            }
-            .onChange(of: vm.metadata.sourceFile) { _, _ in
-                syncSavedLocationSelectionForCurrentPhoto()
-                selectedUserLocationID = nil
+                    titleAndDescriptionSection
+                    dateSection
+                    tagsSection
+                    peopleSection
+                    locationSection
 
-                // Restore mode for the newly loaded photo
-                restorePeopleModeFromMetadata(triggerDetection: true)
-            }
-            
-            
-            .onChange(of: gpsKey) { _, _ in
-                syncSavedLocationSelectionForCurrentPhoto()
-            }
-            .onChange(of: showAddUnknownSheet) { _, isShown in
-                guard isShown else { return }
-                if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    unknownLabelDraft = "Unknown"
+                    Spacer(minLength: 0)
+                    Button("Edit tags, people, and locations in Settings") { openSettings() }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .tint(.accentColor)
+                        .padding(.top, 4)
+                }
+                .onAppear {
+                    reloadAvailableTags()
+                    syncSavedLocationSelectionForCurrentPhoto()
+                    activeRowIndex = vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0
+
+                    // Restore mode for the initially loaded photo
+                    restorePeopleModeFromMetadata(triggerDetection: true)
+
+                    // Scroll/focus to Title (after layout settles)
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("dmpp.top", anchor: .top)
+                        titleFocused = true
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .dmppPreferencesChanged)) { _ in
+                    reloadAvailableTags()
+                }
+                .onChange(of: tagStore.tagRecords.map(\.id)) { _, _ in
+                    reloadAvailableTags()
+                }
+                .onChange(of: vm.metadata.sourceFile) { _, _ in
+                    syncSavedLocationSelectionForCurrentPhoto()
+                    selectedUserLocationID = nil
+
+                    // Restore mode for the newly loaded photo
+                    restorePeopleModeFromMetadata(triggerDetection: true)
+
+                    // Scroll/focus to Title (after layout settles)
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("dmpp.top", anchor: .top)
+                        titleFocused = true
+                    }
+                }
+                .onChange(of: gpsKey) { _, _ in
+                    syncSavedLocationSelectionForCurrentPhoto()
+                }
+                .onChange(of: showAddUnknownSheet) { _, isShown in
+                    guard isShown else { return }
+                    if unknownLabelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        unknownLabelDraft = "Unknown"
+                    }
                 }
             }
         }
@@ -1494,6 +1581,7 @@ struct DMPPMetadataFormPane: View {
                         .foregroundStyle(.secondary)
 
                     TextField("", text: $vm.metadata.title)
+                        .focused($titleFocused)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: .infinity)
                 }
@@ -3342,8 +3430,33 @@ private extension DMPPMetadataFormPane {
 extension DMPPImageEditorView {
   
 
-    // (Everything below here is unchanged from your version except for
-    // being left as-is — your crop + metadata IO pipeline stays intact.)
+    // MARK: - [OPEN] Open image from Finder / File > Open…
+
+    private func openImageFromSystem(_ url: URL) {
+        guard let root = archiveStore.archiveRootURL else {
+            folderPickerWarning = "Set your Picture Library Folder first (File → Select Picture Library Folder…)."
+            return
+        }
+
+        if !url.isDescendant(of: root) && url.standardizedFileURL != root.standardizedFileURL {
+            continueErrorMessage = "That file is outside your Picture Library Folder."
+            showContinueError = true
+            return
+        }
+
+        let folder = url.deletingLastPathComponent()
+        loadImages(from: folder)
+
+        if let idx = imageURLs.firstIndex(of: url) {
+            loadImage(at: idx)
+        } else {
+            DispatchQueue.main.async {
+                if let idx2 = imageURLs.firstIndex(of: url) {
+                    loadImage(at: idx2)
+                }
+            }
+        }
+    }
 
     // MARK: - Export Crop
 
