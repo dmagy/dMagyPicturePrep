@@ -73,12 +73,17 @@ struct DMPPImageEditorView: View {
     @State private var facesAreLoading: Bool = false
 
     private let faceService = DMPPFaceDetectionService()
-
+    // MARK: - [FACES-RECOG] Recognition (per-photo, in-memory suggestions)
+    @State private var faceSuggestions: [Int: DMPPFaceIndexStore.Match] = [:]
+    
+    private let faceRecognitionService = DMPPFaceRecognitionService()
+    @State private var faceEmbeddingsByFaceNumber: [Int: [Float]] = [:]
 
 
     // [ARCH] Access the chosen Photo Library Folder (archive root)
     @EnvironmentObject private var archiveStore: DMPPArchiveStore
     @EnvironmentObject private var identityStore: DMPPIdentityStore
+    @EnvironmentObject private var faceIndexStore: DMPPFaceIndexStore
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
     private let kLastFolderName = "dmpp.lastFolderName"
@@ -143,6 +148,26 @@ struct DMPPImageEditorView: View {
             detectedFaces = []
             facesAreLoading = false
             showFaceBoxes = true
+        }
+        .onChange(of: faceAssignmentsChangeKey) { _, _ in
+            guard let vm else { return }
+            guard identifyFacesEnabled else { return }
+
+            let newValue = vm.metadata.faceAssignments
+
+            for (k, raw) in newValue {
+                guard let n = Int(k) else { continue }
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Only learn from real person IDs
+                guard trimmed.hasPrefix("id:") else { continue }
+                let personID = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !personID.isEmpty else { continue }
+
+                Task { @MainActor in
+                    learnFaceIfPossible(faceNumber: n, personID: personID)
+                }
+            }
         }
         // END PASTE-OVER 1
 
@@ -403,6 +428,16 @@ struct DMPPImageEditorView: View {
     
     // MARK: - [UI-MAIN] Main Content Routing
 
+    private var faceAssignmentsChangeKey: String {
+        guard let vm else { return "no-vm" }
+        // Stable, order-independent key
+        let pairs = vm.metadata.faceAssignments
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: "|")
+        return pairs
+    }
+    
     @ViewBuilder
     private var mainContentView: some View {
 
@@ -481,6 +516,7 @@ struct DMPPImageEditorView: View {
                         }
                     },
                     detectedFaceCount: detectedFaces.count,
+                    faceSuggestions: faceSuggestions,
                     dictationController: dictationController
                 )
                 .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
@@ -552,6 +588,7 @@ struct DMPPImageEditorView: View {
     private func refreshFacesForCurrentPhoto() {
         guard let vm, let img = vm.nsImage else {
             detectedFaces = []
+            faceSuggestions = [:]
             return
         }
 
@@ -560,9 +597,56 @@ struct DMPPImageEditorView: View {
             let faces = await faceService.detectFaces(in: img)
             self.detectedFaces = faces
             self.facesAreLoading = false
+
+            // Try to compute suggestions (will be empty until CoreML model is wired in)
+            self.computeFaceSuggestionsForCurrentPhoto()
         }
     }
+    // MARK: - [FACES-RECOG] Learn from a confirmed assignment
 
+    @MainActor
+    private func learnFaceIfPossible(faceNumber n: Int, personID: String) {
+        guard faceIndexStore.isConfigured else { return }
+        guard let embedding = faceEmbeddingsByFaceNumber[n], !embedding.isEmpty else { return }
+
+        // Optional source breadcrumb (portable; helpful for debugging later)
+        let source = vm?.metadata.sourceFile
+
+        faceIndexStore.addSample(personID: personID, embedding: embedding, source: source)
+    }
+    
+    // MARK: - [FACES-RECOG] Compute suggestions for current photo
+
+    @MainActor
+    private func computeFaceSuggestionsForCurrentPhoto() {
+        faceSuggestions = [:]
+        faceEmbeddingsByFaceNumber = [:]
+
+        guard identifyFacesEnabled else { return }
+        guard let vm, let img = vm.nsImage else { return }
+        guard !detectedFaces.isEmpty else { return }
+
+        for (idx, face) in detectedFaces.enumerated() {
+            let n = idx + 1
+
+            // Skip ignored faces
+            if vm.metadata.ignoredFaceNumbers.contains(n) { continue }
+
+            guard let embedding = faceRecognitionService.embedFace(in: img, faceRect: face.rect) else {
+                continue // stub returns nil for now
+            }
+
+            // Cache embedding for future “learn from confirmation”
+            faceEmbeddingsByFaceNumber[n] = embedding
+
+            // Suggestions only if we have an index to match against
+            if faceIndexStore.isConfigured, faceIndexStore.hasAnySamples {
+                if let best = faceIndexStore.match(embedding: embedding, topK: 1).first {
+                    faceSuggestions[n] = best
+                }
+            }
+        }
+    }
     
     // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)
     @ViewBuilder
@@ -1469,6 +1553,8 @@ struct DMPPMetadataFormPane: View {
     @State private var showPeopleModeHelp: Bool = false
     // MARK: - [FACES] Inputs
     var detectedFaceCount: Int
+    // MARK: - [FACES-RECOG] Inputs
+    var faceSuggestions: [Int: DMPPFaceIndexStore.Match]
 
     // MARK: - [FACES] Local State
     @State private var activeFaceNumber: Int? = nil
@@ -2307,6 +2393,14 @@ struct DMPPMetadataFormPane: View {
             return "\(baseLabel) (\(ageText))"
         }
     }
+    
+    private func suggestedPersonLabel(_ personID: String) -> String {
+        if let p = identityStore.peopleSortedForUI.first(where: { $0.id == personID }) {
+            return identityStore.checklistLabel(for: p)
+        }
+        return "Person \(personID.prefix(6))…"
+    }
+    
 
     // END PASTE-OVER
 
@@ -2452,109 +2546,129 @@ struct DMPPMetadataFormPane: View {
 
         // MARK: - [FACES] Numbered blanks (1..N), excluding ignored
 
-        private var faceNumberedBlanksRow: some View {
-            let nums = activeFaceNumbersForUI
-            let columns: [GridItem] = [
-                GridItem(.adaptive(minimum: 120), spacing: 8, alignment: .leading)
-            ]
+    private var faceNumberedBlanksRow: some View {
+        let nums = activeFaceNumbersForUI
+        let columns: [GridItem] = [
+            GridItem(.adaptive(minimum: 140), spacing: 8, alignment: .leading)
+        ]
 
-            return Group {
-                if nums.isEmpty {
-                    EmptyView()
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
+        return Group {
+            if nums.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
 
-                        Text("Faces:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Text("Faces:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                            ForEach(nums, id: \.self) { n in
-                                let isActive = (activeFaceNumber == n)
-                                let label = faceDisplayLabel(for: n) // nil means unassigned
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                        ForEach(nums, id: \.self) { n in
+                            let isActive = (activeFaceNumber == n)
 
-                                // BEGIN PASTE-OVER: Face chip button (full hit target)
+                            let assignedLabel = faceDisplayLabel(for: n) // nil means unassigned
+                            let suggestion = faceSuggestions[n]
 
-                                Button {
-                                    activeFaceNumber = n
-                                } label: {
-                                    // Make the LABEL define the hit target, not the background.
-                                    ZStack {
-                                        // This invisible rectangle forces a real, full-size hit-test region.
-                                        Rectangle()
-                                            .fill(Color.clear)
+                            let suggestedLabel: String? = {
+                                guard let suggestion else { return nil }
+                                let pct = Int((suggestion.similarity * 100).rounded())
+                                let name = suggestedPersonLabel(suggestion.personID)
+                                return "\(name) (\(pct)%)"
+                            }()
 
-                                        HStack(spacing: 6) {
-                                            Text("\(n)")
-                                                .font(.caption.weight(.semibold))
-                                                .monospacedDigit()
+                            let displayLabel = assignedLabel ?? suggestedLabel ?? "—"
+                            let isSuggestion = (assignedLabel == nil && suggestedLabel != nil)
 
-                                            Text(":")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-
-                                            Text(label ?? "")
-                                                .font(.caption)
-                                                .foregroundStyle(label == nil ? .secondary : .primary)
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-
-                                            Spacer(minLength: 0)
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                    }
-                                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                                    .contentShape(Rectangle()) // hit-test the whole chip area
-                                }
-                                .buttonStyle(.plain)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(isActive ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .strokeBorder(isActive ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.20))
-                                )
-                                .help(label == nil ? "Face \(n): unassigned" : "Face \(n): \(label!)")
-
-                                // END PASTE-OVER
-
-                                .contextMenu {
-                                    Button("Ignore face \(n)") {
-                                        ignoreFace(n)
-                                    }
-                                    if assignmentRaw(for: n) != nil {
-                                        Button("Clear assignment") {
-                                            clearAssignment(for: n)
-                                            if activeFaceNumber == nil { activeFaceNumber = n }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Hint
-                        if identifyFacesEnabled {
-                            let hasUnassignedVisibleSlot = activeFaceNumbersForUI.contains { assignmentRaw(for: $0) == nil }
-                            let message: String = {
-                                if hasUnassignedVisibleSlot {
-                                    return "Click a face slot, then check a person to assign."
+                            let helpText: String = {
+                                if let assignedLabel {
+                                    return "Face \(n): \(assignedLabel)"
+                                } else if let suggestedLabel {
+                                    return "Face \(n): Suggested \(suggestedLabel)"
                                 } else {
-                                    return "All visible faces are assigned (or ignored)."
+                                    return "Face \(n): Unassigned"
                                 }
                             }()
 
-                            Text(message)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            FaceSlotChipRow(
+                                n: n,
+                                isActive: isActive,
+                                displayLabel: displayLabel,
+                                isSuggestion: isSuggestion,
+                                helpText: helpText,
+                                onSelect: { activeFaceNumber = n },
+                                onIgnore: { ignoreFace(n) },
+                                onClear: assignmentRaw(for: n) != nil ? {
+                                    clearAssignment(for: n)
+                                    resetActiveFaceToFirstUnassigned()
+                                    if activeFaceNumber == nil {
+                                        activeFaceNumber = activeFaceNumbersForUI.first
+                                    }
+                                } : nil
+                            )
                         }
                     }
-                    .padding(.top, 4)
+
+                    if identifyFacesEnabled {
+                        Text(activeFaceNumber == nil
+                             ? "All visible faces are assigned (or ignored)."
+                             : "Click a face slot, then check a person to assign.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    private struct FaceSlotChipRow: View {
+        let n: Int
+        let isActive: Bool
+        let displayLabel: String
+        let isSuggestion: Bool
+        let helpText: String
+        let onSelect: () -> Void
+        let onIgnore: () -> Void
+        let onClear: (() -> Void)?
+
+        var body: some View {
+            Button(action: onSelect) {
+                HStack(spacing: 6) {
+                    Text("\(n):")
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+
+                    Text(displayLabel)
+                        .font(.caption)
+                        .foregroundStyle(isSuggestion ? .secondary : .primary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isActive ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isActive ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.20))
+            )
+            .help(helpText)
+            .contextMenu {
+                Button("Ignore face \(n)", action: onIgnore)
+                if let onClear {
+                    Button("Clear assignment", action: onClear)
                 }
             }
         }
-
+    }
+    
         // ---------------------------------------------------------
         // MARK: - [FACES] Checklist (Face Mode vs Manual Mode)
         // ---------------------------------------------------------

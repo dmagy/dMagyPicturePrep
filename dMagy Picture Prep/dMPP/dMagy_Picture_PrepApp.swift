@@ -17,10 +17,8 @@ struct dMagy_Picture_PrepApp: App {
     @StateObject private var tagStore = DMPPTagStore()
     @StateObject private var cropStore = DMPPCropStore()
     @StateObject private var locationStore = DMPPLocationStore()
-
-
-    // [ARCH] Picture Library Folder store (bookmark + selection)
     @StateObject private var archiveStore = DMPPArchiveStore()
+    @StateObject private var faceIndexStore = DMPPFaceIndexStore()
 
     var body: some Scene {
 
@@ -34,6 +32,8 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(tagStore)
                 .environmentObject(locationStore)
                 .environmentObject(cropStore)
+                .environmentObject(faceIndexStore)
+            
                 // [WIN] Restore window frame between launches
                 .background(DMPPWindowAutosave(name: "DMPP.MainWindow.v1"))
                 .onOpenURL { url in
@@ -81,6 +81,7 @@ struct dMagy_Picture_PrepApp: App {
                 .environmentObject(tagStore)
                 .environmentObject(locationStore)
                 .environmentObject(cropStore)
+                .environmentObject(faceIndexStore)
         }
 
 
@@ -104,6 +105,8 @@ private struct DMPPArchiveRootGateView: View {
     @EnvironmentObject var tagStore: DMPPTagStore
     @EnvironmentObject var locationStore: DMPPLocationStore
     @EnvironmentObject var cropStore: DMPPCropStore
+    @EnvironmentObject var faceIndexStore: DMPPFaceIndexStore
+   
 
     // Track what we've configured so we don't re-run on every redraw
     @State private var lastConfiguredRootPath: String? = nil
@@ -179,6 +182,7 @@ private struct DMPPArchiveRootGateView: View {
         tagStore.configureForArchiveRoot(root)
         locationStore.configureForArchiveRoot(root)
         cropStore.configureForArchiveRoot(root)
+        faceIndexStore.configureForArchiveRoot(root)
 
         lastConfiguredRootPath = path
     }
@@ -188,6 +192,7 @@ private struct DMPPArchiveRootGateView: View {
         tagStore.configureForArchiveRoot(nil)
         locationStore.configureForArchiveRoot(nil)
         cropStore.configureForArchiveRoot(nil)
+        faceIndexStore.configureForArchiveRoot(nil)
 
         lastConfiguredRootPath = nil
     }
