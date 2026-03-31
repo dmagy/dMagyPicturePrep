@@ -1,1 +1,2 @@
 *.mlpackage/** filter=lfs diff=lfs merge=lfs -text
+dMagy[[:space:]]Picture[[:space:]]Prep/dMPP/Source/Models/AuraFaceEmbedding.mlpackage/** filter=lfs diff=lfs merge=lfs -text
