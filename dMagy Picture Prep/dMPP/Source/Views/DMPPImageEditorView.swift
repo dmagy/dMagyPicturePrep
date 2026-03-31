@@ -588,17 +588,22 @@ struct DMPPImageEditorView: View {
     private func refreshFacesForCurrentPhoto() {
         guard let vm, let img = vm.nsImage else {
             detectedFaces = []
+            facesAreLoading = false
+
+            // Clear recognition caches too
             faceSuggestions = [:]
+            faceEmbeddingsByFaceNumber = [:]
             return
         }
 
         facesAreLoading = true
+
         Task { @MainActor in
             let faces = await faceService.detectFaces(in: img)
             self.detectedFaces = faces
             self.facesAreLoading = false
 
-            // Try to compute suggestions (will be empty until CoreML model is wired in)
+            // IMPORTANT: run recognition AFTER faces are available
             self.computeFaceSuggestionsForCurrentPhoto()
         }
     }
@@ -622,30 +627,37 @@ struct DMPPImageEditorView: View {
         faceSuggestions = [:]
         faceEmbeddingsByFaceNumber = [:]
 
+        print("FaceRec: compute suggestions start — mode=\(identifyFacesEnabled) faces=\(detectedFaces.count) indexConfigured=\(faceIndexStore.isConfigured) hasSamples=\(faceIndexStore.hasAnySamples)")
+
         guard identifyFacesEnabled else { return }
         guard let vm, let img = vm.nsImage else { return }
         guard !detectedFaces.isEmpty else { return }
 
+        var embeddedCount = 0
+        var suggestedCount = 0
+
         for (idx, face) in detectedFaces.enumerated() {
             let n = idx + 1
 
-            // Skip ignored faces
             if vm.metadata.ignoredFaceNumbers.contains(n) { continue }
 
             guard let embedding = faceRecognitionService.embedFace(in: img, faceRect: face.rect) else {
-                continue // stub returns nil for now
+                print("FaceRec: face \(n) embedding=nil")
+                continue
             }
 
-            // Cache embedding for future “learn from confirmation”
+            embeddedCount += 1
             faceEmbeddingsByFaceNumber[n] = embedding
 
-            // Suggestions only if we have an index to match against
             if faceIndexStore.isConfigured, faceIndexStore.hasAnySamples {
                 if let best = faceIndexStore.match(embedding: embedding, topK: 1).first {
                     faceSuggestions[n] = best
+                    suggestedCount += 1
                 }
             }
         }
+
+        print("FaceRec: compute suggestions done — embedded=\(embeddedCount) suggested=\(suggestedCount)")
     }
     
     // [LOCK] Full-width warning banner (rendered BELOW toolbar so we don’t break toolbar layout)

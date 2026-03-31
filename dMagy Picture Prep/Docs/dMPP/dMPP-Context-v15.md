@@ -328,12 +328,12 @@ Snapshots exist to prevent “oops” events:
 
 Work these one at a time:
 
-1) **Locations added/deleted in Settings are not updating in the editor UI** (specifically the editor’s location picker for the active photo; portable JSON updates correctly).  
-2) **Tags added/deleted in Settings are not updating in the editor UI** (specifically the editor’s tag checklist for the active photo; portable JSON updates correctly).  
-3) Remove “Are you sure?” confirmation when deleting a crop (restore is easy).  
-4) Ability to add a one-off headshot.  
-5) Next picture moves focus/scrolls to Title.  
-6) Ability to open an image from the browser in dMPP.  
+1) **Locations added/deleted in Settings are not updating in the editor UI** (specifically the editor’s location picker for the active photo; portable JSON updates correctly).  -done
+2) **Tags added/deleted in Settings are not updating in the editor UI** (specifically the editor’s tag checklist for the active photo; portable JSON updates correctly).    -done
+3) Remove “Are you sure?” confirmation when deleting a crop (restore is easy).    -done
+4) Ability to add a one-off headshot.    -done
+5) Next picture moves focus/scrolls to Title.    -done
+6) Ability to open an image from the browser in dMPP.  - still need to address
 
 ---
 
@@ -348,12 +348,13 @@ Work these one at a time:
 
 ### 15.1 Near-term (based on Punchlist)
 
-1) Fix editor refresh for Locations after Settings changes  
-2) Fix editor refresh for Tags after Settings changes  
-3) Remove crop delete confirmation  
-4) One-off headshot support  
-5) Next picture focus/scroll behavior  
-6) Open image from browser in editor  
+1) Fix editor refresh for Locations after Settings changes    -done
+2) Fix editor refresh for Tags after Settings changes    -done
+3) Remove crop delete confirmation    -done
+4) One-off headshot support    -done
+5) Next picture focus/scroll behavior    -done
+6) Open image from browser in editor  -pending
+7) Date and location is not be added via picture metadata, add indicator for data source
 
 ### 15.2 Medium-term
 
