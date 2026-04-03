@@ -720,6 +720,58 @@ private extension URL {
     }
 }
 
+private struct DMPPFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? 600
+
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for s in subviews {
+            let size = s.sizeThatFits(.unspecified)
+
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+
+            if x > 0 { x += spacing }
+            x += size.width
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for s in subviews {
+            let size = s.sizeThatFits(.unspecified)
+
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+
+            s.place(
+                at: CGPoint(x: x, y: y),
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 // MARK: - Left Pane
 
 
@@ -1617,6 +1669,7 @@ struct DMPPMetadataFormPane: View {
                         .tint(.accentColor)
                         .padding(.top, 4)
                 }
+                .padding(.horizontal, 12)
                 .onAppear {
                     reloadAvailableTags()
                     syncSavedLocationSelectionForCurrentPhoto()
@@ -1918,7 +1971,6 @@ struct DMPPMetadataFormPane: View {
                 .pickerStyle(.segmented)
                 .onChange(of: identifyFacesEnabled) { _, isOn in
                     if suppressModeReset {
-                        // Programmatic restore: do NOT wipe metadata.
                         onToggleIdentifyFaces(isOn)
 
                         if isOn {
@@ -1933,7 +1985,6 @@ struct DMPPMetadataFormPane: View {
                         return
                     }
 
-                    // User-initiated mode switch: keep your existing reset behavior.
                     setFaceMode(isOn)
                     onToggleIdentifyFaces(isOn)
 
@@ -1949,13 +2000,11 @@ struct DMPPMetadataFormPane: View {
                 }
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(
-                        identifyFacesEnabled
-                        ? "Auto-Detect: assign people to numbered face slots."
-                        : "Manual: check people left-to-right, row by row."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    if identifyFacesEnabled {
+                        Text("Select a face slot, then choose a person or accept a suggestion.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Spacer(minLength: 0)
 
@@ -1977,7 +2026,7 @@ struct DMPPMetadataFormPane: View {
                                 Text("Auto-Detect")
                                     .font(.subheadline.weight(.semibold))
                                 Text("• Detects face boxes; you assign people to numbered slots.")
-                                Text("• Right-click a face slot to Ignore a face or Clear an assignment.")
+                                Text("• Right-click a face slot for quick actions like accept, one-off, clear, or ignore.")
                                 Text("• Use Manual if not all faces are found, or if you want to identify pets.")
                             }
                             .font(.caption)
@@ -1987,7 +2036,17 @@ struct DMPPMetadataFormPane: View {
                             Group {
                                 Text("Manual")
                                     .font(.subheadline.weight(.semibold))
-                                Text("• Check people row-by-row starting with the front, then use “Start next row” to move back.")
+                                Text("• Check people left-to-right, row by row.")
+                            }
+                            .font(.caption)
+
+                            Divider()
+
+                            Group {
+                                Text("Date-aware checklist")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("• Once you enter a photo date, the checklist shows only people relevant for that date.")
+                                Text("• Turn on “Show all people” to ignore that filter.")
                             }
                             .font(.caption)
                         }
@@ -1998,22 +2057,20 @@ struct DMPPMetadataFormPane: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            .padding(4)
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
+            .padding(.bottom, 2)
 
-            // ============================================================
-            // [FACES-MODE] Face workflow UI (ONLY when enabled)
-            // ============================================================
             if identifyFacesEnabled {
                 VStack(alignment: .leading, spacing: 8) {
 
-                    // Numbered slots row (wraps, excludes ignored)
                     faceNumberedBlanksRow
-
-                    // Ignored chips row (restore / clear)
                     ignoredFacesRow
 
-                    HStack(spacing: 10) {
-                        Button("Add one-off person…") {
+                    HStack(spacing: 8) {
+                        Spacer()
+
+                        Button("One-off") {
                             guard activeFaceNumber != nil else { return }
                             faceOneOffDraft = ""
                             showFaceOneOffSheet = true
@@ -2021,28 +2078,18 @@ struct DMPPMetadataFormPane: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(activeFaceNumber == nil)
-                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Assign a one-off label to the active face slot.")
+                       // .frame(minWidth: 72)
 
-                        Spacer()
-
-                        if let n = activeFaceNumber {
-                            Text("Active slot: \(n)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    HStack(spacing: 10) {
-
-                        Button("Ignore face") {
+                        Button("Ignore") {
                             guard let n = activeFaceNumber else { return }
                             ignoreFace(n)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(activeFaceNumber == nil)
-                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Ignore the active face slot.")
+                        //.frame(minWidth: 72)
 
-                        Button("Clear slot") {
+                        Button("Clear") {
                             guard let n = activeFaceNumber else { return }
                             clearAssignment(for: n)
                             resetActiveFaceToFirstUnassigned()
@@ -2050,64 +2097,60 @@ struct DMPPMetadataFormPane: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(activeFaceNumber == nil)
-                        .help(activeFaceNumber == nil ? "Select a face slot first." : "Clear the assignment for the active face slot.")
+                       // .frame(minWidth: 72)
+
+                        Button("Accept all") {
+                            acceptVisibleSuggestions()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!canAcceptVisibleSuggestions)
+                       // .frame(minWidth: 72)
 
                         Spacer()
-
-                        Text("Tip: Right-click a slot for more options.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                     }
-                    .padding(.top, 2)
                     .padding(.top, 2)
 
                     Divider().padding(.vertical, 4)
 
-                    // Checklist is the picker in both modes
                     checklistBlock
-                        .padding(.top, 4)
+                        .padding(.top, 2)
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 8)
 
             } else {
-
-                // ============================================================
-                // [MANUAL-MODE] Rows workflow UI (ONLY when face mode is off)
-                // ============================================================
-                VStack(alignment: .leading, spacing: 8) {
-
-  
+                VStack(alignment: .leading, spacing: 10) {
 
                     peopleSummaryBlock
 
-                    HStack(spacing: 10) {
-                        Button("Add one-off person…") {
+                    HStack(spacing: 8) {
+                        Spacer()
+
+                        Button("One-off") {
                             unknownLabelDraft = "One-off person"
                             showAddUnknownSheet = true
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                        .controlSize(.small)
+                        .frame(minWidth: 82)
 
-                        Button("Start next row") {
+                        Button("Next Row") {
                             let before = activeRowIndex
                             let maxRow = (vm.metadata.peopleV2.map(\.rowIndex).max() ?? 0)
-                            activeRowIndex = max(before, maxRow) + 1
+                            let nextRow = max(before, maxRow) + 1
+
+                            activeRowIndex = nextRow
+                            ensureManualRowMarkerExists(for: nextRow)
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                        .controlSize(.small)
+                        .frame(minWidth: 94)
+                        .disabled(!activeManualRowHasPeople())
 
                         Spacer()
                     }
-                    .padding(.top, 6)
-
-                    Divider().padding(.vertical, 6)
-
-                    DisclosureGroup("Advanced") {
-                        advancedPeopleBlock
-                            .padding(.top, 2)
-                    }
-                    .font(.caption)
+                    .padding(.top, 2)
 
                     if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
                         Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
@@ -2118,23 +2161,19 @@ struct DMPPMetadataFormPane: View {
 
                     Divider().padding(.vertical, 4)
 
-                    // Checklist is still used here (manual add/remove)
                     checklistBlock
-                        .padding(.top, 4)
+                        .padding(.top, 2)
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 8)
             }
         }
         .onChange(of: detectedFaceCount) { _, newValue in
             guard identifyFacesEnabled else { return }
             guard newValue > 0 else { return }
-            
-            // If we have no active slot yet (common when faces arrive after toggle),
-            // select the first unassigned visible slot (usually face 1).
+
             if activeFaceNumber == nil {
                 resetActiveFaceToFirstUnassigned()
-                // fallback: if everything is assigned/ignored, pick the first visible
                 if activeFaceNumber == nil {
                     activeFaceNumber = activeFaceNumbersForUI.first
                 }
@@ -2300,72 +2339,78 @@ struct DMPPMetadataFormPane: View {
         //   Back-compat: unprefixed values are tolerated.
         // ---------------------------------------------------------
 
-    // BEGIN PASTE-OVER 1: activeFaceNumbersForUI
-
     private var activeFaceNumbersForUI: [Int] {
         guard identifyFacesEnabled, detectedFaceCount > 0 else { return [] }
         let ignored = Set(vm.metadata.ignoredFaceNumbers)
         return (1...detectedFaceCount).filter { !ignored.contains($0) }
     }
 
-    // END PASTE-OVER 1
+    // MARK: - [FACES] Visible suggestions
 
-        // MARK: - [FACES] Mode switch + reset
+    private var visibleSuggestedMatches: [(faceNumber: Int, match: DMPPFaceIndexStore.Match)] {
+        activeFaceNumbersForUI.compactMap { n in
+            guard assignmentRaw(for: n) == nil else { return nil }
+            guard let match = faceSuggestions[n] else { return nil }
+            return (n, match)
+        }
+    }
 
-        private func setFaceMode(_ enabled: Bool) {
-            if enabled {
-                // Turning ON Face Mode:
-                // Reset manual-mode state for this photo
-                vm.metadata.peopleV2 = []
-                activeRowIndex = 0
+    private var hasDuplicateSuggestedPeople: Bool {
+        let ids = visibleSuggestedMatches.map { $0.match.personID }
+        return Set(ids).count != ids.count
+    }
 
-                // Reset face-mode state (clean start)
-                vm.metadata.ignoredFaceNumbers = []
-                vm.metadata.faceAssignments = [:]
+    private var canAcceptVisibleSuggestions: Bool {
+        !visibleSuggestedMatches.isEmpty && !hasDuplicateSuggestedPeople
+    }
 
-                // Start at face 1 (unless there are no faces)
-                activeFaceNumber = (detectedFaceCount > 0) ? 1 : nil
+    // MARK: - [FACES] Mode switch + reset
 
-            } else {
-                // Turning OFF Face Mode:
-                // Reset face-mode state (avoid “mixed mode” confusion)
-                vm.metadata.ignoredFaceNumbers = []
-                vm.metadata.faceAssignments = [:]
-                activeFaceNumber = nil
+    private func setFaceMode(_ enabled: Bool) {
+        if enabled {
+            vm.metadata.peopleV2 = []
+            activeRowIndex = 0
 
-                // Optional but recommended: reset manual state too for clarity
-                vm.metadata.peopleV2 = []
-                activeRowIndex = 0
-            }
+            vm.metadata.ignoredFaceNumbers = []
+            vm.metadata.faceAssignments = [:]
 
-            vm.reconcilePeopleV2Identities(identityStore: identityStore)
-            vm.recomputeAgesForCurrentImage()
+            activeFaceNumber = (detectedFaceCount > 0) ? 1 : nil
+
+        } else {
+            vm.metadata.ignoredFaceNumbers = []
+            vm.metadata.faceAssignments = [:]
+            activeFaceNumber = nil
+
+            vm.metadata.peopleV2 = []
+            activeRowIndex = 0
         }
 
-        // MARK: - [FACES] Assignment accessors
+        vm.reconcilePeopleV2Identities(identityStore: identityStore)
+        vm.recomputeAgesForCurrentImage()
+    }
 
-        private func assignmentRaw(for faceNumber: Int) -> String? {
-            vm.metadata.faceAssignments[faceKey(faceNumber)]
-        }
+    // MARK: - [FACES] Assignment accessors
 
-        private func setAssignmentRaw(_ raw: String, for faceNumber: Int) {
-            vm.metadata.faceAssignments[faceKey(faceNumber)] = raw
-        }
+    private func assignmentRaw(for faceNumber: Int) -> String? {
+        vm.metadata.faceAssignments[faceKey(faceNumber)]
+    }
 
-        private func clearAssignment(for faceNumber: Int) {
-            vm.metadata.faceAssignments.removeValue(forKey: faceKey(faceNumber))
-        }
+    private func setAssignmentRaw(_ raw: String, for faceNumber: Int) {
+        vm.metadata.faceAssignments[faceKey(faceNumber)] = raw
+    }
 
-        private func parseAssignment(_ raw: String) -> (kind: String, payload: String) {
-            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.hasPrefix("id:") { return ("id", String(t.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)) }
-            if t.hasPrefix("oneoff:") { return ("oneoff", String(t.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)) }
-            return ("legacy", t) // could be old id OR old label
-        }
+    private func clearAssignment(for faceNumber: Int) {
+        vm.metadata.faceAssignments.removeValue(forKey: faceKey(faceNumber))
+    }
 
-        // MARK: - [FACES] Label helpers
+    private func parseAssignment(_ raw: String) -> (kind: String, payload: String) {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("id:") { return ("id", String(t.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if t.hasPrefix("oneoff:") { return ("oneoff", String(t.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return ("legacy", t)
+    }
 
-    // BEGIN PASTE-OVER: faceDisplayLabel(for:) with age suffix
+    // MARK: - [FACES] Label helpers
 
     private func faceDisplayLabel(for n: Int) -> String? {
         guard let raw = assignmentRaw(for: n),
@@ -2374,194 +2419,190 @@ struct DMPPMetadataFormPane: View {
 
         let parsed = parseAssignment(raw)
 
-        // One-off: label only (no age)
         if parsed.kind == "oneoff" {
             return parsed.payload.isEmpty ? nil : parsed.payload
         }
 
-        // "id" or legacy: try to resolve as a PersonSummary.id string
         let key = parsed.payload
         let all = orderedChecklistPeople()
 
         guard let person = all.first(where: { String(describing: $0.id) == key }) else {
-            // Legacy fallback: show raw as a human label if it isn't resolvable as an id
             return (parsed.kind == "legacy") ? parsed.payload : "Unknown"
         }
 
-        let baseLabel = identityStore.checklistLabel(for: person)
-
-        // Compute age using the best identity version for this photo date
-        let versions = identityStore.identityVersions(forPersonID: person.id)
-        let photoEarliest = vm.metadata.dateRange?.earliest
-        let chosen = identityStore.bestIdentityForPhoto(
-            versions: versions,
-            photoEarliestYMD: photoEarliest
-        )
-
-        let ageText = vm.ageTextByIdentityID[chosen.id] ?? ""
-        if ageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return baseLabel
-        } else {
-            return "\(baseLabel) (\(ageText))"
-        }
+        return identityStore.checklistLabel(for: person)
     }
-    
+
     private func suggestedPersonLabel(_ personID: String) -> String {
         if let p = identityStore.peopleSortedForUI.first(where: { $0.id == personID }) {
             return identityStore.checklistLabel(for: p)
         }
         return "Person \(personID.prefix(6))…"
     }
-    
 
-    // END PASTE-OVER
-
-        private func isPersonAssignedToAnyFace(personKey: String) -> Bool {
-            for raw in vm.metadata.faceAssignments.values {
-                let parsed = parseAssignment(raw)
-                if parsed.kind == "oneoff" { continue }
-                // id or legacy
-                if parsed.payload == personKey { return true }
-            }
-            return false
+    private func isPersonAssignedToAnyFace(personKey: String) -> Bool {
+        for raw in vm.metadata.faceAssignments.values {
+            let parsed = parseAssignment(raw)
+            if parsed.kind == "oneoff" { continue }
+            if parsed.payload == personKey { return true }
         }
+        return false
+    }
 
-        private func clearAssignments(forPersonKey personKey: String) {
-            let keysToRemove = vm.metadata.faceAssignments.keys.filter { k in
-                guard let raw = vm.metadata.faceAssignments[k] else { return false }
-                let parsed = parseAssignment(raw)
-                if parsed.kind == "oneoff" { return false }
-                return parsed.payload == personKey
-            }
-            for k in keysToRemove {
-                vm.metadata.faceAssignments.removeValue(forKey: k)
-            }
+    private func clearAssignments(forPersonKey personKey: String) {
+        let keysToRemove = vm.metadata.faceAssignments.keys.filter { k in
+            guard let raw = vm.metadata.faceAssignments[k] else { return false }
+            let parsed = parseAssignment(raw)
+            if parsed.kind == "oneoff" { return false }
+            return parsed.payload == personKey
         }
-
-        private func resetActiveFaceToFirstUnassigned() {
-            let nums = activeFaceNumbersForUI
-            for n in nums {
-                if assignmentRaw(for: n) == nil {
-                    activeFaceNumber = n
-                    return
-                }
-            }
-            activeFaceNumber = nums.first
+        for k in keysToRemove {
+            vm.metadata.faceAssignments.removeValue(forKey: k)
         }
+    }
 
-        /// Advance active slot to the next unassigned visible face.
-        /// If none remain, clear active slot.
-        private func advanceActiveFaceAfterAssign() {
-            let visible = activeFaceNumbersForUI
-            guard !visible.isEmpty else {
-                activeFaceNumber = nil
+    private func resetActiveFaceToFirstUnassigned() {
+        let nums = activeFaceNumbersForUI
+        for n in nums {
+            if assignmentRaw(for: n) == nil {
+                activeFaceNumber = n
                 return
             }
+        }
+        activeFaceNumber = nums.first
+    }
 
-            let start = activeFaceNumber ?? visible.first!
-            let startIdx = visible.firstIndex(of: start) ?? 0
-
-            let ordered = Array(visible[startIdx...]) + Array(visible[..<startIdx])
-            if let next = ordered.first(where: { assignmentRaw(for: $0) == nil }) {
-                activeFaceNumber = next
-            } else {
-                activeFaceNumber = nil
-            }
+    private func advanceActiveFaceAfterAssign() {
+        let visible = activeFaceNumbersForUI
+        guard !visible.isEmpty else {
+            activeFaceNumber = nil
+            return
         }
 
-        private func setActiveFace(_ n: Int) {
-            activeFaceNumber = n
+        let start = activeFaceNumber ?? visible.first!
+        let startIdx = visible.firstIndex(of: start) ?? 0
+
+        let ordered = Array(visible[startIdx...]) + Array(visible[..<startIdx])
+        if let next = ordered.first(where: { assignmentRaw(for: $0) == nil }) {
+            activeFaceNumber = next
+        } else {
+            activeFaceNumber = nil
+        }
+    }
+
+    private func setActiveFace(_ n: Int) {
+        activeFaceNumber = n
+    }
+
+    private func assignActiveFace(toPersonKey personKey: String) {
+        guard let n = activeFaceNumber else { return }
+        setAssignmentRaw("id:" + personKey, for: n)
+        advanceActiveFaceAfterAssign()
+    }
+
+    private func acceptSuggestion(for faceNumber: Int) {
+        guard assignmentRaw(for: faceNumber) == nil else { return }
+        guard let suggestion = faceSuggestions[faceNumber] else { return }
+
+        activeFaceNumber = faceNumber
+        setAssignmentRaw("id:" + suggestion.personID, for: faceNumber)
+        advanceActiveFaceAfterAssign()
+    }
+
+    private func acceptVisibleSuggestions() {
+        guard canAcceptVisibleSuggestions else { return }
+
+        let suggestions = visibleSuggestedMatches.sorted { $0.faceNumber < $1.faceNumber }
+        for item in suggestions {
+            guard assignmentRaw(for: item.faceNumber) == nil else { continue }
+            setAssignmentRaw("id:" + item.match.personID, for: item.faceNumber)
         }
 
-        /// Assign currently active face to a personKey, then auto-advance.
-        private func assignActiveFace(toPersonKey personKey: String) {
-            guard let n = activeFaceNumber else { return }
-            setAssignmentRaw("id:" + personKey, for: n)
+        resetActiveFaceToFirstUnassigned()
+    }
+
+    private func ignoreFace(_ n: Int) {
+        if !vm.metadata.ignoredFaceNumbers.contains(n) {
+            vm.metadata.ignoredFaceNumbers.append(n)
+        }
+        clearAssignment(for: n)
+
+        if activeFaceNumber == n {
             advanceActiveFaceAfterAssign()
         }
+    }
 
-        /// Ignore a face and clear any assignment.
-        private func ignoreFace(_ n: Int) {
-            if !vm.metadata.ignoredFaceNumbers.contains(n) {
-                vm.metadata.ignoredFaceNumbers.append(n)
-            }
-            clearAssignment(for: n)
-
-            if activeFaceNumber == n {
-                advanceActiveFaceAfterAssign()
-            }
+    private func restoreIgnoredFace(_ n: Int) {
+        vm.metadata.ignoredFaceNumbers.removeAll { $0 == n }
+        if activeFaceNumber == nil {
+            activeFaceNumber = n
         }
+    }
 
-        private func restoreIgnoredFace(_ n: Int) {
-            vm.metadata.ignoredFaceNumbers.removeAll { $0 == n }
-            if activeFaceNumber == nil {
-                activeFaceNumber = n
-            }
-        }
+    // ---------------------------------------------------------
+    // MARK: - [FACES] Ignored face chips
+    // ---------------------------------------------------------
 
-        // ---------------------------------------------------------
-        // MARK: - [FACES] Ignored face chips (click to restore)
-        // ---------------------------------------------------------
+    private var ignoredFacesRow: some View {
+        let ignoredSorted: [Int] = vm.metadata.ignoredFaceNumbers.sorted()
 
-        private var ignoredFacesRow: some View {
-            let ignoredSorted: [Int] = vm.metadata.ignoredFaceNumbers.sorted()
-
-            return Group {
-                if ignoredSorted.isEmpty {
-                    EmptyView()
-                } else {
-                    HStack(alignment: .center, spacing: 8) {
-                        Text("Ignored:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(ignoredSorted, id: \.self) { n in
-                                    Button {
-                                        restoreIgnoredFace(n)
-                                    } label: {
-                                        Text("\(n)")
-                                            .font(.caption.weight(.semibold))
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 4)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .background(
-                                        Capsule(style: .continuous)
-                                            .fill(Color.secondary.opacity(0.12))
-                                    )
-                                    .overlay(
-                                        Capsule(style: .continuous)
-                                            .strokeBorder(Color.secondary.opacity(0.25))
-                                    )
-                                    .help("Restore face \(n)")
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Button("Clear") {
-                            vm.metadata.ignoredFaceNumbers = []
-                            resetActiveFaceToFirstUnassigned()
-                        }
-                        .buttonStyle(.link)
+        return Group {
+            if ignoredSorted.isEmpty {
+                EmptyView()
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("Ignored:")
                         .font(.caption)
-                        .help("Restore all ignored faces")
+                        .foregroundStyle(.secondary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(ignoredSorted, id: \.self) { n in
+                                Button {
+                                    restoreIgnoredFace(n)
+                                } label: {
+                                    Text("\(n)")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(Color.secondary.opacity(0.12))
+                                )
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .strokeBorder(Color.secondary.opacity(0.25))
+                                )
+                                .help("Restore face \(n)")
+                            }
+                        }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.top, 4)
+
+                    Spacer(minLength: 0)
+
+                    Button("Clear") {
+                        vm.metadata.ignoredFaceNumbers = []
+                        resetActiveFaceToFirstUnassigned()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Restore all ignored faces")
                 }
+                .padding(.top, 4)
             }
         }
+    }
 
-        // MARK: - [FACES] Numbered blanks (1..N), excluding ignored
+    // MARK: - [FACES] Numbered blanks (3 across)
 
     private var faceNumberedBlanksRow: some View {
         let nums = activeFaceNumbersForUI
         let columns: [GridItem] = [
-            GridItem(.adaptive(minimum: 140), spacing: 8, alignment: .leading)
+            GridItem(.flexible(), spacing: 8, alignment: .leading),
+            GridItem(.flexible(), spacing: 8, alignment: .leading)
         ]
 
         return Group {
@@ -2577,25 +2618,27 @@ struct DMPPMetadataFormPane: View {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                         ForEach(nums, id: \.self) { n in
                             let isActive = (activeFaceNumber == n)
-
-                            let assignedLabel = faceDisplayLabel(for: n) // nil means unassigned
+                            let assignedLabel = faceDisplayLabel(for: n)
                             let suggestion = faceSuggestions[n]
 
-                            let suggestedLabel: String? = {
-                                guard let suggestion else { return nil }
+                            let suggestionPercentText: String? = {
+                                guard assignedLabel == nil, let suggestion else { return nil }
                                 let pct = Int((suggestion.similarity * 100).rounded())
-                                let name = suggestedPersonLabel(suggestion.personID)
-                                return "\(name) (\(pct)%)"
+                                return "\(pct)%"
                             }()
 
-                            let displayLabel = assignedLabel ?? suggestedLabel ?? "—"
-                            let isSuggestion = (assignedLabel == nil && suggestedLabel != nil)
+                            let suggestionName: String? = {
+                                guard assignedLabel == nil, let suggestion else { return nil }
+                                return suggestedPersonLabel(suggestion.personID)
+                            }()
+
+                            let displayName = assignedLabel ?? suggestionName ?? "—"
 
                             let helpText: String = {
                                 if let assignedLabel {
                                     return "Face \(n): \(assignedLabel)"
-                                } else if let suggestedLabel {
-                                    return "Face \(n): Suggested \(suggestedLabel)"
+                                } else if let suggestionName, let suggestionPercentText {
+                                    return "Face \(n): Suggested \(suggestionName) \(suggestionPercentText)"
                                 } else {
                                     return "Face \(n): Unassigned"
                                 }
@@ -2604,9 +2647,9 @@ struct DMPPMetadataFormPane: View {
                             FaceSlotChipRow(
                                 n: n,
                                 isActive: isActive,
-                                displayLabel: displayLabel,
-                                isSuggestion: isSuggestion,
-                                helpText: helpText,
+                                isAssigned: assignedLabel != nil,
+                                displayName: displayName,
+                                suggestionPercentText: suggestionPercentText,
                                 onSelect: { activeFaceNumber = n },
                                 onIgnore: { ignoreFace(n) },
                                 onClear: assignmentRaw(for: n) != nil ? {
@@ -2615,18 +2658,25 @@ struct DMPPMetadataFormPane: View {
                                     if activeFaceNumber == nil {
                                         activeFaceNumber = activeFaceNumbersForUI.first
                                     }
-                                } : nil
+                                } : nil,
+                                onAcceptSuggestion: (assignedLabel == nil && suggestion != nil) ? {
+                                    acceptSuggestion(for: n)
+                                } : nil,
+                                onOneOff: {
+                                    activeFaceNumber = n
+                                    faceOneOffDraft = ""
+                                    showFaceOneOffSheet = true
+                                },
+                                onAddPerson: {
+                                    activeFaceNumber = n
+                                    openSettings()
+                                },
+                                helpText: helpText
                             )
                         }
                     }
 
-                    if identifyFacesEnabled {
-                        Text(activeFaceNumber == nil
-                             ? "All visible faces are assigned (or ignored)."
-                             : "Click a face slot, then check a person to assign.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
+  
                 }
                 .padding(.top, 4)
             }
@@ -2636,47 +2686,77 @@ struct DMPPMetadataFormPane: View {
     private struct FaceSlotChipRow: View {
         let n: Int
         let isActive: Bool
-        let displayLabel: String
-        let isSuggestion: Bool
-        let helpText: String
+        let isAssigned: Bool
+        let displayName: String
+        let suggestionPercentText: String?
         let onSelect: () -> Void
         let onIgnore: () -> Void
         let onClear: (() -> Void)?
+        let onAcceptSuggestion: (() -> Void)?
+        let onOneOff: () -> Void
+        let onAddPerson: () -> Void
+        let helpText: String
 
         var body: some View {
             Button(action: onSelect) {
                 HStack(spacing: 6) {
-                    Text("\(n):")
+                    Text("\(n)")
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
+                        .foregroundStyle(isActive ? .white : .primary)
 
-                    Text(displayLabel)
-                        .font(.caption)
-                        .foregroundStyle(isSuggestion ? .secondary : .primary)
+                    Text(displayName)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(isActive ? .white : (isAssigned ? .primary : .secondary))
                         .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    if let suggestionPercentText {
+                        Text(suggestionPercentText)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(isActive ? .white.opacity(0.9) : .secondary)
+                            .lineLimit(1)
+                    }
 
                     Spacer(minLength: 0)
+
+                    if let onAcceptSuggestion {
+                        Button {
+                            onAcceptSuggestion()
+                        } label: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isActive ? .white : .accentColor)
+                        .help("Accept suggestion")
+                    }
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.10))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isActive ? Color.accentColor.opacity(0.90) : Color.secondary.opacity(0.10))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.20))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isActive ? Color.accentColor : Color.secondary.opacity(0.20), lineWidth: 1)
             )
             .help(helpText)
             .contextMenu {
-                Button("Ignore face \(n)", action: onIgnore)
+                if let onAcceptSuggestion {
+                    Button("Accept suggestion", action: onAcceptSuggestion)
+                }
                 if let onClear {
                     Button("Clear assignment", action: onClear)
                 }
+                Button("One-off…", action: onOneOff)
+                Button("Add person…", action: onAddPerson)
+                Button("Ignore face \(n)", action: onIgnore)
             }
         }
     }
@@ -2702,104 +2782,16 @@ struct DMPPMetadataFormPane: View {
 
             HStack(alignment: .top, spacing: 24) {
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(leftColumn) { person in
-                        if identifyFacesEnabled {
-                            // Face mode: checkbox means “assign to active face slot”
-                            let personKey = String(describing: person.id)
-
-                            let binding = Binding<Bool>(
-                                get: { isPersonAssignedToAnyFace(personKey: personKey) },
-                                set: { newValue in
-                                    if newValue {
-                                        assignActiveFace(toPersonKey: personKey)
-                                    } else {
-                                        clearAssignments(forPersonKey: personKey)
-                                        if activeFaceNumber == nil {
-                                            resetActiveFaceToFirstUnassigned()
-                                        }
-                                    }
-                                }
-                            )
-
-                            Toggle(isOn: binding) {
-                                HStack(spacing: 6) {
-                                    Text(identityStore.checklistLabel(for: person))
-                                    if person.kind == "pet" {
-                                        Image(systemName: "pawprint.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .accessibilityLabel("Pet")
-                                    }
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-
-                        } else {
-                            // Manual mode: use the original binding (row-based add/remove)
-                            Toggle(isOn: bindingForPerson(person)) {
-                                HStack(spacing: 6) {
-                                    Text(identityStore.checklistLabel(for: person))
-                                    if person.kind == "pet" {
-                                        Image(systemName: "pawprint.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .accessibilityLabel("Pet")
-                                    }
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-                        }
+                        checklistToggleRow(for: person)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(rightColumn) { person in
-                        if identifyFacesEnabled {
-                            let personKey = String(describing: person.id)
-
-                            let binding = Binding<Bool>(
-                                get: { isPersonAssignedToAnyFace(personKey: personKey) },
-                                set: { newValue in
-                                    if newValue {
-                                        assignActiveFace(toPersonKey: personKey)
-                                    } else {
-                                        clearAssignments(forPersonKey: personKey)
-                                        if activeFaceNumber == nil {
-                                            resetActiveFaceToFirstUnassigned()
-                                        }
-                                    }
-                                }
-                            )
-
-                            Toggle(isOn: binding) {
-                                HStack(spacing: 6) {
-                                    Text(identityStore.checklistLabel(for: person))
-                                    if person.kind == "pet" {
-                                        Image(systemName: "pawprint.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .accessibilityLabel("Pet")
-                                    }
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-
-                        } else {
-                            Toggle(isOn: bindingForPerson(person)) {
-                                HStack(spacing: 6) {
-                                    Text(identityStore.checklistLabel(for: person))
-                                    if person.kind == "pet" {
-                                        Image(systemName: "pawprint.fill")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .accessibilityLabel("Pet")
-                                    }
-                                }
-                            }
-                            .toggleStyle(.checkbox)
-                        }
+                        checklistToggleRow(for: person)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2817,6 +2809,78 @@ struct DMPPMetadataFormPane: View {
             .padding(.top, 6)
         }
     }
+
+    @ViewBuilder
+    private func checklistToggleRow(for person: DMPPIdentityStore.PersonSummary) -> some View {
+        let shortLabel = checklistShortLabel(for: person)
+        let ageText = checklistAgeText(for: person)
+        let hover = checklistHoverText(for: person)
+
+        if identifyFacesEnabled {
+            let personKey = String(describing: person.id)
+
+            let binding = Binding<Bool>(
+                get: { isPersonAssignedToAnyFace(personKey: personKey) },
+                set: { newValue in
+                    if newValue {
+                        assignActiveFace(toPersonKey: personKey)
+                    } else {
+                        clearAssignments(forPersonKey: personKey)
+                        if activeFaceNumber == nil {
+                            resetActiveFaceToFirstUnassigned()
+                        }
+                    }
+                }
+            )
+
+            Toggle(isOn: binding) {
+                HStack(spacing: 6) {
+                    Text(shortLabel)
+                        .font(.body)
+
+                    if let ageText, !ageText.isEmpty {
+                        Text("(\(ageText))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if person.kind == "pet" {
+                        Image(systemName: "pawprint.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Pet")
+                    }
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help(hover)
+
+        } else {
+            Toggle(isOn: bindingForPerson(person)) {
+                HStack(spacing: 6) {
+                    Text(shortLabel)
+                        .font(.body)
+
+                    if let ageText, !ageText.isEmpty {
+                        Text("(\(ageText))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if person.kind == "pet" {
+                        Image(systemName: "pawprint.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Pet")
+                    }
+                }
+            }
+            .toggleStyle(.checkbox)
+            .help(hover)
+        }
+    }
+
+
 
     // END PASTE-OVER 2
 
@@ -2837,42 +2901,40 @@ struct DMPPMetadataFormPane: View {
                 ignoredFacesRow
             }
         } else {
-            // Manual mode: show the row-by-row summary so you can SEE what you’re building.
             let rows = peopleRowsForSummary()
 
             if rows.isEmpty {
-                Text("No people selected yet for this photo.")
-                    .font(.caption2)
+                Text("Check people left-to-right, row by row")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 10) {
+                    let showRowLabels = rows.count > 1
+
                     ForEach(rows, id: \.rowIndex) { row in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if showRowLabels {
                                 Text(rowLabel(for: row.rowIndex))
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(row.rowIndex == activeRowIndex ? .primary : .secondary)
-
-                                if row.rowIndex == activeRowIndex {
-                                    Text("(active)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
+                                    .foregroundStyle(.secondary)
                             }
 
-                            Text(peopleLineAttributed(rowPeople: row.people))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
-
-                        if row.rowIndex != rows.last?.rowIndex {
-                            Divider().opacity(0.35)
+                            manualSummaryChipWrap(rowPeople: row.people, isActiveRow: row.rowIndex == activeRowIndex)
                         }
                     }
                 }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.secondary.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.16))
+                )
             }
         }
     }
@@ -3375,7 +3437,11 @@ private extension DMPPMetadataFormPane {
         let inRow = vm.metadata.peopleV2.filter { $0.rowIndex == rowIndex && $0.roleHint != "rowMarker" }
         return (inRow.map(\.positionIndex).max() ?? -1) + 1
     }
-
+    func activeManualRowHasPeople() -> Bool {
+        vm.metadata.peopleV2.contains {
+            $0.rowIndex == activeRowIndex && $0.roleHint != "rowMarker"
+        }
+    }
     func peopleLineAttributed(rowPeople: [DmpmsPersonInPhoto]) -> AttributedString {
         var line = AttributedString("")
 
@@ -3415,22 +3481,71 @@ private extension DMPPMetadataFormPane {
         return line
     }
 
+    @ViewBuilder
+    private func manualSummaryChipWrap(rowPeople: [DmpmsPersonInPhoto], isActiveRow: Bool) -> some View {
+        DMPPFlowLayout(spacing: 8) {
+            ForEach(Array(rowPeople.enumerated()), id: \.offset) { _, person in
+                let rawName = person.shortNameSnapshot.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                let displayName = rawName.isEmpty ? "Unnamed" : rawName
+
+                Text(displayName)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(isActiveRow ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.12))
+                    )
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .strokeBorder(isActiveRow ? Color.accentColor.opacity(0.28) : Color.secondary.opacity(0.20))
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
     func peopleRowsForSummary() -> [(rowIndex: Int, people: [DmpmsPersonInPhoto])] {
         let sortedPeople = vm.metadata.peopleV2.sorted {
             if $0.rowIndex == $1.rowIndex { return $0.positionIndex < $1.positionIndex }
             return $0.rowIndex < $1.rowIndex
         }
 
-        let nonMarkers = sortedPeople.filter { $0.roleHint != "rowMarker" }
-        let grouped = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
-        let rowIndexes = grouped.keys.sorted(by: >)
+        let groupedAll = Dictionary(grouping: sortedPeople, by: { $0.rowIndex })
+        let rowIndexes = groupedAll.keys.sorted(by: >)
 
         return rowIndexes.map { r in
-            let rowPeople = (grouped[r] ?? []).sorted { $0.positionIndex < $1.positionIndex }
+            let rowPeople = (groupedAll[r] ?? [])
+                .filter { $0.roleHint != "rowMarker" }
+                .sorted { $0.positionIndex < $1.positionIndex }
+
             return (rowIndex: r, people: rowPeople)
         }
     }
+    func ensureManualRowMarkerExists(for rowIndex: Int) {
+        let alreadyExists = vm.metadata.peopleV2.contains {
+            $0.rowIndex == rowIndex && $0.roleHint == "rowMarker"
+        }
+        guard !alreadyExists else { return }
 
+        let marker = DmpmsPersonInPhoto(
+            personID: nil,
+            identityID: nil,
+            isUnknown: false,
+            shortNameSnapshot: "",
+            displayNameSnapshot: "",
+            ageAtPhoto: nil,
+            rowIndex: rowIndex,
+            rowName: nil,
+            positionIndex: -1,
+            roleHint: "rowMarker"
+        )
+
+        vm.metadata.peopleV2.append(marker)
+    }
+    
     func peopleRowsForSnapshot(_ snap: DmpmsPeopleSnapshot) -> [(rowIndex: Int, line: String)] {
         let nonMarkers = snap.peopleV2.filter { $0.roleHint != "rowMarker" }
         let grouped = Dictionary(grouping: nonMarkers, by: { $0.rowIndex })
@@ -3454,6 +3569,118 @@ private extension DMPPMetadataFormPane {
         }
     }
 
+
+    private func checklistShortLabel(for person: DMPPIdentityStore.PersonSummary) -> String {
+        let versions = identityStore.identityVersions(forPersonID: person.id)
+        guard !versions.isEmpty else { return identityStore.checklistLabel(for: person) }
+
+        let photoEarliest = vm.metadata.dateRange?.earliest
+        let chosen = identityStore.bestIdentityForPhoto(
+            versions: versions,
+            photoEarliestYMD: photoEarliest
+        )
+
+        let trimmed = chosen.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return trimmed.isEmpty ? identityStore.checklistLabel(for: person) : trimmed
+    }
+
+    private func checklistAgeText(for person: DMPPIdentityStore.PersonSummary) -> String? {
+        let versions = identityStore.identityVersions(forPersonID: person.id)
+        guard !versions.isEmpty else { return nil }
+
+        let photoEarliest = vm.metadata.dateRange?.earliest
+        let chosen = identityStore.bestIdentityForPhoto(
+            versions: versions,
+            photoEarliestYMD: photoEarliest
+        )
+
+        guard let birthDate = bestBirthDate(for: chosen.birthDate) else { return nil }
+        let bounds = photoDateBounds()
+        guard let start = bounds.start else { return nil }
+
+        let startAge = completedYears(from: birthDate, to: start)
+        guard startAge >= 0 else { return nil }
+
+        guard let end = bounds.end else {
+            return "\(startAge)"
+        }
+
+        let endAge = completedYears(from: birthDate, to: end)
+        guard endAge >= 0 else { return "\(startAge)" }
+
+        return startAge == endAge ? "\(startAge)" : "\(startAge)–\(endAge)"
+    }
+
+    private func checklistHoverText(for person: DMPPIdentityStore.PersonSummary) -> String {
+        let versions = identityStore.identityVersions(forPersonID: person.id)
+        guard !versions.isEmpty else {
+            return identityStore.checklistLabel(for: person)
+        }
+
+        let photoEarliest = vm.metadata.dateRange?.earliest
+        let chosen = identityStore.bestIdentityForPhoto(
+            versions: versions,
+            photoEarliestYMD: photoEarliest
+        )
+
+        let fullName = chosen.fullName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let displayName = fullName.isEmpty ? identityStore.checklistLabel(for: person) : fullName
+
+        if let birthYear = birthYearText(from: chosen.birthDate), !birthYear.isEmpty {
+            return "\(displayName) (born \(birthYear))"
+        } else {
+            return displayName
+        }
+    }
+
+    private func birthYearText(from raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard trimmed.count >= 4 else { return nil }
+
+        let year = String(trimmed.prefix(4))
+        guard year.allSatisfy({ $0.isNumber }) else { return nil }
+        return year
+    }
+
+    private func photoDateBounds() -> (start: Date?, end: Date?) {
+        let dt = vm.metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !dt.isEmpty {
+            if dt.count == 10, let d = LooseYMD.parse(dt) {
+                return (d, d)
+            }
+
+            let parsed = LooseYMD.parseRange(dt)
+            return (parsed.start, parsed.end)
+        }
+
+        if let r = vm.metadata.dateRange {
+            let start = LooseYMD.parseRange(r.earliest).start
+            let end = LooseYMD.parseRange(r.latest).end
+            return (start, end)
+        }
+
+        return (nil, nil)
+    }
+
+    private func bestBirthDate(for raw: String?) -> Date? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.count == 10, let d = LooseYMD.parse(trimmed) {
+            return d
+        }
+
+        let parsed = LooseYMD.parseRange(trimmed)
+        return parsed.start
+    }
+
+    private func completedYears(from birthDate: Date, to asOf: Date) -> Int {
+        let cal = Calendar(identifier: .gregorian)
+        return cal.dateComponents([.year], from: birthDate, to: asOf).year ?? -1
+    }
     func orderedChecklistPeople() -> [DMPPIdentityStore.PersonSummary] {
         let availablePeople: [DMPPIdentityStore.PersonSummary] =
             showAllPeopleInChecklist
@@ -3940,6 +4167,7 @@ extension DMPPImageEditorView {
 
     }
 
+    
     // MARK: - [REVIEW] Sidecar + Flagged helpers
 
     private func hasSidecar(for imageURL: URL) -> Bool {
@@ -4118,6 +4346,8 @@ extension DMPPImageEditorView {
         return (inRow.map(\.positionIndex).max() ?? -1) + 1
     }
 
+
+    
     // MARK: Row sync (per-image)
 
     private func syncActiveRowIndexFromCurrentPhoto() {
