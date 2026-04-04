@@ -78,6 +78,7 @@ struct DMPPImageEditorView: View {
     
     private let faceRecognitionService = DMPPFaceRecognitionService()
     @State private var faceEmbeddingsByFaceNumber: [Int: [Float]] = [:]
+    @State private var faceRefreshNonce: UUID = UUID()
 
 
     // [ARCH] Access the chosen Photo Library Folder (archive root)
@@ -141,35 +142,11 @@ struct DMPPImageEditorView: View {
             loadPersistedLastFolder()
             loadPersistedExportFolder()
         }
-        // BEGIN PASTE-OVER 1: don't force mode off on photo change
         .onChange(of: vm?.imageURL) { _, _ in
-            // [FACES] New photo → clear transient detection state only.
-            // Mode (Manual vs Auto-Detect) is restored by the metadata pane from sidecar data.
-            detectedFaces = []
-            facesAreLoading = false
-            showFaceBoxes = true
+            // [FACES] New photo → clear all transient face UI immediately.
+            // Mode (Manual vs. Auto-Detect) is restored separately by the metadata pane.
+            clearTransientFaceRecognitionState()
         }
-        .onChange(of: faceAssignmentsChangeKey) { _, _ in
-            guard let vm else { return }
-            guard identifyFacesEnabled else { return }
-
-            let newValue = vm.metadata.faceAssignments
-
-            for (k, raw) in newValue {
-                guard let n = Int(k) else { continue }
-                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                // Only learn from real person IDs
-                guard trimmed.hasPrefix("id:") else { continue }
-                let personID = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !personID.isEmpty else { continue }
-
-                Task { @MainActor in
-                    learnFaceIfPossible(faceNumber: n, personID: personID)
-                }
-            }
-        }
-        // END PASTE-OVER 1
 
         .onDisappear {
             // [ARCH] End security-scoped access
@@ -438,6 +415,39 @@ struct DMPPImageEditorView: View {
         return pairs
     }
     
+    private func clearTransientFaceRecognitionState() {
+        detectedFaces = []
+        faceSuggestions = [:]
+        faceEmbeddingsByFaceNumber = [:]
+        facesAreLoading = false
+        showFaceBoxes = true
+        faceRefreshNonce = UUID()
+    }
+
+    private var hasUnresolvedVisibleFaces: Bool {
+        guard identifyFacesEnabled, let vm else { return false }
+        guard detectedFaces.count > 0 else { return false }
+
+        let ignored = Set(vm.metadata.ignoredFaceNumbers)
+        let visibleFaceNumbers = Array(1...detectedFaces.count).filter { !ignored.contains($0) }
+
+        guard !visibleFaceNumbers.isEmpty else { return false }
+
+        for n in visibleFaceNumbers {
+            guard let raw = vm.metadata.faceAssignments[String(n)] else { return true }
+            if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func showResolveFacesWarning() {
+        continueErrorMessage = "Assign or ignore all detected faces before continuing."
+        showContinueError = true
+    }
+    
     @ViewBuilder
     private var mainContentView: some View {
 
@@ -535,12 +545,13 @@ struct DMPPImageEditorView: View {
 
     @ViewBuilder
     private func bottomBarView(vm: DMPPImageEditorViewModel) -> some View {
+        let blockedByFaces = hasUnresolvedVisibleFaces
+
         HStack(spacing: 8) {
 
             if vm.selectedCrop != nil {
                 HStack(spacing: 10) {
 
-                   
                 }
             }
 
@@ -557,14 +568,19 @@ struct DMPPImageEditorView: View {
 
             Button("Save") { saveCurrentMetadata() }
                 .buttonStyle(.borderedProminent)
-                .disabled(!isSaveEnabled)
+                .disabled(!isSaveEnabled || blockedByFaces)
                 .keyboardShortcut("s", modifiers: [.command])
-                .help(isSaveEnabled
-                      ? "Save crop and data for this picture (original picture is never changed)."
-                      : "No changes to save.")
+                .help(
+                    blockedByFaces
+                    ? "Assign or ignore all detected faces before saving."
+                    : (isSaveEnabled
+                       ? "Save crop and data for this picture (original picture is never changed)."
+                       : "No changes to save.")
+                )
 
             Button("Previous Picture") { goToPreviousImage() }
-                .disabled(!canGoToPrevious)
+                .disabled(!canGoToPrevious || blockedByFaces)
+                .help(blockedByFaces ? "Assign or ignore all detected faces before continuing." : "")
 
             let canNavigateCrops = vm.metadata.virtualCrops.count > 1
 
@@ -575,8 +591,12 @@ struct DMPPImageEditorView: View {
                 .disabled(!canNavigateCrops)
 
             Button("Next Picture") { goToNextImage() }
-                .disabled(!canGoToNext)
-                .help("Changes are saved automatically.")
+                .disabled(!canGoToNext || blockedByFaces)
+                .help(
+                    blockedByFaces
+                    ? "Assign or ignore all detected faces before continuing."
+                    : "Changes are saved automatically."
+                )
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -587,23 +607,29 @@ struct DMPPImageEditorView: View {
 
     private func refreshFacesForCurrentPhoto() {
         guard let vm, let img = vm.nsImage else {
-            detectedFaces = []
-            facesAreLoading = false
-
-            // Clear recognition caches too
-            faceSuggestions = [:]
-            faceEmbeddingsByFaceNumber = [:]
+            clearTransientFaceRecognitionState()
             return
         }
 
+        let expectedImageURL = vm.imageURL
+        let nonce = UUID()
+
+        // Clear old face UI immediately so the next picture never shows stale suggestions.
+        detectedFaces = []
+        faceSuggestions = [:]
+        faceEmbeddingsByFaceNumber = [:]
         facesAreLoading = true
+        faceRefreshNonce = nonce
 
         Task { @MainActor in
             let faces = await faceService.detectFaces(in: img)
+
+            guard faceRefreshNonce == nonce else { return }
+            guard self.vm?.imageURL == expectedImageURL else { return }
+
             self.detectedFaces = faces
             self.facesAreLoading = false
 
-            // IMPORTANT: run recognition AFTER faces are available
             self.computeFaceSuggestionsForCurrentPhoto()
         }
     }
@@ -618,6 +644,27 @@ struct DMPPImageEditorView: View {
         let source = vm?.metadata.sourceFile
 
         faceIndexStore.addSample(personID: personID, embedding: embedding, source: source)
+    }
+    
+    @MainActor
+    private func learnFacesFromSavedMetadata(_ metadata: DmpmsMetadata) {
+        guard identifyFacesEnabled else { return }
+        guard faceIndexStore.isConfigured else { return }
+
+        let ignored = Set(metadata.ignoredFaceNumbers)
+
+        for (k, raw0) in metadata.faceAssignments {
+            guard let n = Int(k) else { continue }
+            guard !ignored.contains(n) else { continue }
+
+            let raw = raw0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard raw.hasPrefix("id:") else { continue }
+
+            let personID = String(raw.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !personID.isEmpty else { continue }
+
+            learnFaceIfPossible(faceNumber: n, personID: personID)
+        }
     }
     
     // MARK: - [FACES-RECOG] Compute suggestions for current photo
@@ -4458,12 +4505,22 @@ extension DMPPImageEditorView {
     }
 
     private func goToPreviousImage() {
+        if hasUnresolvedVisibleFaces {
+            showResolveFacesWarning()
+            return
+        }
+
         let newIndex = currentIndex - 1
         guard imageURLs.indices.contains(newIndex) else { return }
         loadImage(at: newIndex)
     }
 
     private func goToNextImage() {
+        if hasUnresolvedVisibleFaces {
+            showResolveFacesWarning()
+            return
+        }
+
         let start = currentIndex + 1
         guard imageURLs.indices.contains(start) else { return }
 
@@ -4731,7 +4788,11 @@ extension DMPPImageEditorView {
             encoder.outputFormatting = [.prettyPrinted]
             let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
+
             loadedMetadataHash = newBaseline
+
+            // Learn immediately after a successful save, before navigation clears face state.
+            learnFacesFromSavedMetadata(metadataToSave)
         } catch {
             let nsError = error as NSError
             print("dMPP: ❌ Failed to save metadata for \(metadataToSave.sourceFile)")

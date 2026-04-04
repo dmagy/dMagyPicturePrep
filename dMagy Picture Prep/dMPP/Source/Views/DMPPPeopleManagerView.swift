@@ -23,6 +23,7 @@ struct DMPPPeopleManagerView: View {
     // App-owned stores
     @EnvironmentObject private var identityStore: DMPPIdentityStore
     @EnvironmentObject private var archiveStore: DMPPArchiveStore
+    @EnvironmentObject private var faceIndexStore: DMPPFaceIndexStore
 
     @State private var searchText: String = ""
     @State private var selectedPersonID: String? = nil
@@ -36,6 +37,9 @@ struct DMPPPeopleManagerView: View {
     // Delete confirmation
     @State private var showDeleteConfirm: Bool = false
     @State private var deleteTargetPersonID: String? = nil
+    // Reset learned face samples confirmation
+    @State private var showResetFaceSamplesConfirm: Bool = false
+    @State private var resetFaceSamplesTargetPersonID: String? = nil
     
     @State private var showLinkedFileDetails: Bool = false
    
@@ -94,6 +98,39 @@ struct DMPPPeopleManagerView: View {
 
             } message: {
                 Text("This will remove the person and all identity versions for them. This cannot be undone.")
+            }
+            .alert("Reset learned face samples?", isPresented: $showResetFaceSamplesConfirm) {
+
+                Button("Reset", role: .destructive) {
+                    guard let pid = resetFaceSamplesTargetPersonID else { return }
+                    faceIndexStore.removeAllSamples(for: pid)
+                    resetFaceSamplesTargetPersonID = nil
+                }
+
+                Button("Cancel", role: .cancel) {
+                    resetFaceSamplesTargetPersonID = nil
+                }
+
+            } message: {
+                let count = learnedFaceSampleCount(for: resetFaceSamplesTargetPersonID)
+
+                if count > 0 {
+                    Text(
+                        """
+                        Remove all \(count) learned face sample\(count == 1 ? "" : "s") for this person? Face suggestions for this person will need to be relearned.
+
+                        Use this when this person is being suggested for the wrong face. Example: if a photo of Amy is suggested as Arthur, reset Arthur first.
+                        """
+                    )
+                } else {
+                    Text(
+                        """
+                        Remove all learned face samples for this person? Face suggestions for this person will need to be relearned.
+
+                        Use this when this person is being suggested for the wrong face. Example: if a photo of Amy is suggested as Arthur, reset Arthur first.
+                        """
+                    )
+                }
             }
 
             .onAppear(perform: handleAppear)
@@ -379,6 +416,33 @@ struct DMPPPeopleManagerView: View {
                         .disabled(selectedPersonID == nil)
                         .buttonStyle(.bordered)
 
+                        if let pid = selectedPersonID, learnedFaceSampleCount(for: pid) > 0 {
+                            HStack(spacing: 8) {
+                                Button(role: .destructive) {
+                                    resetFaceSamplesTargetPersonID = pid
+                                    showResetFaceSamplesConfirm = true
+                                } label: {
+                                    Label("Reset face samples", systemImage: "face.dashed")
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Remove all learned face samples for this person.")
+
+                                Text("\(learnedFaceSampleCount(for: pid))")
+                                    .font(.caption.monospacedDigit())
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(Color(nsColor: .controlBackgroundColor))
+                                    )
+                                    .overlay(
+                                        Capsule(style: .continuous)
+                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                    )
+                                    .help("Learned face sample count")
+                            }
+                        }
+
                         Spacer()
 
                         Button("Add event…") {
@@ -395,7 +459,6 @@ struct DMPPPeopleManagerView: View {
                         .keyboardShortcut("s", modifiers: [.command])
                     }
                     .padding(.top, 4)
-
                     
 
                     Spacer()
@@ -618,6 +681,15 @@ struct DMPPPeopleManagerView: View {
 
     // MARK: - Actions
 
+    private func learnedFaceSampleCount(for personID: String?) -> Int {
+        guard let personID, !personID.isEmpty else { return 0 }
+        return faceIndexStore.people[personID]?.count ?? 0
+    }
+
+    private var selectedPersonLearnedFaceSampleCount: Int {
+        learnedFaceSampleCount(for: selectedPersonID)
+    }
+    
     private func createNewPerson() {
         let newPersonID = identityStore.addPerson()
         selectedPersonID = newPersonID
@@ -878,5 +950,6 @@ struct DMPPPeopleManagerView: View {
     DMPPPeopleManagerView(host: .window)
         .environmentObject(DMPPIdentityStore())
         .environmentObject(DMPPArchiveStore())
+        .environmentObject(DMPPFaceIndexStore())
 }
 
