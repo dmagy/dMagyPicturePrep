@@ -2012,10 +2012,10 @@ struct DMPPMetadataFormPane: View {
             VStack(alignment: .center, spacing: 8) {
 
                 Picker("", selection: $identifyFacesEnabled) {
+                    Text("Suggested").tag(true)
                     Text("Manual").tag(false)
-                    Text("Auto-Detect").tag(true)
                 }
-                .pickerStyle(.segmented)
+            .pickerStyle(.segmented)
                 .onChange(of: identifyFacesEnabled) { _, isOn in
                     if suppressModeReset {
                         onToggleIdentifyFaces(isOn)
@@ -2070,9 +2070,10 @@ struct DMPPMetadataFormPane: View {
                                 .font(.headline)
 
                             Group {
-                                Text("Auto-Detect")
+                                Text("Suggested")
                                     .font(.subheadline.weight(.semibold))
-                                Text("• Detects face boxes; you assign people to numbered slots.")
+                                Text("• Detects face boxes and suggests possible matches.")
+                                Text("• Select a face slot, then choose a person or accept a suggestion.")
                                 Text("• Right-click a face slot for quick actions like accept, one-off, clear, or ignore.")
                                 Text("• Use Manual if not all faces are found, or if you want to identify pets.")
                             }
@@ -2105,8 +2106,8 @@ struct DMPPMetadataFormPane: View {
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 4)
-            .padding(.top, 4)
-            .padding(.bottom, 2)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
 
             if identifyFacesEnabled {
                 VStack(alignment: .leading, spacing: 8) {
@@ -2117,15 +2118,14 @@ struct DMPPMetadataFormPane: View {
                     HStack(spacing: 8) {
                         Spacer()
 
-                        Button("One-off") {
-                            guard activeFaceNumber != nil else { return }
-                            faceOneOffDraft = ""
-                            showFaceOneOffSheet = true
+                        Button("Accept") {
+                            guard let n = activeFaceNumber else { return }
+                            acceptSuggestion(for: n)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                        .disabled(activeFaceNumber == nil)
-                       // .frame(minWidth: 72)
+                        .disabled(!activeFaceCanAcceptSuggestion)
+                        .help(activeFaceCanAcceptSuggestion ? "Accept the suggestion for the selected face." : "Select a face with a suggestion first.")
 
                         Button("Ignore") {
                             guard let n = activeFaceNumber else { return }
@@ -2134,25 +2134,36 @@ struct DMPPMetadataFormPane: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(activeFaceNumber == nil)
-                        //.frame(minWidth: 72)
+                        .help(activeFaceNumber == nil ? "Select a face first." : "Ignore the selected face.")
 
-                        Button("Clear") {
-                            guard let n = activeFaceNumber else { return }
-                            clearAssignment(for: n)
-                            resetActiveFaceToFirstUnassigned()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(activeFaceNumber == nil)
-                       // .frame(minWidth: 72)
+                        Menu("More…") {
+                            Button("Accept all suggestions") {
+                                acceptVisibleSuggestions()
+                            }
+                            .disabled(!canAcceptVisibleSuggestions)
 
-                        Button("Accept all") {
-                            acceptVisibleSuggestions()
+                            Button("Ignore other faces") {
+                                ignoreOtherVisibleFaces()
+                            }
+                            .disabled(!hasRemainingUnassignedVisibleFaces)
+
+                            Button("Add one-off person…") {
+                                guard activeFaceNumber != nil else { return }
+                                faceOneOffDraft = ""
+                                showFaceOneOffSheet = true
+                            }
+                            .disabled(activeFaceNumber == nil)
+
+                            Button("Clear current face") {
+                                guard let n = activeFaceNumber else { return }
+                                clearAssignment(for: n)
+                                resetActiveFaceToFirstUnassigned()
+                            }
+                            .disabled(activeFaceNumber == nil)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!canAcceptVisibleSuggestions)
-                       // .frame(minWidth: 72)
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("More face actions")
 
                         Spacer()
                     }
@@ -2410,7 +2421,35 @@ struct DMPPMetadataFormPane: View {
     private var canAcceptVisibleSuggestions: Bool {
         !visibleSuggestedMatches.isEmpty && !hasDuplicateSuggestedPeople
     }
+    private var hasRemainingUnassignedVisibleFaces: Bool {
+        let visible = activeFaceNumbersForUI
+        guard !visible.isEmpty else { return false }
 
+        for n in visible {
+            if assignmentRaw(for: n) == nil {
+                return true
+            }
+        }
+        return false
+    }
+    private var activeFaceCanAcceptSuggestion: Bool {
+        guard let n = activeFaceNumber else { return false }
+        guard assignmentRaw(for: n) == nil else { return false }
+        return faceSuggestions[n] != nil
+    }
+    
+    private func ignoreOtherVisibleFaces() {
+        let visible = activeFaceNumbersForUI
+        guard !visible.isEmpty else { return }
+
+        for n in visible {
+            if assignmentRaw(for: n) == nil {
+                ignoreFace(n)
+            }
+        }
+
+        resetActiveFaceToFirstUnassigned()
+    }
     // MARK: - [FACES] Mode switch + reset
 
     private func setFaceMode(_ enabled: Bool) {
