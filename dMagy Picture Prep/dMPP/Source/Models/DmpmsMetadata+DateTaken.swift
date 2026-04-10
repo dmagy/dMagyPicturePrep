@@ -1,4 +1,6 @@
-//
+// This file can probably be deleted but investigate
+
+
 //  DmpmsMetadata+DateTaken.swift
 //  dMagy Picture Prep
 //
