@@ -423,6 +423,9 @@ final class DMPPIdentityStore: ObservableObject {
             let sharedShortName  = primary.shortName
             let sharedBirthDate  = primary.birthDate
             let sharedDeathDate  = primary.deathDate   // legacy; keep propagated for backward compat
+            let sharedGender     = normalizeOptionalLabel(primary.gender)
+            let sharedFatherID   = normalizeOptionalID(primary.fatherID)
+            let sharedMotherID   = normalizeOptionalID(primary.motherID)
             let sharedKind       = normalizeKind(primary.kind)
             let sharedFavorite   = primary.isFavorite
             let sharedNotes      = primary.notes
@@ -439,6 +442,9 @@ final class DMPPIdentityStore: ObservableObject {
                 copy.shortName  = sharedShortName
                 copy.birthDate  = sharedBirthDate
                 copy.deathDate  = sharedDeathDate
+                copy.gender     = sharedGender
+                copy.fatherID   = sharedFatherID
+                copy.motherID   = sharedMotherID
                 copy.kind       = sharedKind
                 copy.isFavorite = sharedFavorite
                 copy.notes      = sharedNotes
@@ -484,6 +490,9 @@ final class DMPPIdentityStore: ObservableObject {
         let preferredName: String?
         let aliases: [String]
         let birthDate: String?
+        let gender: String?
+        let fatherID: String?
+        let motherID: String?
         let kind: String
         let isFavorite: Bool
         let notes: String?
@@ -553,6 +562,9 @@ final class DMPPIdentityStore: ObservableObject {
                 preferredName: preferredClean,
                 aliases: aliasesClean,
                 birthDate: birth,
+                gender: normalizeOptionalLabel(representative.gender),
+                fatherID: normalizeOptionalID(representative.fatherID),
+                motherID: normalizeOptionalID(representative.motherID),
                 kind: normalizeKind(representative.kind),
                 isFavorite: representative.isFavorite,
                 notes: representative.notes,
@@ -655,6 +667,9 @@ final class DMPPIdentityStore: ObservableObject {
             surname: "",
             birthDate: "",
             deathDate: nil,
+            gender: nil,
+            fatherID: nil,
+            motherID: nil,
             kind: "human",
             idDate: "",
             idReason: "Birth",
@@ -708,6 +723,18 @@ final class DMPPIdentityStore: ObservableObject {
         return (s == "pet") ? "pet" : "human"
     }
 
+    private func normalizeOptionalLabel(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    private func normalizeOptionalID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+    
     private func identityVersionsInternalSorted(_ versions: [DmpmsIdentity]) -> [DmpmsIdentity] {
         versions.sorted { a, b in
             let aIsBirth = normalize(a.idReason) == "birth"

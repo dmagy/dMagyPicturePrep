@@ -168,8 +168,8 @@ struct DMPPSettingsView: View {
                             .font(.callout)
 
                         Picker("", selection: $defaultPeopleMode) {
+                            Text("Suggested").tag("faces")
                             Text("Manual").tag("manual")
-                            Text("Auto-Detect").tag("faces")
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 260)
@@ -199,9 +199,9 @@ struct DMPPSettingsView: View {
                                 Divider()
 
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text("Auto-Detect")
+                                    Text("Suggested")
                                         .font(.subheadline.weight(.semibold))
-                                    Text("Detects face boxes and lets you assign people to numbered slots. Best for straightforward photos with clearly visible human faces.")
+                                    Text("Detects face boxes and suggests possible matches. Best for straightforward photos with clearly visible human faces.")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }

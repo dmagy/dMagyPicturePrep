@@ -39,6 +39,18 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
     /// NOTE: Option B: Death is an event. This field is legacy/optional; filtering should use the Death event date.
     var deathDate: String?
 
+    /// Optional gender label for the person.
+    /// Shared across identity versions.
+    var gender: String?
+
+    /// Optional linked personID for father.
+    /// Shared across identity versions.
+    var fatherID: String?
+
+    /// Optional linked personID for mother.
+    /// Shared across identity versions.
+    var motherID: String?
+
     /// Kind of being. Defaults to human.
     /// Missing/unknown decodes as "human" for migration safety.
     var kind: String
@@ -86,6 +98,9 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         surname: String,
         birthDate: String? = nil,
         deathDate: String? = nil,
+        gender: String? = nil,
+        fatherID: String? = nil,
+        motherID: String? = nil,
         kind: String = "human",
         idDate: String,
         idReason: String,
@@ -102,6 +117,9 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         self.surname = surname
         self.birthDate = birthDate
         self.deathDate = deathDate
+        self.gender = Self.normalizeOptionalLabel(gender)
+        self.fatherID = Self.normalizeOptionalID(fatherID)
+        self.motherID = Self.normalizeOptionalID(motherID)
         self.kind = Self.normalizeKind(kind)
         self.idDate = idDate
         self.idReason = idReason
@@ -115,6 +133,7 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         case id, personID
         case shortName, preferredName, aliases
         case birthDate, deathDate
+        case gender, fatherID, motherID
         case kind
         case isFavorite, notes
         case givenName, middleName, surname
@@ -133,6 +152,10 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
         birthDate = try c.decodeIfPresent(String.self, forKey: .birthDate)
         deathDate = try c.decodeIfPresent(String.self, forKey: .deathDate) // legacy/optional
+
+        gender = Self.normalizeOptionalLabel(try c.decodeIfPresent(String.self, forKey: .gender))
+        fatherID = Self.normalizeOptionalID(try c.decodeIfPresent(String.self, forKey: .fatherID))
+        motherID = Self.normalizeOptionalID(try c.decodeIfPresent(String.self, forKey: .motherID))
 
         let rawKind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "human"
         kind = Self.normalizeKind(rawKind)
@@ -161,6 +184,10 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
         try c.encodeIfPresent(birthDate, forKey: .birthDate)
         try c.encodeIfPresent(deathDate, forKey: .deathDate)
 
+        try c.encodeIfPresent(Self.normalizeOptionalLabel(gender), forKey: .gender)
+        try c.encodeIfPresent(Self.normalizeOptionalID(fatherID), forKey: .fatherID)
+        try c.encodeIfPresent(Self.normalizeOptionalID(motherID), forKey: .motherID)
+
         try c.encode(Self.normalizeKind(kind), forKey: .kind)
 
         try c.encode(isFavorite, forKey: .isFavorite)
@@ -172,6 +199,20 @@ struct DmpmsIdentity: Codable, Hashable, Identifiable {
 
         try c.encode(idDate, forKey: .idDate)
         try c.encode(idReason, forKey: .idReason)
+    }
+
+    // MARK: - Shared-field normalization
+
+    private static func normalizeOptionalLabel(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    private static func normalizeOptionalID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
     }
 
     // MARK: - Kind normalization

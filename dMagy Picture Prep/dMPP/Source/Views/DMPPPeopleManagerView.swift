@@ -275,7 +275,7 @@ struct DMPPPeopleManagerView: View {
                     Spacer()
 
                     if versions.count > 1 {
-                        Text("\(versions.count) identities")
+                        Text("\(versions.count) life events")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -377,31 +377,44 @@ struct DMPPPeopleManagerView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
 
-                    GroupBox {
-                        //Life events - changed to center
+                    GroupBox("Person") {
                         VStack(alignment: .leading, spacing: 7) {
-
-                            // BIRTH IDENTITY (always first)
                             birthEditorSection
+                        }
+                        .padding(4)
+                    }
 
-                            Divider()
-
-                            // ADDITIONAL IDENTITIES (repeat blocks)
-                            additionalIdentitiesSection
-
-                            Divider()
-
-                            // Notes (person-level; store keeps synced across versions)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Notes")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-
-                                TextField(
-                                    "Relationships, roles, etc.)",
-                                    text: optionalBindingBirth(\.notes)
-                                )
+                    GroupBox("Life events") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    additionalIdentitiesSection
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(4)
                             }
+                            .frame(minHeight: 130, maxHeight: 260)
+
+                            HStack {
+                                Spacer()
+
+                                Button("Add event…") {
+                                    if let pid = selectedPersonID {
+                                        addIdentityVersion(for: pid)
+                                    }
+                                }
+                            }
+                            .padding(.top, 2)
+                            .padding(.horizontal, 4)
+                        }
+                    }
+
+                    GroupBox("Notes") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField(
+                                "Relationships, roles, etc.",
+                                text: optionalBindingBirth(\.notes)
+                            )
                         }
                         .padding(4)
                     }
@@ -445,12 +458,6 @@ struct DMPPPeopleManagerView: View {
 
                         Spacer()
 
-                        Button("Add event…") {
-                            if let pid = selectedPersonID {
-                                addIdentityVersion(for: pid)
-                            }
-                        }
-
                         Button("Save") {
                             if let pid = selectedPersonID {
                                 saveAllDrafts(for: pid)
@@ -459,7 +466,6 @@ struct DMPPPeopleManagerView: View {
                         .keyboardShortcut("s", modifiers: [.command])
                     }
                     .padding(.top, 4)
-                    
 
                     Spacer()
                 }
@@ -478,14 +484,14 @@ struct DMPPPeopleManagerView: View {
         VStack(alignment: .leading, spacing: 10) {
 
             // LINE 1: Short name + Birth date + Kind + Favorite
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Short name")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Short name", text: bindingBirth(\.shortName))
-                        .frame(width: 160)
+                        .frame(width: 120)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -493,7 +499,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("YYYY-MM-DD", text: optionalBindingBirth(\.birthDate))
-                        .frame(width: 160)
+                        .frame(width: 120)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -507,7 +513,6 @@ struct DMPPPeopleManagerView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                   // .frame(width: 120, alignment: .leading)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -522,10 +527,105 @@ struct DMPPPeopleManagerView: View {
                     .toggleStyle(.button)
                     .help("Mark this person as a favorite for quick access.")
                 }
-             //   .frame(width: 80, alignment: .leading)
+
+                Spacer()
             }
 
-            // LINE 1b: Preferred + Aliases (person-level)
+            // LINE 2: Name at birth
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name at birth")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    TextField("Given", text: bindingBirth(\.givenName))
+                        .frame(width: 120)
+
+                    TextField("Middle", text: optionalBindingBirth(\.middleName))
+                        .frame(width: 120)
+
+                    TextField("Surname", text: bindingBirth(\.surname))
+                        .frame(width: 120)
+                }
+            }
+
+            // LINE 3: Gender + Mother + Father
+            HStack(alignment: .top, spacing: 12) {
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gender")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("Gender", selection: genderBindingBirth()) {
+                        Text("—").tag("")
+                        Text("Female").tag("Female")
+                        Text("Male").tag("Male")
+                        Text("Other").tag("Other")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 120, alignment: .leading)
+                    .clipped()
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("Mother")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Image(systemName: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("Mother must already exist in People to be listed.")
+                    }
+
+                    Picker("Mother", selection: parentIDBindingBirth(\.motherID)) {
+                        Text("—").tag(String?.none)
+
+                        ForEach(parentPickerOptions) { person in
+                            Text(parentPickerLabel(for: person))
+                                .tag(Optional(person.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 120, alignment: .leading)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("Father")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Image(systemName: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("Father must already exist in People to be listed.")
+                    }
+
+                    Picker("Father", selection: parentIDBindingBirth(\.fatherID)) {
+                        Text("—").tag(String?.none)
+
+                        ForEach(parentPickerOptions) { person in
+                            Text(parentPickerLabel(for: person))
+                                .tag(Optional(person.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 120, alignment: .leading)
+                }
+
+                Spacer()
+            }
+            
+        
+
+            // LINE 4: Preferred + Aliases
             HStack(spacing: 12) {
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -533,7 +633,7 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("e.g., Betty", text: optionalBindingBirth(\.preferredName))
-                        .frame(width: 160)
+                        .frame(width: 120)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -541,142 +641,135 @@ struct DMPPPeopleManagerView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("Comma-separated (e.g., Elizabeth, Betty Ann)", text: aliasesBindingBirth())
-                        .frame(width: 320)
+                        .frame(width: 250)
                 }
 
                 Spacer()
-            }
-
-            // LINE 2: Given / Middle / Surname at birth
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Name at birth")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 6) {
-                    TextField("Given", text: bindingBirth(\.givenName))
-                        .frame(width: 160)
-                    TextField("Middle", text: optionalBindingBirth(\.middleName))
-                        .frame(width: 160)
-                    TextField("Surname", text: bindingBirth(\.surname))
-                        .frame(width: 160)
-                }
             }
         }
     }
 
     private var additionalIdentitiesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Life events")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
 
             if draftAdditional.isEmpty {
-                Text("None yet. Click “Add event…” to add marriage/name-change/etc.")
-                    .font(.caption2)
+                Text("No life events yet. Click “Add event…” to add marriage, name change, death, or another event.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+      
             } else {
-                ForEach($draftAdditional, id: \.id) { $identity in
-                    VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach($draftAdditional, id: \.id) { $identity in
+                        VStack(alignment: .leading, spacing: 10) {
 
-                        // Event + Event Date + Remove (same row)
-                        HStack(alignment: .top, spacing: 10) {
+                            // Event row
+                            HStack(alignment: .top, spacing: 12) {
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Event")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Event")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
 
-                                Picker("Event", selection: $identity.idReason) {
-                                    Text("—").tag("")
-                                    ForEach(eventSuggestions, id: \.self) { suggestion in
-                                        Text(suggestion).tag(suggestion)
-                                            .frame(width: 150)
+                                    Picker("Event", selection: $identity.idReason) {
+                                        Text("—").tag("")
+                                        ForEach(eventSuggestions, id: \.self) { suggestion in
+                                            Text(suggestion).tag(suggestion)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 120)
+                                    .onChange(of: identity.idReason) { _, newValue in
+                                        let r = newValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                                        guard r == "death" else { return }
+
+                                        guard let birth = draftBirth else { return }
+
+                                        let candidates = [birth] + draftAdditional.filter { $0.id != identity.id }
+                                        let best = candidates.max(by: { sortKeyLocal($0.idDate) < sortKeyLocal($1.idDate) }) ?? birth
+
+                                        identity.givenName = best.givenName
+                                        identity.middleName = best.middleName
+                                        identity.surname = best.surname
                                     }
                                 }
-                                .labelsHidden()
-                                .frame(width: 160)
-                                // cp-2025-12-18-34(DEATH-AUTOCOPY)
-                                .onChange(of: identity.idReason) { _, newValue in
-                                    let r = newValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                                    guard r == "death" else { return }
 
-                                    // Death does not create a new name.
-                                    // Copy the latest known name from birth or the most recent additional identity.
-                                    guard let birth = draftBirth else { return }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Event Date")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
 
-                                    let candidates = [birth] + draftAdditional.filter { $0.id != identity.id }
-                                    let best = candidates.max(by: { sortKeyLocal($0.idDate) < sortKeyLocal($1.idDate) }) ?? birth
-
-                                    identity.givenName = best.givenName
-                                    identity.middleName = best.middleName
-                                    identity.surname = best.surname
+                                    TextField("YYYY-MM-DD", text: $identity.idDate)
+                                        .frame(width: 120)
                                 }
-                            }
+                             
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Event Date")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-
-                                TextField("YYYY-MM-DD", text: $identity.idDate)
-                                    .frame(width: 155)
-                            }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-
-                                Button(role: .destructive) {
-                                    removeAdditionalIdentity(id: identity.id)
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    Button(role: .destructive) {
+                                        removeAdditionalIdentity(id: identity.id)
+                                    } label: {
+                                        Label("", systemImage: "trash")
+                                    }
+                                    .buttonStyle(.borderless)
                                 }
-                                .buttonStyle(.bordered)
+
+                                Spacer()
                             }
-                        }
 
-                        // cp-2025-12-18-34(DEATH-NO-RENAME)
-                        let reason = identity.idReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        let hasEvent = !reason.isEmpty
-                        let isDeath = (reason == "death")
+                            let reason = identity.idReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            let hasEvent = !reason.isEmpty
+                            let isDeath = (reason == "death")
 
-                        if hasEvent && !isDeath {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Name at event")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            if hasEvent && !isDeath {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Name at event")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
 
-                                HStack(spacing: 6) {
-                                    TextField("Given", text: $identity.givenName)
-                                        .frame(width: 155)
+                                    HStack(spacing: 8) {
+                                        TextField("Given", text: $identity.givenName)
+                                            .frame(width: 120)
 
-                                    TextField(
-                                        "Middle",
-                                        text: Binding(
-                                            get: { identity.middleName ?? "" },
-                                            set: { identity.middleName = $0.isEmpty ? nil : $0 }
+                                        TextField(
+                                            "Middle",
+                                            text: Binding(
+                                                get: { identity.middleName ?? "" },
+                                                set: { identity.middleName = $0.isEmpty ? nil : $0 }
+                                            )
                                         )
-                                    )
-                                    .frame(width: 155)
+                                        .frame(width: 120)
 
-                                    TextField("Surname", text: $identity.surname)
-                                        .frame(width: 155)
+                                        TextField("Surname", text: $identity.surname)
+                                            .frame(width: 120)
+
+                                        Spacer()
+                                    }
                                 }
+                            } else if isDeath {
+                                Text("Death does not create a new name.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                        } else if isDeath {
-                            Text("Death does not create a new name. (Name fields are not shown.)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.secondary.opacity(0.07))
+                        )
                     }
-
-                    .background(.quaternary.opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
-        .padding(4)
+        .padding(.leading, 12)
+        .padding(.trailing, 4)
+        .padding(.top, 2)
     }
 
     // MARK: - Actions
@@ -688,6 +781,52 @@ struct DMPPPeopleManagerView: View {
 
     private var selectedPersonLearnedFaceSampleCount: Int {
         learnedFaceSampleCount(for: selectedPersonID)
+    }
+    
+    private var parentPickerOptions: [DMPPIdentityStore.PersonSummary] {
+        let currentID = selectedPersonID
+        return identityStore.peopleSortedForUI.filter { $0.id != currentID }
+    }
+
+    private var validParentIDs: Set<String> {
+        Set(parentPickerOptions.map(\.id))
+    }
+
+    private func normalizedParentID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed != selectedPersonID else { return nil }
+        guard validParentIDs.contains(trimmed) else { return nil }
+        return trimmed
+    }
+
+    private func parentName(for personID: String?) -> String? {
+        guard let personID, !personID.isEmpty else { return nil }
+        return identityStore.peopleSortedForUI.first(where: { $0.id == personID })?.shortName
+    }
+
+    private func parentPickerLabel(for person: DMPPIdentityStore.PersonSummary) -> String {
+        let short = person.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayShort = short.isEmpty ? "Untitled" : short
+
+        let birth = (person.birthDate ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !birth.isEmpty {
+            return "\(displayShort) (b. \(birth))"
+        }
+
+        return displayShort
+    }
+    
+    private func parentIDBindingBirth(_ keyPath: WritableKeyPath<DmpmsIdentity, String?>) -> Binding<String?> {
+        Binding<String?>(
+            get: {
+                normalizedParentID(draftBirth?[keyPath: keyPath])
+            },
+            set: { newValue in
+                draftBirth?[keyPath: keyPath] = normalizedParentID(newValue)
+            }
+        )
     }
     
     private func createNewPerson() {
@@ -766,7 +905,13 @@ struct DMPPPeopleManagerView: View {
     }
 
     private func saveAllDrafts(for personID: String) {
-        guard let birth = draftBirth else { return }
+        guard var birth = draftBirth else { return }
+
+              // Defensive cleanup: parent pickers should never save self-references
+              // or IDs that are no longer valid options.
+              birth.fatherID = normalizedParentID(birth.fatherID)
+              birth.motherID = normalizedParentID(birth.motherID)
+              draftBirth = birth
 
         // IDs that should exist after save
         let keepIDs = Set([birth.id] + draftAdditional.map { $0.id })
@@ -850,6 +995,19 @@ struct DMPPPeopleManagerView: View {
         )
     }
 
+    private func genderBindingBirth() -> Binding<String> {
+        Binding<String>(
+            get: {
+                let raw = draftBirth?.gender?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return raw
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                draftBirth?.gender = trimmed.isEmpty ? nil : trimmed
+            }
+        )
+    }
+    
     // MARK: - Death as event helper (Option B)
 
     private func deathEventDate(from versions: [DmpmsIdentity]) -> String? {
