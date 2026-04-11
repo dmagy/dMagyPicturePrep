@@ -1917,7 +1917,12 @@ struct DMPPMetadataFormPane: View {
 
         return s
     }
-
+    private func syncDateDerivedState() {
+        let trimmed = vm.metadata.dateTaken.trimmingCharacters(in: .whitespacesAndNewlines)
+        vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
+        dateWarning = dateValidationMessage(for: trimmed)
+        vm.recomputeAgesForCurrentImage()
+    }
     
     private var dateSection: some View {
         GroupBox("Date Taken or Era") {
@@ -1932,11 +1937,8 @@ struct DMPPMetadataFormPane: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: .infinity)
-                .onChange(of: vm.metadata.dateTaken) { _, newValue in
-                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    vm.metadata.dateRange = DmpmsDateRange.from(dateTaken: trimmed)
-                    dateWarning = dateValidationMessage(for: trimmed)
-                    vm.recomputeAgesForCurrentImage()
+                .onChange(of: vm.metadata.dateTaken) { _, _ in
+                    syncDateDerivedState()
                 }
 
                 if let dateWarning, !dateWarning.isEmpty {
@@ -1952,9 +1954,11 @@ struct DMPPMetadataFormPane: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
-        .onAppear { vm.recomputeAgesForCurrentImage() }
+        .onAppear {
+            syncDateDerivedState()
+        }
         .onChange(of: vm.metadata.sourceFile) { _, _ in
-            vm.recomputeAgesForCurrentImage()
+            syncDateDerivedState()
         }
     }
 
