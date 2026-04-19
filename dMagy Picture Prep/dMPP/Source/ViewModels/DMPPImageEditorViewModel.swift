@@ -20,6 +20,9 @@ class DMPPImageEditorViewModel {
     // [DMPP-VM-IMAGE-URL] Where the actual image lives on disk.
     let imageURL: URL
 
+    // [DMPP-VM-NSIMAGE] Loaded once and reused during editing.
+    let nsImage: NSImage?
+    
     // The metadata we are editing
     var metadata: DmpmsMetadata
 
@@ -50,7 +53,10 @@ class DMPPImageEditorViewModel {
     private let minCropScale: Double = 0.1
     private let maxCropScale: Double = 1.0
 
-    
+    private static func loadDecodedImage(from url: URL) -> NSImage? {
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        return image.decodedForDisplay() ?? image
+    }
     
     // [DMPP-VM-ASPECT-LABEL] Human-readable aspect description for the selected crop.
     var selectedCropAspectDescription: String {
@@ -79,6 +85,7 @@ class DMPPImageEditorViewModel {
         self.imageURL = imageURL
         self.metadata = metadata
         self.identityStore = identityStore
+        self.nsImage = Self.loadDecodedImage(from: imageURL)
 
         // ---------------------------------------------------------
         // [DMPP-META-AUTODATE] Auto-fill Date/Era for camera images
@@ -142,23 +149,9 @@ class DMPPImageEditorViewModel {
             self.selectedCropID = first
         }
         
-  
 
     }
 
-
-
-
-
-
-
-
-
-
-    // [DMPP-VM-NSIMAGE] Convenience for SwiftUI Image(nsImage:)
-    var nsImage: NSImage? {
-        NSImage(contentsOf: imageURL)
-    }
 
     // [DMPP-VM-CROP-LOOKUP] Return the selected crop (mutable).
     var selectedCrop: VirtualCrop? {
@@ -918,6 +911,39 @@ class DMPPImageEditorViewModel {
     }
 
 }
+
+private extension NSImage {
+    func decodedForDisplay() -> NSImage? {
+        var rect = CGRect(origin: .zero, size: size)
+
+        guard let cg = cgImage(forProposedRect: &rect, context: nil, hints: nil) else {
+            return self
+        }
+
+        let width = cg.width
+        let height = cg.height
+        guard width > 0, height > 0 else { return self }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return self
+        }
+
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let decoded = ctx.makeImage() else { return self }
+        return NSImage(cgImage: decoded, size: size)
+    }
+}
+
 //
 //  cp-2025-11-22-VC5 — Core virtual crop helpers using dMPMS models
 //
@@ -1602,6 +1628,8 @@ extension DMPPImageEditorViewModel {
         metadata.people.removeAll { !stillValidShortNames.contains($0) }
     }
 
+
+    
     // MARK: - Local helper
 
     /// Minimal, compile-safe age helper (years only) based on YYYY or YYYY-MM-DD.
