@@ -8,10 +8,8 @@ _Last updated: 2026-04-19_
 
 ### Review / Navigation
 
-- rearrrange crop button to upper right
-- Add one or two **lightweight picture-list navigation improvements** only if they clearly reduce friction.
-- First candidate: **Go to First in List**.
-- Avoid turning navigation into a complex subsystem before shipping.
+
+
 
 ### People UI / Checklist
 - Continue People workflow polish in both Suggested and Manual modes. - spacing issue, floating (i)
@@ -110,3 +108,4 @@ _Last updated: 2026-04-19_
 - Added stable tie-break sorting for duplicate short names in the People checklist using birth date, then full name, then person ID.
 - Removed birth-date differentiators from Suggested / Auto-Detect chips.
 - Reset startup review mode/navigation state so relaunch always starts in All Pictures.
+- rearrranged crop button to upper right

@@ -2257,18 +2257,18 @@ struct DMPPMetadataFormPane: View {
     }
 
     private var peopleSection: some View {
-        GroupBox("People") {
-
+        GroupBox {
+            
             // ============================================================
-            // MARK: - [PEOPLE-MODE] Mode selector (Manual | Auto-Detect)
+            // MARK: - [PEOPLE-MODE] Mode selector (Suggested | Manual)
             // ============================================================
-            VStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .center, spacing: 4) {
 
                 Picker("", selection: $identifyFacesEnabled) {
                     Text("Suggested").tag(true)
                     Text("Manual").tag(false)
                 }
-            .pickerStyle(.segmented)
+                .pickerStyle(.segmented)
                 .onChange(of: identifyFacesEnabled) { _, isOn in
                     if suppressModeReset {
                         onToggleIdentifyFaces(isOn)
@@ -2299,73 +2299,18 @@ struct DMPPMetadataFormPane: View {
                     }
                 }
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if identifyFacesEnabled {
-                        Text("Select a face slot, then choose a person or accept a suggestion.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    Button {
-                        showPeopleModeHelp.toggle()
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("People mode help")
-                    .popover(isPresented: $showPeopleModeHelp, arrowEdge: .top) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("People modes")
-                                .font(.headline)
-
-                            Group {
-                                Text("Suggested")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("• Detects face boxes and suggests possible matches.")
-                                Text("• Select a face slot, then choose a person or accept a suggestion.")
-                                Text("• Right-click a face slot for quick actions like accept, one-off, clear, or ignore.")
-                                Text("• Use Manual if not all faces are found, or if you want to identify pets.")
-                            }
-                            .font(.caption)
-
-                            Divider()
-
-                            Group {
-                                Text("Manual")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("• Check people left-to-right, row by row.")
-                            }
-                            .font(.caption)
-
-                            Divider()
-
-                            Group {
-                                Text("Date-aware checklist")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("• Once you enter a photo date, the checklist shows only people relevant for that date.")
-                                Text("• Turn on “Show all people” to ignore that filter.")
-                            }
-                            .font(.caption)
-                        }
-                        .padding(12)
-                        .frame(width: 360)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+  
             }
             .padding(.horizontal, 4)
             .padding(.top, 6)
-            .padding(.bottom, 8)
+            .padding(.bottom, identifyFacesEnabled ? 2 : 0)
 
             if identifyFacesEnabled {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
 
                     faceNumberedBlanksRow
+                        .opacity(0.88)
+
                     ignoredFacesRow
 
                     HStack(spacing: 8) {
@@ -2420,18 +2365,19 @@ struct DMPPMetadataFormPane: View {
 
                         Spacer()
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 0)
 
-                    Divider().padding(.vertical, 4)
+                    Divider().padding(.vertical, 3)
 
                     checklistBlock
-                        .padding(.top, 2)
+                        .padding(.top, 0)
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
 
             } else {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 7) {
 
                     peopleSummaryBlock
 
@@ -2461,7 +2407,7 @@ struct DMPPMetadataFormPane: View {
 
                         Spacer()
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 0)
 
                     if vm.metadata.peopleV2.contains(where: { $0.ageAtPhoto == "*" }) {
                         Text("* indicates this person appears in a photo dated before their recorded birth year. Double-check the date or the person.")
@@ -2470,13 +2416,67 @@ struct DMPPMetadataFormPane: View {
                             .padding(.top, 2)
                     }
 
-                    Divider().padding(.vertical, 4)
+                    Divider().padding(.vertical, 3)
 
                     checklistBlock
-                        .padding(.top, 2)
+                        .padding(.top, 0)
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+            }
+        } label: {
+            HStack(alignment: .center, spacing: 8) {
+                Text("People")
+
+                Spacer()
+
+                Button {
+                    showPeopleModeHelp.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("People mode help")
+                .popover(isPresented: $showPeopleModeHelp, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("People modes")
+                            .font(.headline)
+
+                        Group {
+                            Text("Suggested")
+                                .font(.subheadline.weight(.semibold))
+                            Text("• Detects face boxes and suggests possible matches.")
+                            Text("• Select a face slot, then choose a person or accept a suggestion.")
+                            Text("• Right-click a face slot for quick actions like accept, one-off, clear, or ignore.")
+                            Text("• Use Manual if not all faces are found, or if you want to identify pets.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Manual")
+                                .font(.subheadline.weight(.semibold))
+                            Text("• Check people left-to-right, row by row.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Date-aware checklist")
+                                .font(.subheadline.weight(.semibold))
+                            Text("• Once you enter a photo date, the checklist shows only people relevant for that date.")
+                            Text("• Turn on “Show all people” to ignore that filter.")
+                        }
+                        .font(.caption)
+                    }
+                    .padding(12)
+                    .frame(width: 360)
+                }
             }
         }
         .onChange(of: detectedFaceCount) { _, newValue in
@@ -2939,10 +2939,6 @@ struct DMPPMetadataFormPane: View {
 
     private var faceNumberedBlanksRow: some View {
         let nums = activeFaceNumbersForUI
-        let columns: [GridItem] = [
-            GridItem(.flexible(), spacing: 8, alignment: .leading),
-            GridItem(.flexible(), spacing: 8, alignment: .leading)
-        ]
 
         return Group {
             if nums.isEmpty {
@@ -2954,7 +2950,7 @@ struct DMPPMetadataFormPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                    SuggestedFaceFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                         ForEach(nums, id: \.self) { n in
                             let isActive = (activeFaceNumber == n)
                             let assignedLabel = faceDisplayLabel(for: n)
@@ -3014,10 +3010,8 @@ struct DMPPMetadataFormPane: View {
                             )
                         }
                     }
-
-  
                 }
-                .padding(.top, 4)
+                .padding(.top, 2)
             }
         }
     }
@@ -3036,28 +3030,64 @@ struct DMPPMetadataFormPane: View {
         let onAddPerson: () -> Void
         let helpText: String
 
+        private var hasSuggestion: Bool {
+            suggestionPercentText != nil
+        }
+
+        private var chipFill: Color {
+            if isActive || isAssigned || hasSuggestion {
+                return Color.accentColor.opacity(0.14)
+            } else {
+                return Color.secondary.opacity(0.10)
+            }
+        }
+
+        private var chipStroke: Color {
+            if isActive {
+                return Color.accentColor.opacity(0.75)
+            } else if isAssigned || hasSuggestion {
+                return Color.accentColor.opacity(0.38)
+            } else {
+                return Color.secondary.opacity(0.20)
+            }
+        }
+
+        private var numberColor: Color {
+            if isActive || isAssigned || hasSuggestion {
+                return Color.accentColor
+            } else {
+                return Color.secondary
+            }
+        }
+
+        private var nameColor: Color {
+            if displayName == "—" {
+                return Color.secondary
+            } else {
+                return Color.primary
+            }
+        }
+
         var body: some View {
             Button(action: onSelect) {
-                HStack(spacing: 6) {
+                HStack(spacing: 7) {
                     Text("\(n)")
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
-                        .foregroundStyle(isActive ? .white : .primary)
+                        .foregroundStyle(numberColor)
 
                     Text(displayName)
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(isActive ? .white : (isAssigned ? .primary : .secondary))
+                        .foregroundStyle(nameColor)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
                     if let suggestionPercentText {
                         Text(suggestionPercentText)
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(isActive ? .white.opacity(0.9) : .secondary)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-
-                    Spacer(minLength: 0)
 
                     if let onAcceptSuggestion {
                         Button {
@@ -3065,26 +3095,26 @@ struct DMPPMetadataFormPane: View {
                         } label: {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
+                                .foregroundStyle(Color.accentColor)
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(isActive ? .white : .accentColor)
                         .help("Accept suggestion")
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                .padding(.horizontal, 11)
+                .padding(.vertical, 7)
+                .frame(minWidth: 82, maxWidth: 260, alignment: .leading)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(chipFill)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(chipStroke, lineWidth: isActive ? 1.5 : 1)
+                )
+                .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.90) : Color.secondary.opacity(0.10))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isActive ? Color.accentColor : Color.secondary.opacity(0.20), lineWidth: 1)
-            )
             .help(helpText)
             .contextMenu {
                 if let onAcceptSuggestion {
@@ -3096,6 +3126,74 @@ struct DMPPMetadataFormPane: View {
                 Button("One-off…", action: onOneOff)
                 Button("Add person…", action: onAddPerson)
                 Button("Ignore face \(n)", action: onIgnore)
+            }
+        }
+    }
+    
+    private struct SuggestedFaceFlowLayout: Layout {
+        var horizontalSpacing: CGFloat = 8
+        var verticalSpacing: CGFloat = 8
+
+        func sizeThatFits(
+            proposal: ProposedViewSize,
+            subviews: Subviews,
+            cache: inout ()
+        ) -> CGSize {
+            let proposedWidth = proposal.width ?? .infinity
+
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var rowHeight: CGFloat = 0
+            var widestRow: CGFloat = 0
+
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+                let itemWidth = min(size.width, proposedWidth)
+
+                if currentX > 0, currentX + itemWidth > proposedWidth {
+                    currentY += rowHeight + verticalSpacing
+                    currentX = 0
+                    rowHeight = 0
+                }
+
+                widestRow = max(widestRow, currentX + itemWidth)
+                currentX += itemWidth + horizontalSpacing
+                rowHeight = max(rowHeight, size.height)
+            }
+
+            return CGSize(
+                width: proposal.width ?? widestRow,
+                height: currentY + rowHeight
+            )
+        }
+
+        func placeSubviews(
+            in bounds: CGRect,
+            proposal: ProposedViewSize,
+            subviews: Subviews,
+            cache: inout ()
+        ) {
+            var currentX = bounds.minX
+            var currentY = bounds.minY
+            var rowHeight: CGFloat = 0
+
+            for subview in subviews {
+                let size = subview.sizeThatFits(.unspecified)
+                let itemWidth = min(size.width, bounds.width)
+
+                if currentX > bounds.minX, currentX + itemWidth > bounds.maxX {
+                    currentY += rowHeight + verticalSpacing
+                    currentX = bounds.minX
+                    rowHeight = 0
+                }
+
+                subview.place(
+                    at: CGPoint(x: currentX, y: currentY),
+                    proposal: ProposedViewSize(width: itemWidth, height: size.height)
+                )
+
+                currentX += itemWidth + horizontalSpacing
+                rowHeight = max(rowHeight, size.height)
             }
         }
     }
@@ -3246,7 +3344,7 @@ struct DMPPMetadataFormPane: View {
                 Text("Check people left-to-right, row by row")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 4)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
