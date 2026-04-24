@@ -1,25 +1,21 @@
 # dMPP Backlog
 
-_Last updated: 2026-04-04_
+_Last updated: 2026-04-19_
 
 ## Critical / Active Now
 
-### People / Identity Model
-- 
-- 
-- 
-- 
 
-### People UI / Checklist
-- Date from photo metadata does **not** automatically filter the people checklist.
-- Birth-date differentiators are still showing in Auto-Detect chips (example: `Anna b. 1991`) and should be removed.
-- Continue People workflow polish in both Suggested and Manual modes.
-- Help content is getting closer to needing a real Help article / help surface.
 
 ### Review / Navigation
-- `Review: Never Reviewed` seems to persist on restart even though the dropdown shows `All Pictures` by default.
-- Investigate picture-list navigation improvements, such as **Go to First in List**.
-- Consider other lightweight navigation improvements once the current flow is stable.
+
+- rearrrange crop button to upper right
+- Add one or two **lightweight picture-list navigation improvements** only if they clearly reduce friction.
+- First candidate: **Go to First in List**.
+- Avoid turning navigation into a complex subsystem before shipping.
+
+### People UI / Checklist
+- Continue People workflow polish in both Suggested and Manual modes. - spacing issue, floating (i)
+- Decide whether to add a lightweight Help article / help surface for People workflows.
 
 ---
 
@@ -39,6 +35,7 @@ _Last updated: 2026-04-04_
 
 ### Locations
 - Location manager UX parity with People manager.
+- if GPS matches add description
 - Bulk apply location to selection.
 
 ### Tags
@@ -65,7 +62,9 @@ _Last updated: 2026-04-04_
 - Better review tooling for learned face samples, possibly including source photo.
 - Explore stronger explainability for suggestions if needed.
 - Consider a better way to explicitly reject a wrong match, if the current reset workflow proves insufficient.
-Future refactor: separate Person core from Identity versions
+
+### Architecture / Future Refactor
+- Separate Person core from Identity versions.
 
 ---
 
@@ -85,25 +84,29 @@ Future refactor: separate Person core from Identity versions
 - Manual row behavior is currently acceptable even if an extra blank row is saved at the end.
 - Toggling to Suggested and back can be used to clear the current Manual row state and start over.
 
-Missing-reference handling when sidecar IDs are no longer in the registry.
+### Data Integrity
+- Missing-reference handling when sidecar IDs are no longer in the registry.
 
 ---
 
 ## Recently Completed
 
 ### Face Recognition / Auto-Detect Safety
-- Move face learning to **Save only**.
-- Add a permanent action to **reset learned face samples for a person**.
-- Audit current face-learning data for contamination from accidental assignments.
-- Verify stale face suggestions do not leak between pictures.
-- Require all visible face chips to be **assigned or ignored** before Save / Previous / Next.
-- Investigate whether bad accepted suggestions may have already polluted the face index.
+- Moved face learning to **Save only**.
+- Added a permanent action to **reset learned face samples for a person**.
+- Audited current face-learning data for contamination from accidental assignments.
+- Verified stale face suggestions do not leak between pictures.
+- Required all visible face chips to be **assigned or ignored** before Save / Previous / Next.
+- Investigated whether bad accepted suggestions may have already polluted the face index.
 
-### Face Recognition / Performance
-- Picture crop slider jerkiness with facial recognition was addressed.
+### Image / Crop Performance
+- Resolved crop drag and crop slider jerkiness by caching a decoded image in the editor view model.
 - Continued batch-testing responsiveness across a variety of real photo sets.
 
 ### People UI / Checklist
-- Auto-Detect / Suggested mode now includes **Ignore Other Faces** for remaining unassigned visible faces.
-
-Added fatherID, motherID, and gender as shared person-level fields.
+- Added **Ignore Other Faces** for remaining unassigned visible faces in Suggested mode.
+- Added `fatherID`, `motherID`, and `gender` as shared person-level fields.
+- Fixed date-derived-state sync so photo metadata properly filters the people checklist.
+- Added stable tie-break sorting for duplicate short names in the People checklist using birth date, then full name, then person ID.
+- Removed birth-date differentiators from Suggested / Auto-Detect chips.
+- Reset startup review mode/navigation state so relaunch always starts in All Pictures.

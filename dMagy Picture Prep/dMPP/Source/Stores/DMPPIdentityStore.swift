@@ -506,24 +506,7 @@ final class DMPPIdentityStore: ObservableObject {
     /// - If duplicated: "Anna (b. 1942)"
     /// - If duplicated but birth year missing: "Anna (b. ? #A1B2)"
     func checklistLabel(for person: PersonSummary) -> String {
-        let counts = Dictionary(grouping: peopleSortedForUI, by: { $0.shortName.lowercased() })
-            .mapValues { $0.count }
-
-        let key = person.shortName.lowercased()
-        let isDuplicate = (counts[key] ?? 0) > 1
-        guard isDuplicate else { return person.shortName }
-
-        let year = person.birthDate.flatMap { bd -> String? in
-            let t = bd.trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.count >= 4 ? String(t.prefix(4)) : nil
-        }
-
-        if let year, !year.isEmpty {
-            return "\(person.shortName) (b. \(year))"
-        } else {
-            let suffix = String(person.id.prefix(4)).uppercased()
-            return "\(person.shortName) (b. ? #\(suffix))"
-        }
+        person.shortName
     }
 
     /// One row per person, used for checkbox UI (dedupes “two Amys” problem).
