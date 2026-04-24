@@ -2,18 +2,6 @@
 
 _Last updated: 2026-04-19_
 
-## Critical / Active Now
-
-
-
-### Review / Navigation
-
-
-
-
-### People UI / Checklist
-- Continue People workflow polish in both Suggested and Manual modes. - spacing issue, floating (i)
-- Decide whether to add a lightweight Help article / help surface for People workflows.
 
 ---
 

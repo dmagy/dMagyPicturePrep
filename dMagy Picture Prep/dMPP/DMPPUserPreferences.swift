@@ -102,18 +102,110 @@ struct DMPPUserPreferences: Codable, Equatable {
         guard let loc else { return nil }
 
         func norm(_ s: String?) -> String {
-            (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            (s ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
         }
 
-        let key = [
-            norm(loc.streetAddress),
-            norm(loc.city),
-            norm(loc.state),
-            norm(loc.country)
-        ].joined(separator: "|")
+        func compactStreet(_ s: String?) -> String {
+            norm(s)
+                .replacingOccurrences(of: ".", with: "")
+                .replacingOccurrences(of: " court", with: " ct")
+                .replacingOccurrences(of: " drive", with: " dr")
+                .replacingOccurrences(of: " road", with: " rd")
+                .replacingOccurrences(of: " street", with: " st")
+                .replacingOccurrences(of: " avenue", with: " ave")
+                .replacingOccurrences(of: " boulevard", with: " blvd")
+                .replacingOccurrences(of: " lane", with: " ln")
+                .replacingOccurrences(of: " place", with: " pl")
+                .replacingOccurrences(of: " circle", with: " cir")
+                .replacingOccurrences(of: " terrace", with: " ter")
+                .replacingOccurrences(of: " way", with: " wy")
+        }
+
+        func splitHouseNumberAndStreet(_ street: String?) -> (number: Int?, streetName: String) {
+            let compacted = compactStreet(street)
+            guard !compacted.isEmpty else { return (nil, "") }
+
+            let parts = compacted.split(separator: " ", maxSplits: 1).map(String.init)
+            guard let first = parts.first else { return (nil, compacted) }
+
+            let number = Int(first)
+            let streetName = parts.count > 1 ? parts[1] : compacted
+
+            return (number, streetName)
+        }
+
+        func exactKey(
+            streetAddress: String?,
+            city: String?,
+            state: String?,
+            country: String?
+        ) -> String {
+            [
+                norm(streetAddress),
+                norm(city),
+                norm(state),
+                norm(country)
+            ].joined(separator: "|")
+        }
+
+        let key = exactKey(
+            streetAddress: loc.streetAddress,
+            city: loc.city,
+            state: loc.state,
+            country: loc.country
+        )
 
         guard !key.replacingOccurrences(of: "|", with: "").isEmpty else { return nil }
-        return userLocations.first(where: { $0.matchKey == key })
+
+        // 1. Exact match first.
+        if let exactMatch = userLocations.first(where: { $0.matchKey == key }) {
+            return exactMatch
+        }
+
+        // 2. Near-address match:
+        //    Same city/state/country/street name, with a nearby house number.
+        let locStreet = splitHouseNumberAndStreet(loc.streetAddress)
+
+        guard
+            let locHouseNumber = locStreet.number,
+            !locStreet.streetName.isEmpty
+        else {
+            return nil
+        }
+
+        let locCity = norm(loc.city)
+        let locState = norm(loc.state)
+        let locCountry = norm(loc.country)
+
+        let nearbyMatches: [(location: DMPPUserLocation, houseNumberDelta: Int)] = userLocations.compactMap { saved in
+            let savedStreet = splitHouseNumberAndStreet(saved.streetAddress)
+
+            guard
+                let savedHouseNumber = savedStreet.number,
+                !savedStreet.streetName.isEmpty
+            else {
+                return nil
+            }
+
+            guard savedStreet.streetName == locStreet.streetName else { return nil }
+            guard norm(saved.city) == locCity else { return nil }
+            guard norm(saved.state) == locState else { return nil }
+            guard norm(saved.country) == locCountry else { return nil }
+
+            let delta = abs(savedHouseNumber - locHouseNumber)
+
+            // This handles nearby reverse-geocode drift like 1026 vs 1030.
+            guard delta > 0, delta <= 10 else { return nil }
+
+            return (saved, delta)
+        }
+
+        return nearbyMatches
+            .sorted { $0.houseNumberDelta < $1.houseNumberDelta }
+            .first?
+            .location
     }
 
     // MARK: - Persistence

@@ -4921,8 +4921,51 @@ extension DMPPImageEditorView {
 
         if metadata.location == nil, let gps = metadata.gps {
             Task {
-                if let loc = await DMPPPhotoLocationReader.reverseGeocode(gps) {
+                if var loc = await DMPPPhotoLocationReader.reverseGeocode(gps) {
+
+                    // [LOC-GPS-SAVED-MATCH]
+                    // Initial GPS fill should behave like “Reset to GPS”:
+                    // reverse-geocode the address, then enrich it from saved Locations
+                    // when the address matches one from Settings > Locations.
+                    let prefs = DMPPUserPreferences.load()
+                    let match = prefs.matchingUserLocation(for: loc)
+
+                    if let match {
+                        let shortName = match.shortName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let description = (match.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let streetAddress = (match.streetAddress ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let city = (match.city ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let state = (match.state ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let country = (match.country ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        if !shortName.isEmpty {
+                            loc.shortName = shortName
+                        }
+
+                        if !description.isEmpty {
+                            loc.description = description
+                        }
+
+                        if !streetAddress.isEmpty {
+                            loc.streetAddress = streetAddress
+                        }
+
+                        if !city.isEmpty {
+                            loc.city = city
+                        }
+
+                        if !state.isEmpty {
+                            loc.state = state
+                        }
+
+                        if !country.isEmpty {
+                            loc.country = country
+                        }
+                    }
+
                     await MainActor.run {
+                        guard self.vm?.imageURL == url else { return }
+
                         if self.vm?.metadata.location == nil {
                             self.vm?.metadata.location = loc
                         }
