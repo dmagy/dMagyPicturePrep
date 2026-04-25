@@ -59,6 +59,7 @@
 				"Docs/dMPP/dMPP-Context-v12.md",
 				"Docs/dMPP/dMPP-Context-v13.md",
 				"Docs/dMPP/dMPP-Context-v14.md",
+				"Docs/dMPP/dMPP-Context-v16.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};

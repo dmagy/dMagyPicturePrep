@@ -1916,6 +1916,7 @@ struct DMPPMetadataFormPane: View {
     
     
     @State private var showPeopleModeHelp: Bool = false
+    @State private var showLocationHelp: Bool = false
     // MARK: - [FACES] Inputs
     var detectedFaceCount: Int
     // MARK: - [FACES-RECOG] Inputs
@@ -2497,29 +2498,40 @@ struct DMPPMetadataFormPane: View {
     
     // cp-2025-12-26-LOC-UI2(SECTION)
     private var locationSection: some View {
-        GroupBox("Location") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 10) {
 
-                // GPS readout (read-only)
-                if let gps = vm.metadata.gps {
-                    Text("GPS: \(gps.latitude), \(gps.longitude)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("GPS: (none)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                // GPS readout + Maps action
+                HStack(alignment: .center, spacing: 10) {
+                    if let gps = vm.metadata.gps {
+                        Text("GPS: \(gps.latitude), \(gps.longitude)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("GPS: (none)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        openInMaps()
+                    } label: {
+                        Image(systemName: "map")
+                            .font(.callout)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(mapsURL() == nil)
+                    .help(mapsURL() == nil ? "No GPS or address available to open in Maps." : "Open this location in Apple Maps.")
                 }
 
-                // Saved-location picker (label on the left, no description shown under picker)
+                // Saved-location picker + location actions
                 HStack(alignment: .center, spacing: 10) {
 
-                    Text("Saved locations:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     Picker("", selection: $selectedUserLocationID) {
-                        Text("—").tag(UUID?.none)
+                        Text("Select saved location").tag(UUID?.none)
 
                         ForEach(locationStore.locations) { loc in
                             Text(loc.shortName.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
@@ -2527,7 +2539,7 @@ struct DMPPMetadataFormPane: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
                     .onChange(of: selectedUserLocationID) { _, newValue in
                         guard newValue != nil else { return }
                         applySelectedUserLocationOverwriteAll()
@@ -2537,14 +2549,21 @@ struct DMPPMetadataFormPane: View {
                         resetLocationToGPS()
                     }
                     .buttonStyle(.bordered)
+                    .disabled(vm.metadata.gps == nil)
+                    .help(vm.metadata.gps == nil ? "No GPS metadata is available for this photo." : "Replace the location fields using this photo’s GPS metadata.")
+
+                    Button("Clear") {
+                        vm.metadata.location = nil
+                        selectedUserLocationID = nil
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Clear the location fields for this photo. GPS metadata is not removed.")
                 }
 
                 Divider().padding(.vertical, 2)
 
-                // Per-photo editable fields
-
-                // Row 1: Short Name (read-only) + Open in Maps
-                HStack(alignment: .top, spacing: 10) {
+                // Short Name + Description
+                HStack(alignment: .top, spacing: 12) {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Short Name")
@@ -2554,36 +2573,21 @@ struct DMPPMetadataFormPane: View {
                         Text((vm.metadata.location?.shortName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                              ? "—"
                              : (vm.metadata.location?.shortName ?? "—"))
-                        .frame(width: 160, alignment: .leading)
-                        .foregroundStyle(.primary)
+                            .frame(width: 150, alignment: .leading)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                     }
 
-                    Spacer()
-
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("")
+                        Text("Description")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        Button("Open in Maps") {
-                            openInMaps()
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(mapsURL() == nil)
-                        .help(mapsURL() == nil ? "No GPS or address available to open in Maps." : "Open this location in Apple Maps.")
+                        TextField("", text: bindingLocation(\.description))
                     }
                 }
 
-                // Row 2: Description
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Description")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    TextField("", text: bindingLocation(\.description))
-                }
-
-                // Row 3: Street Address
+                // Street Address
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Street Address")
                         .font(.caption)
@@ -2592,7 +2596,7 @@ struct DMPPMetadataFormPane: View {
                     TextField("", text: bindingLocation(\.streetAddress))
                 }
 
-                // Row 4: City / State / Country + Clear
+                // City / State / Country
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("City")
@@ -2609,7 +2613,7 @@ struct DMPPMetadataFormPane: View {
                             .foregroundStyle(.secondary)
 
                         TextField("", text: bindingLocation(\.state))
-                            .frame(width: 40)
+                            .frame(width: 50)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -2618,17 +2622,72 @@ struct DMPPMetadataFormPane: View {
                             .foregroundStyle(.secondary)
 
                         TextField("", text: bindingLocation(\.country))
-                            .frame(width: 100)
+                            .frame(width: 130)
                     }
 
-                    Spacer()
-
-                    Button("Clear") { vm.metadata.location = nil }
-                        .buttonStyle(.bordered)
+                    Spacer(minLength: 0)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
+        } label: {
+            HStack(alignment: .center, spacing: 8) {
+                Text("Location")
+
+                Spacer()
+
+                Button {
+                    showLocationHelp.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Location help")
+                .popover(isPresented: $showLocationHelp, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Location")
+                            .font(.headline)
+
+                        Group {
+                            Text("GPS")
+                                .font(.subheadline.weight(.semibold))
+                            Text("If a picture contains GPS metadata, dMPP uses it to fill the address fields automatically when no location has been set.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Saved locations")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Choose a saved location to replace all location fields for this picture. Manage saved locations in Settings > Locations.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Reset to GPS")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Rebuilds the location from the picture’s GPS metadata. If it matches a saved location, the saved location is used.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Clear")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Removes the location fields for this picture. The picture's GPS metadata is never modified or deleted.")
+                        }
+                        .font(.caption)
+                    }
+                    .padding(12)
+                    .frame(width: 360)
+                }
+            }
         }
     }
 
