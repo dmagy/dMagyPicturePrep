@@ -85,6 +85,7 @@ struct DMPPImageEditorView: View {
     // [ARCH] Access the chosen Photo Library Folder (archive root)
     @EnvironmentObject private var archiveStore: DMPPArchiveStore
     @EnvironmentObject private var identityStore: DMPPIdentityStore
+    @EnvironmentObject private var tagStore: DMPPTagStore
     @EnvironmentObject private var faceIndexStore: DMPPFaceIndexStore
 
     private let kLastFolderBookmark = "dmpp.lastFolderBookmark"
@@ -872,6 +873,7 @@ struct DMPPCropEditorPane: View {
     var onExportCropToRequested: () -> Void
 
     @State private var showNewCropPopover: Bool = false
+    @State private var showCropHelp: Bool = false
 
     // MARK: - [HEADSHOT-PICKER] People list for Headshot menu (from current photo)
 
@@ -1417,7 +1419,7 @@ struct DMPPCropEditorPane: View {
         return HStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
 
                 if crops.isEmpty {
                     Text("No crops defined. Use “New Crop” to add one.")
@@ -1444,11 +1446,62 @@ struct DMPPCropEditorPane: View {
                     cropHeaderMenuLabel("New Crop")
                 }
                 .buttonStyle(.plain)
-               // .padding(.top, 2)
                 .popover(isPresented: $showNewCropPopover, arrowEdge: .top) {
                     newCropPopoverContent
                 }
-                
+
+                Button {
+                    showCropHelp.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(height: 24)
+                }
+                .buttonStyle(.plain)
+                .help("Crop help")
+                .popover(isPresented: $showCropHelp, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Crops")
+                            .font(.headline)
+
+                        Group {
+                            Text("Virtual crops")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Crops define how this picture should be framed. They do not change the original image.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("New Crop")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Adds another crop for this picture using a standard or custom crop shape.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Export Crop")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Creates a separate image file from the selected crop.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Delete Crop")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Removes the selected crop from this picture. The original image is not deleted.")
+                        }
+                        .font(.caption)
+                    }
+                    .padding(12)
+                    .frame(width: 360)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -1917,6 +1970,9 @@ struct DMPPMetadataFormPane: View {
     
     @State private var showPeopleModeHelp: Bool = false
     @State private var showLocationHelp: Bool = false
+    @State private var showDateHelp: Bool = false
+    
+    
     // MARK: - [FACES] Inputs
     var detectedFaceCount: Int
     // MARK: - [FACES-RECOG] Inputs
@@ -2034,96 +2090,110 @@ struct DMPPMetadataFormPane: View {
                         .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.top, 8)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Description")
-                        .font(.caption)
+
+                    HStack(alignment: .center, spacing: 8) {
+                        Text("Description")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer(minLength: 0)
+
+                        // (i) Help
+                        Button {
+                            showDictationHelp.toggle()
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .help("Description tools")
+                        .popover(isPresented: $showDictationHelp, arrowEdge: .top) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Description tools")
+                                    .font(.headline)
 
-                    HStack(alignment: .top, spacing: 8) {
-
-                        TextEditor(text: $vm.metadata.description)
-                            .font(.body)
-                            .lineSpacing(2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .frame(minHeight: 80, maxHeight: 160)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color(nsColor: .textBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(.secondary.opacity(0.35))
-                            )
-                            .scrollContentBackground(.hidden)
-                            // [DICT-FOCUS] Track focus so we can stop dictation on Ctrl-Tab (or any focus change)
-                            .focused($descriptionFocused)
-                            .onChange(of: descriptionFocused) { _, isFocused in
-                                if !isFocused {
-                                    dictationController.stop()
+                                Group {
+                                    Text("Dictation")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Use the microphone button or Cmd–Shift–D to start or stop dictation.")
                                 }
-                            }
+                                .font(.caption)
 
-                        // Right-side control stack: (i) above mic
-                        VStack(spacing: 6) {
+                                Divider()
 
-                            // (i) Help
-                            Button {
-                                showDictationHelp.toggle()
-                            } label: {
-                                Image(systemName: "info.circle")
-                                    .font(.title3)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Dictation shortcuts")
-                            .popover(isPresented: $showDictationHelp, arrowEdge: .leading) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("Dictation shortcuts")
-                                        .font(.headline)
-
-                                    Text("Cmd–Shift–D: Start/stop dictation")
-                                    Text("Ctrl–Tab: Leave Description and stop dictation")
-
-                                    Text("Tip: Dictation also stops if you click out of Description.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                Group {
+                                    Text("Clean up")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("The wand cleans up spacing and basic punctuation without trying to rewrite the description.")
                                 }
-                                .padding(12)
-                                .frame(width: 320)
-                            }
+                                .font(.caption)
 
-                            // Clean up (safe, deterministic)
-                            Button {
-                                vm.metadata.description = cleanUpDescription(vm.metadata.description)
-                            } label: {
-                                Image(systemName: "wand.and.stars")
-                                    .font(.title3)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Clean up description (spacing + basic punctuation)")
+                                Divider()
 
-                            // Mic
-                            Button {
-                                dictationController.toggleDictation(into: $vm.metadata.description)
-                            } label: {
-                                Image(systemName: dictationController.isDictating ? "mic.circle.fill" : "mic.fill")
-                                    .font(.title)
-                                    .frame(width: 32, height: 32)
+                                Group {
+                                    Text("Focus")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Dictation stops if you leave Description, including with Ctrl–Tab or by clicking elsewhere.")
+                                }
+                                .font(.caption)
                             }
-                            .buttonStyle(.borderless)
-                            .keyboardShortcut("d", modifiers: [.command, .shift])
-                            .help(dictationController.isDictating ? "Stop dictation" : "Dictate description")
+                            .padding(12)
+                            .frame(width: 360)
                         }
 
+                        // Clean up (safe, deterministic)
+                        Button {
+                            vm.metadata.description = cleanUpDescription(vm.metadata.description)
+                        } label: {
+                            Image(systemName: "wand.and.stars")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clean up description")
+
+                        // Mic
+                        Button {
+                            dictationController.toggleDictation(into: $vm.metadata.description)
+                        } label: {
+                            Image(systemName: dictationController.isDictating ? "mic.circle.fill" : "mic.fill")
+                                .font(.callout)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(dictationController.isDictating ? Color.accentColor : Color.secondary)
+                        .keyboardShortcut("d", modifiers: [.command, .shift])
+                        .help(dictationController.isDictating ? "Stop dictation" : "Dictate description")
                     }
+
+                    TextEditor(text: $vm.metadata.description)
+                        .font(.body)
+                        .lineSpacing(2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 80, maxHeight: 160)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.secondary.opacity(0.35))
+                        )
+                        .scrollContentBackground(.hidden)
+                        // [DICT-FOCUS] Track focus so we can stop dictation on Ctrl-Tab (or any focus change)
+                        .focused($descriptionFocused)
+                        .onChange(of: descriptionFocused) { _, isFocused in
+                            if !isFocused {
+                                dictationController.stop()
+                            }
+                        }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-
+                .padding(.bottom, 8)
             }
         }
     }
@@ -2175,7 +2245,7 @@ struct DMPPMetadataFormPane: View {
     }
     
     private var dateSection: some View {
-        GroupBox("Date Taken or Era") {
+        GroupBox {
             VStack(alignment: .leading, spacing: 6) {
 
                 TextField(
@@ -2196,13 +2266,70 @@ struct DMPPMetadataFormPane: View {
                         .font(.caption2)
                         .foregroundStyle(.red)
                 } else {
-                    Text("Partial dates, decades, and ranges are allowed.\nExamples: 1976-07-04, 1976-07, 1976, 1970s, 1975-1977, 1975-12 to 1976-08")
+                    Text("Examples: 1976-07-04, 1976, 1970s, 1975-1977")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
+        } label: {
+            HStack(alignment: .center, spacing: 8) {
+                Text("Date Taken or Era")
+
+                Spacer()
+
+                Button {
+                    showDateHelp.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Date help")
+                .popover(isPresented: $showDateHelp, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Date Taken or Era")
+                            .font(.headline)
+
+                        Group {
+                            Text("Supported formats")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Use an exact date, partial date, decade, or range.")
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Examples")
+                                .font(.subheadline.weight(.semibold))
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Exact date: 1976-07-04")
+                                Text("Month: 1976-07")
+                                Text("Year: 1976")
+                                Text("Decade: 1970s")
+                                Text("Year range: 1975-1977")
+                                Text("Month range: 1975-12 to 1976-08")
+                            }
+                        }
+                        .font(.caption)
+
+                        Divider()
+
+                        Group {
+                            Text("Validation")
+                                .font(.subheadline.weight(.semibold))
+                            Text("dMPP only shows a warning when an entry looks like one of the supported numeric formats but is not valid.")
+                        }
+                        .font(.caption)
+                    }
+                    .padding(12)
+                    .frame(width: 380)
+                }
+            }
         }
         .onAppear {
             syncDateDerivedState()
@@ -2211,7 +2338,6 @@ struct DMPPMetadataFormPane: View {
             syncDateDerivedState()
         }
     }
-
     private var tagsSection: some View {
         GroupBox("Tags") {
             VStack(alignment: .leading, spacing: 10) {
@@ -2228,8 +2354,7 @@ struct DMPPMetadataFormPane: View {
 
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
                         ForEach(availableTags, id: \.self) { tag in
-                            Toggle(tag, isOn: bindingForTag(tag))
-                                .toggleStyle(.checkbox)
+                            tagToggle(for: tag)
                         }
                     }
                 }
@@ -2248,6 +2373,7 @@ struct DMPPMetadataFormPane: View {
                             Text(t)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
+                                .help("This tag is saved in the picture’s sidecar, but it is not currently defined in Settings > Tags.")
                         }
                     }
                 }
@@ -2474,6 +2600,16 @@ struct DMPPMetadataFormPane: View {
                             Text("• Turn on “Show all people” to ignore that filter.")
                         }
                         .font(.caption)
+                        
+                        Divider()
+
+                        Group {
+                            Text("Manage people")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Add, edit, or update saved people in Settings > People. Changes there are available throughout this picture library.")
+                        }
+                        .font(.caption)
+                        
                     }
                     .padding(12)
                     .frame(width: 360)
@@ -3838,6 +3974,37 @@ private extension DMPPMetadataFormPane {
                 }
             }
         )
+    }
+    
+    @ViewBuilder
+    private func tagToggle(for tag: String) -> some View {
+        let helpText = tagDescriptionHelpText(for: tag)
+
+        if let helpText {
+            Toggle(tag, isOn: bindingForTag(tag))
+                .toggleStyle(.checkbox)
+                .help(helpText)
+        } else {
+            Toggle(tag, isOn: bindingForTag(tag))
+                .toggleStyle(.checkbox)
+        }
+    }
+
+    private func tagDescriptionHelpText(for tag: String) -> String? {
+        let tagName = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tagName.isEmpty else { return nil }
+
+        guard let record = tagStore.tagRecords.first(where: {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(tagName) == .orderedSame
+        }) else {
+            return nil
+        }
+
+        let description = record.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty else { return nil }
+
+        return description
     }
 
     private func unknownTagsInCurrentFile() -> [String] {
