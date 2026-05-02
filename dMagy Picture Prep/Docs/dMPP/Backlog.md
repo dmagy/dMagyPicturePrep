@@ -7,17 +7,12 @@ _Last updated: 2026-04-24_
 
 ## High Priority
 
--Apple's Photos app
 
-### Portable Archive / UX
-- Handle Picture Library Folder changes safely:
-  - Keep portable archive folder naming fixed as `dMagy Portable Archive Data`.
-  - Detect whether a newly selected root already contains portable archive data.
-  - If missing, avoid silently creating an empty “new archive” experience that makes People / Locations / Tags / Crops appear lost.
-  - Consider options to create new portable data, copy from the previous root, or cancel root switching.
+  
+  
 - First-run instruction window / help.
-- add Settings buttons on the app title row with links to each setting tab with matching icons
-- Review `_Read_Me_` and add examples.
+
+
 - Validation / health indicators:
   - Missing dates.
   - Missing crop.
@@ -147,3 +142,13 @@ _Last updated: 2026-04-24_
 - Removed “Are you sure?” confirmation when deleting a crop.
 - Added ability to create one-off headshots.
 - Next picture moves focus / scrolls to Title.
+
+### Portable Archive / UX
+- Completed safe Picture Library Folder change flow:
+  - Kept portable archive folder naming fixed as `dMagy Portable Archive Data`.
+  - Added “Change or Refresh Picture Library Folder…” language.
+  - Removed the easy shortcut from the File menu.
+  - Added a “What are you trying to do?” choice before changing an existing root.
+  - Added Refresh Access path for stale macOS / cloud-folder permissions.
+  - Added warning before creating new portable archive data when the selected folder does not already contain it.
+  - Deferred full copy/merge migration until there is a real use case.

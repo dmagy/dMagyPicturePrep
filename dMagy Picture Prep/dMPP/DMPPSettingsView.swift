@@ -301,7 +301,7 @@ struct DMPPSettingsView: View {
                             }
 
                             HStack(spacing: 12) {
-                                Button("Change Picture Library Folder…") {
+                                Button("Change or Refresh Picture Library Folder…") {
                                     archiveStore.promptForArchiveRoot()
                                 }
 

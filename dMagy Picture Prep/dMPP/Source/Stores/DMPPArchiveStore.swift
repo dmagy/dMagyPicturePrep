@@ -4,32 +4,38 @@ import Combine
 
 // ================================================================
 // DMPPArchiveStore.swift
-// cp-2026-01-18-03B — robust bookmark persistence + resolve + first-run signal
+// Purpose: Owns Picture Library Folder selection, bookmark persistence,
+// security-scoped access, and portable archive bootstrap.
 //
-// [ARCH] Responsibility:
-// - Let user pick an Archive Root folder.
-// - Persist access via bookmark (security-scoped when possible).
-// - Resolve bookmark to a URL on launch.
-// - Provide a single "archiveRootURL" the rest of the app uses.
-// - Provide "hasStoredBookmark" so UI knows whether to auto-prompt.
+// Dependencies & Effects:
+// - Uses NSOpenPanel / NSAlert for user-facing folder selection.
+// - Uses DMPPPortableArchiveBootstrap to create/read portable archive data.
+// - Writes bookmark data to UserDefaults.
+// - Publishes archiveRootURL and archiveRootStatusMessage for UI.
 //
-// Notes:
-// - Some dev/non-sandbox setups can behave differently with security scope.
-//   We try security-scoped first and fall back gracefully.
+// Data Flow:
+// - User chooses Picture Library Folder.
+// - Store saves bookmark.
+// - Store resolves bookmark and starts security-scoped access when possible.
+// - Store bootstraps “dMagy Portable Archive Data” under the selected root.
+//
+// Section Index:
+// - [ARCH] Public state and entry points
+// - [ARCH-SAFE] Safe folder change flow
+// - [BOOT] Portable archive bootstrap
+// - [ARCH-HELPERS] Bookmark and security-scope helpers
 // ================================================================
 
 final class DMPPArchiveStore: ObservableObject {
 
-    // [ARCH] Published root URL once resolved.
-    @Published private(set) var archiveRootURL: URL? = nil
+    // ============================================================
+    // MARK: - [ARCH] Published State
+    // ============================================================
 
-    // [ARCH] Status / user-facing messaging hooks.
+    @Published private(set) var archiveRootURL: URL? = nil
     @Published var archiveRootStatusMessage: String? = nil
 
-    // [ARCH] UserDefaults key for the bookmark.
     private let bookmarkKey = "DMPP.ArchiveRootBookmark.v1"
-
-    // [ARCH] Track security-scoped access so we can stop it.
     private var isAccessingSecurityScopedResource = false
 
     init() {
@@ -40,10 +46,6 @@ final class DMPPArchiveStore: ObservableObject {
         stopAccessIfNeeded()
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Public: whether any bookmark data exists in UserDefaults
-    // (this is what we use to decide whether to auto-prompt on first run)
-    // ------------------------------------------------------------
     var hasStoredBookmark: Bool {
         UserDefaults.standard.data(forKey: bookmarkKey) != nil
     }
@@ -52,35 +54,25 @@ final class DMPPArchiveStore: ObservableObject {
         archiveRootURL != nil
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Public: prompt user to select archive root folder.
-    // ------------------------------------------------------------
+    // ============================================================
+    // MARK: - [ARCH-SAFE] Public Folder Selection Entry Point
+    // ============================================================
+
     func promptForArchiveRoot() {
-        let panel = NSOpenPanel()
-        panel.title = "Set Picture Library Folder"
-        panel.message = "Select the top-level folder that contains your pictures. dMPP will store portable registry data inside it."
-        panel.prompt = "Select"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        // [ARCH] Start picker at current root if we have one; otherwise default to Pictures.
-        panel.directoryURL = self.archiveRootURL
-            ?? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+        guard archiveRootURL != nil else {
+            presentArchiveRootPicker(mode: .firstSelection)
+            return
+        }
 
-        panel.begin { [weak self] response in
-            guard let self else { return }
-            guard response == .OK, let url = panel.url else { return }
+        switch askWhatUserIsTryingToDo() {
+        case .refreshAccess:
+            presentArchiveRootPicker(mode: .refreshAccess)
 
-            do {
-                try self.setArchiveRoot(url)
-                DispatchQueue.main.async {
-                    self.archiveRootStatusMessage = nil
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.archiveRootStatusMessage = "Could not set Picture Library Folder: \(error.localizedDescription)"
-                }
-            }
+        case .chooseDifferentFolder:
+            presentArchiveRootPicker(mode: .chooseDifferentFolder)
+
+        case .cancel:
+            return
         }
     }
 
@@ -95,9 +87,10 @@ final class DMPPArchiveStore: ObservableObject {
         }
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Resolve bookmark on startup (or after set).
-    // ------------------------------------------------------------
+    // ============================================================
+    // MARK: - [ARCH] Resolve Bookmark
+    // ============================================================
+
     func resolveBookmarkIfPresent() {
         stopAccessIfNeeded()
 
@@ -106,41 +99,215 @@ final class DMPPArchiveStore: ObservableObject {
             return
         }
 
-        // Try security-scoped resolve first, then fall back if needed.
         if let url = resolveBookmark(data, options: [.withSecurityScope]) {
             startSecurityScopeIfNeeded(url)
             DispatchQueue.main.async {
                 self.archiveRootURL = url
                 self.archiveRootStatusMessage = nil
-                self.bootstrapPortableArchiveIfPossible(url)   // [BOOT]
+                self.bootstrapPortableArchiveIfPossible(url)
             }
             return
         }
 
         if let url = resolveBookmark(data, options: []) {
-            // No security scope; still usable in non-sandbox contexts.
             DispatchQueue.main.async {
                 self.archiveRootURL = url
                 self.archiveRootStatusMessage = nil
-                self.bootstrapPortableArchiveIfPossible(url)   // [BOOT]
+                self.bootstrapPortableArchiveIfPossible(url)
             }
             return
         }
 
-        // If we get here, the bookmark is not usable.
         DispatchQueue.main.async {
             self.archiveRootURL = nil
             self.archiveRootStatusMessage = "Picture Library Folder permission needs to be reselected."
         }
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Core: set root, create bookmark, and resolve it.
-    // ------------------------------------------------------------
+    // ============================================================
+    // MARK: - [ARCH] Portable Archive Convenience
+    // ============================================================
+
+    var portableArchiveDataURL: URL? {
+        guard let root = archiveRootURL else { return nil }
+        return root.appendingPathComponent(DMPPPortableArchiveBootstrap.portableFolderName, isDirectory: true)
+    }
+
+    func openPortableArchiveDataFolderInFinder() {
+        guard let url = portableArchiveDataURL else {
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = "Picture Library Folder is not set."
+            }
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
+    // ============================================================
+    // MARK: - [ARCH-SAFE] Folder Selection Flow
+    // ============================================================
+
+    private enum ArchiveRootPickerMode {
+        case firstSelection
+        case refreshAccess
+        case chooseDifferentFolder
+    }
+
+    private enum ArchiveRootChangeChoice {
+        case refreshAccess
+        case chooseDifferentFolder
+        case cancel
+    }
+
+    private enum MissingPortableDataChoice {
+        case createNew
+        case chooseDifferentFolder
+        case cancel
+    }
+
+    private func presentArchiveRootPicker(mode: ArchiveRootPickerMode) {
+        let previousRoot = archiveRootURL
+
+        let panel = NSOpenPanel()
+        panel.title = panelTitle(for: mode)
+        panel.message = panelMessage(for: mode)
+        panel.prompt = "Select"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+
+        panel.directoryURL = archiveRootURL
+            ?? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+
+        panel.begin { [weak self] response in
+            guard let self else { return }
+            guard response == .OK, let selectedURL = panel.url else { return }
+
+            let selectedIsDifferentFromPrevious = !self.urlsReferToSamePath(selectedURL, previousRoot)
+            let selectedHasPortableData = self.portableArchiveDataExists(at: selectedURL)
+
+            if previousRoot != nil,
+               selectedIsDifferentFromPrevious,
+               !selectedHasPortableData {
+
+                switch self.askAboutMissingPortableArchiveData(selectedURL: selectedURL) {
+                case .createNew:
+                    self.commitArchiveRootSelection(selectedURL)
+
+                case .chooseDifferentFolder:
+                    self.presentArchiveRootPicker(mode: .chooseDifferentFolder)
+
+                case .cancel:
+                    return
+                }
+
+            } else {
+                self.commitArchiveRootSelection(selectedURL)
+            }
+        }
+    }
+
+    private func commitArchiveRootSelection(_ url: URL) {
+        do {
+            try setArchiveRoot(url)
+
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = nil
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = "Could not set Picture Library Folder: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func askWhatUserIsTryingToDo() -> ArchiveRootChangeChoice {
+        let alert = NSAlert()
+        alert.messageText = "Changing Picture Library Folder"
+        alert.informativeText = """
+        dMPP uses this folder to find your pictures and store shared People, Locations, Tags, and Crop settings in “\(DMPPPortableArchiveBootstrap.portableFolderName).”
+
+        What are you trying to do?
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Refresh Access")
+        alert.addButton(withTitle: "Choose Different Folder")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .refreshAccess
+
+        case .alertSecondButtonReturn:
+            return .chooseDifferentFolder
+
+        default:
+            return .cancel
+        }
+    }
+
+    private func askAboutMissingPortableArchiveData(selectedURL: URL) -> MissingPortableDataChoice {
+        let alert = NSAlert()
+        alert.messageText = "No portable archive data found"
+        alert.informativeText = """
+        This folder does not contain “\(DMPPPortableArchiveBootstrap.portableFolderName).”
+
+        If this is a new picture library, dMPP can create it.
+
+        If you expected your saved People, Locations, Tags, and Crop settings to appear, you may have selected the wrong folder.
+
+        Selected folder:
+        \(selectedURL.path)
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Create New Portable Archive Data")
+        alert.addButton(withTitle: "Choose Different Folder")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .createNew
+
+        case .alertSecondButtonReturn:
+            return .chooseDifferentFolder
+
+        default:
+            return .cancel
+        }
+    }
+
+    private func panelTitle(for mode: ArchiveRootPickerMode) -> String {
+        switch mode {
+        case .firstSelection:
+            return "Set Picture Library Folder"
+        case .refreshAccess:
+            return "Refresh Picture Library Folder Access"
+        case .chooseDifferentFolder:
+            return "Choose Picture Library Folder"
+        }
+    }
+
+    private func panelMessage(for mode: ArchiveRootPickerMode) -> String {
+        switch mode {
+        case .firstSelection:
+            return "Select the top-level folder that contains your pictures. dMPP will store portable registry data inside it."
+
+        case .refreshAccess:
+            return "Select the same Picture Library Folder again to refresh macOS access."
+
+        case .chooseDifferentFolder:
+            return "Select the top-level folder that contains your pictures. If this folder does not already contain portable archive data, dMPP will ask before creating it."
+        }
+    }
+
+    // ============================================================
+    // MARK: - [ARCH] Core Set Root
+    // ============================================================
+
     private func setArchiveRoot(_ url: URL) throws {
         stopAccessIfNeeded()
 
-        // Prefer a security-scoped bookmark; fall back if environment doesn't support it cleanly.
         let bookmark: Data
         do {
             bookmark = try url.bookmarkData(
@@ -160,42 +327,19 @@ final class DMPPArchiveStore: ObservableObject {
         UserDefaults.standard.synchronize()
 
         resolveBookmarkIfPresent()
-        bootstrapPortableArchiveIfPossible(url) // [BOOT] immediate creation after user selects root
+        bootstrapPortableArchiveIfPossible(url)
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Convenience: portable archive folder URL (if root is set)
-    // ------------------------------------------------------------
-    var portableArchiveDataURL: URL? {
-        guard let root = archiveRootURL else { return nil }
-        return root.appendingPathComponent(DMPPPortableArchiveBootstrap.portableFolderName, isDirectory: true)
-    }
+    // ============================================================
+    // MARK: - [BOOT] Portable Archive Bootstrap
+    // ============================================================
 
-    // ------------------------------------------------------------
-    // [ARCH] Convenience: open portable archive folder in Finder
-    // ------------------------------------------------------------
-    func openPortableArchiveDataFolderInFinder() {
-        guard let url = portableArchiveDataURL else {
-            DispatchQueue.main.async {
-                self.archiveRootStatusMessage = "Picture Library Folder is not set."
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-
-    
-    // ------------------------------------------------------------
-    // [BOOT] Ensure portable archive folder structure exists under root
-    // ------------------------------------------------------------
     private func bootstrapPortableArchiveIfPossible(_ rootURL: URL) {
-        // File IO off the main thread.
         DispatchQueue.global(qos: .utility).async {
             do {
                 _ = try DMPPPortableArchiveBootstrap.ensurePortableArchive(at: rootURL)
             } catch {
                 DispatchQueue.main.async {
-                    // Keep message short; details go to console.
                     self.archiveRootStatusMessage = "Creating portable archive data failed."
                     print("Portable archive bootstrap failed: \(error)")
                 }
@@ -203,11 +347,13 @@ final class DMPPArchiveStore: ObservableObject {
         }
     }
 
-    // ------------------------------------------------------------
-    // [ARCH] Helpers
-    // ------------------------------------------------------------
+    // ============================================================
+    // MARK: - [ARCH-HELPERS] Bookmark / Security Scope / Paths
+    // ============================================================
+
     private func resolveBookmark(_ data: Data, options: URL.BookmarkResolutionOptions) -> URL? {
         var isStale = false
+
         do {
             let url = try URL(
                 resolvingBookmarkData: data,
@@ -216,7 +362,6 @@ final class DMPPArchiveStore: ObservableObject {
                 bookmarkDataIsStale: &isStale
             )
 
-            // If stale, refresh and store again using same options we resolved with.
             if isStale {
                 let refreshed = try url.bookmarkData(
                     options: options.contains(.withSecurityScope) ? [.withSecurityScope] : [],
@@ -234,7 +379,6 @@ final class DMPPArchiveStore: ObservableObject {
     }
 
     private func startSecurityScopeIfNeeded(_ url: URL) {
-        // Only attempt to start security scope if we resolved using security scope.
         if url.startAccessingSecurityScopedResource() {
             isAccessingSecurityScopedResource = true
         }
@@ -244,6 +388,28 @@ final class DMPPArchiveStore: ObservableObject {
         if isAccessingSecurityScopedResource, let url = archiveRootURL {
             url.stopAccessingSecurityScopedResource()
         }
+
         isAccessingSecurityScopedResource = false
+    }
+
+    private func portableArchiveDataExists(at root: URL) -> Bool {
+        let portableURL = root.appendingPathComponent(
+            DMPPPortableArchiveBootstrap.portableFolderName,
+            isDirectory: true
+        )
+
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(
+            atPath: portableURL.path,
+            isDirectory: &isDirectory
+        )
+
+        return exists && isDirectory.boolValue
+    }
+
+    private func urlsReferToSamePath(_ lhs: URL?, _ rhs: URL?) -> Bool {
+        guard let lhs, let rhs else { return false }
+
+        return lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
     }
 }

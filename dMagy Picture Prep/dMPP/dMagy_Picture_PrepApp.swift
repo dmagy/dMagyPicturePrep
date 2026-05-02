@@ -59,10 +59,9 @@ struct dMagy_Picture_PrepApp: App {
 
                 Divider()
 
-                Button("Select Picture Library Folder…") {
+                Button("Change or Refresh Picture Library Folder…") {
                     archiveStore.promptForArchiveRoot()
                 }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 Button("Open Portable Archive Data Folder") {
                     archiveStore.openPortableArchiveDataFolderInFinder()
