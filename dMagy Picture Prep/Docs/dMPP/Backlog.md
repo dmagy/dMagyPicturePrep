@@ -7,6 +7,8 @@ _Last updated: 2026-04-24_
 
 ## High Priority
 
+-Apple's Photos app
+
 ### Portable Archive / UX
 - Handle Picture Library Folder changes safely:
   - Keep portable archive folder naming fixed as `dMagy Portable Archive Data`.
@@ -14,6 +16,7 @@ _Last updated: 2026-04-24_
   - If missing, avoid silently creating an empty “new archive” experience that makes People / Locations / Tags / Crops appear lost.
   - Consider options to create new portable data, copy from the previous root, or cancel root switching.
 - First-run instruction window / help.
+- add Settings buttons on the app title row with links to each setting tab with matching icons
 - Review `_Read_Me_` and add examples.
 - Validation / health indicators:
   - Missing dates.
@@ -21,6 +24,13 @@ _Last updated: 2026-04-24_
   - Missing people / unreviewed people.
   - Unresolved or missing references.
 - Clearer save / dirty status indicators.
+
+
+### Archive Access / Permissions
+- Add a main-window way to reselect or refresh the Picture Library Folder without needing Settings.
+- Detect when portable archive files cannot be read/written and show a clear “Refresh Picture Library Folder Access” message.
+- Improve Settings lock behavior so lock-writing failures do not block Settings when the real issue is folder access.
+- Consider a diagnostics panel showing whether People, Locations, Tags, Crops, FaceIndex, and _locks are readable/writable.
 
 ### Performance
 - Faster folder scanning.
@@ -42,12 +52,6 @@ _Last updated: 2026-04-24_
 ### Editor / File Opening
 - Ability to open an image directly from Finder / browser into dMPP.
 
-### Metadata Source Indicators
-- Add indicators showing whether date and location came from:
-  - image metadata
-  - sidecar data
-  - user edits
-  - saved registry matching
 
 ---
 

@@ -31,7 +31,18 @@ enum DMPPRegistryLockService {
 
     static func upsertLock(root: URL, resourceKey: String, session: SessionInfo) throws {
         let folder = resourceFolderURL(root: root, resourceKey: resourceKey)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            // The registry lock folder can become unwritable in cloud-synced folders
+            // or after manual cleanup. Lock files are temporary, so it is safe to
+            // rebuild the registry lock folder and try again.
+            let registries = registryLocksFolderURL(root: root)
+
+            try? FileManager.default.removeItem(at: registries)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
 
         let url = lockFileURL(folder: folder, sessionID: session.sessionID)
 
@@ -49,7 +60,15 @@ enum DMPPRegistryLockService {
         )
 
         let data = try JSONEncoder().encode(record)
-        try data.write(to: url, options: [.atomic])
+
+        // Atomic write is preferred, but registry lock files are temporary.
+        // Some cloud-backed folders can reject the temporary replacement file
+        // used by .atomic, even when a normal write is allowed.
+        do {
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            try data.write(to: url, options: [])
+        }
     }
 
     static func readLocks(root: URL, resourceKey: String) -> [LockRecord] {
@@ -128,9 +147,13 @@ enum DMPPRegistryLockService {
     // MARK: Private Helpers
     // -----------------------------
 
+    private static func registryLocksFolderURL(root: URL) -> URL {
+        DMPPSoftLockService.lockFolderURL(forRoot: root)
+            .appendingPathComponent("_registries", isDirectory: true)
+    }
+    
     private static func resourceFolderURL(root: URL, resourceKey: String) -> URL {
-        let locks = DMPPSoftLockService.lockFolderURL(forRoot: root)
-        let registries = locks.appendingPathComponent("_registries", isDirectory: true)
+        let registries = registryLocksFolderURL(root: root)
         let safeKey = sanitizeResourceKey(resourceKey)
         return registries.appendingPathComponent(safeKey, isDirectory: true)
     }

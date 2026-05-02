@@ -2430,7 +2430,7 @@ struct DMPPMetadataFormPane: View {
             }
             .padding(.horizontal, 4)
             .padding(.top, 6)
-            .padding(.bottom, identifyFacesEnabled ? 2 : 0)
+         //   .padding(.bottom, identifyFacesEnabled ? 2 : 0)
 
             if identifyFacesEnabled {
                 VStack(alignment: .leading, spacing: 5) {
@@ -3137,13 +3137,17 @@ struct DMPPMetadataFormPane: View {
 
         return Group {
             if nums.isEmpty {
-                EmptyView()
+                Text("No faces found.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                   // .padding(.vertical, 6)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
 
-                    Text("Faces:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                //    Text("Faces:")
+                    //    .font(.caption)
+                    //    .foregroundStyle(.secondary)
 
                     SuggestedFaceFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
                         ForEach(nums, id: \.self) { n in
@@ -3206,7 +3210,7 @@ struct DMPPMetadataFormPane: View {
                         }
                     }
                 }
-                .padding(.top, 2)
+                .padding(.vertical, 2)
             }
         }
     }

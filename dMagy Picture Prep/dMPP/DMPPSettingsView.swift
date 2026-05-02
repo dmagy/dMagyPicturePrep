@@ -46,7 +46,7 @@ struct DMPPSettingsView: View {
     @EnvironmentObject var locationStore: DMPPLocationStore
     @EnvironmentObject var identityStore: DMPPIdentityStore
 
-
+    @Environment(\.openWindow) private var openWindow
 
     // [CROPS-PORTABLE] Editable working copy for the Settings UI (portable registry)
     @State private var cropDraftPresets: [DMPPCropStore.Preset] = []
@@ -68,6 +68,8 @@ struct DMPPSettingsView: View {
     @State private var showPeopleDefaultsHelp: Bool = false
 
     @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual"
+    @AppStorage("dmpp.settings.selectedTab") private var selectedSettingsTab: String = "general"
+
 
     private enum FocusField: Hashable {
         case locationShortName(UUID)
@@ -78,7 +80,7 @@ struct DMPPSettingsView: View {
     // ============================================================
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedSettingsTab) {
 
             // =====================================================
             // CROPS TAB
@@ -120,6 +122,7 @@ struct DMPPSettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             .tabItem { Label("Crops", systemImage: "crop") }
+            .tag("crops")
 
             // =====================================================
             // LOCATIONS TAB
@@ -147,6 +150,7 @@ struct DMPPSettingsView: View {
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
+            .tag("locations")
 
             // =====================================================
             // PEOPLE TAB
@@ -228,6 +232,8 @@ struct DMPPSettingsView: View {
             }
             .padding()
             .tabItem { Label("People", systemImage: "person.2") }
+            .tag("people")
+            
             // =====================================================
             // TAGS TAB
             // =====================================================
@@ -257,6 +263,7 @@ struct DMPPSettingsView: View {
             //.frame(maxWidth: 540, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .tabItem { Label("Tags", systemImage: "tag") }
+            .tag("tags")
 
             // =====================================================
             // GENERAL TAB (Fingerprint + Copy chips)
@@ -361,12 +368,36 @@ struct DMPPSettingsView: View {
                     .padding(.top, 6)
                 }
 
+                // =====================================================
+                // Getting Started
+                // =====================================================
+                GroupBox("Getting Started") {
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Open the setup checklist for this picture library.")
+                                .font(.callout)
 
+                            Text("Useful when setting up dMPP on a new archive or helping another user get started.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button("Open Checklist") {
+                            openWindow(id: "Getting-Started")
+                        }
+                    }
+                    .padding(10)
+                }
+      
+                
                 Spacer(minLength: 0)
             }
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .tabItem { Label("General", systemImage: "gearshape") }
+            .tag("general")
 
         }
         .frame(
