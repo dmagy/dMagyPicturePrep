@@ -2193,6 +2193,40 @@ struct DMPPMetadataFormPane: View {
                         }
                 }
                 .padding(.horizontal, 8)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("Private Notes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Image(systemName: "lock")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("Private notes are for your review process and are not intended for display.")
+                    }
+
+                    TextEditor(text: $vm.metadata.privateNotes)
+                        .font(.body)
+                        .lineSpacing(2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 56, maxHeight: 120)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.secondary.opacity(0.28))
+                        )
+                        .scrollContentBackground(.hidden)
+
+                    Text("For curator notes, uncertainty, repair clues, and follow-up tasks. Not intended for display.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
                 .padding(.bottom, 8)
             }
         }
@@ -2368,7 +2402,7 @@ struct DMPPMetadataFormPane: View {
                         HStack(alignment: .center, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.orange)
 
                             Text("Tags needing attention")
                                 .font(.caption.bold())
@@ -2393,7 +2427,7 @@ struct DMPPMetadataFormPane: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.red.opacity(0.50), lineWidth: 2)
+                            .strokeBorder(Color.orange.opacity(0.50), lineWidth: 2)
                     )
                 }
             }
@@ -2450,6 +2484,8 @@ struct DMPPMetadataFormPane: View {
             .padding(.horizontal, 4)
             .padding(.top, 6)
          //   .padding(.bottom, identifyFacesEnabled ? 2 : 0)
+            
+            peopleReferencesWarningBlock
 
             if identifyFacesEnabled {
                 VStack(alignment: .leading, spacing: 5) {
@@ -2986,6 +3022,142 @@ struct DMPPMetadataFormPane: View {
         return identityStore.checklistLabel(for: person)
     }
 
+    private func missingPeopleReferencesInCurrentFile() -> [String] {
+        let allPeople = identityStore.peopleSortedForUI
+
+        let knownPersonIDs = Set(
+            allPeople.map { String(describing: $0.id) }
+        )
+
+        let knownIdentityIDs = Set(
+            allPeople.flatMap { person in
+                person.versions.map { String(describing: $0.id) }
+            }
+        )
+
+        var missing: [String] = []
+
+        // peopleV2 is the downstream “who is in the photo” list.
+        // peopleV2.personID should match PersonSummary.id.
+        // peopleV2.identityID should match one of that person’s identity version IDs.
+        for person in vm.metadata.peopleV2 {
+            guard !person.isUnknown else { continue }
+
+            let personID = (person.personID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let identityID = (person.identityID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let hasValidPersonID = !personID.isEmpty && knownPersonIDs.contains(personID)
+            let hasValidIdentityID = !identityID.isEmpty && knownIdentityIDs.contains(identityID)
+
+            if !hasValidPersonID && !hasValidIdentityID {
+                let label = missingPersonSnapshotLabel(for: person)
+
+                if !personID.isEmpty || !identityID.isEmpty {
+                    let refs = [
+                        personID.isEmpty ? nil : "personID: \(personID)",
+                        identityID.isEmpty ? nil : "identityID: \(identityID)"
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: ", ")
+
+                    missing.append("Missing person: \(label) (\(refs))")
+                }
+            }
+        }
+
+        // Suggested mode face assignments currently use the person key used by the checklist.
+        // That should match PersonSummary.id. As a defensive fallback, also accept identity IDs.
+        for key in vm.metadata.faceAssignments.keys.sorted() {
+            guard let raw = vm.metadata.faceAssignments[key] else { continue }
+
+            let parsed = parseAssignment(raw)
+            guard parsed.kind == "id" else { continue }
+
+            let assignedID = parsed.payload.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !assignedID.isEmpty else { continue }
+
+            if !knownPersonIDs.contains(assignedID) && !knownIdentityIDs.contains(assignedID) {
+                let label = missingFaceAssignmentSnapshotLabel(forAssignedID: assignedID)
+                missing.append("Missing face assignment: Face \(key) — \(label) (personID: \(assignedID))")
+            }
+        }
+
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for item in missing {
+            let normalized = item.lowercased()
+            guard !seen.contains(normalized) else { continue }
+
+            seen.insert(normalized)
+            result.append(item)
+        }
+
+        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func missingPersonSnapshotLabel(for person: DmpmsPersonInPhoto) -> String {
+        let display = person.displayNameSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !display.isEmpty { return display }
+
+        let short = person.shortNameSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !short.isEmpty { return short }
+
+        return "Unknown saved person"
+    }
+    
+    private func missingFaceAssignmentSnapshotLabel(forAssignedID assignedID: String) -> String {
+        let cleanID = assignedID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanID.isEmpty else { return "Unknown saved person" }
+
+        if let match = vm.metadata.peopleV2.first(where: {
+            ($0.personID ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == cleanID ||
+            ($0.identityID ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == cleanID
+        }) {
+            return missingPersonSnapshotLabel(for: match)
+        }
+
+        return "Unknown saved person"
+    }
+    
+    private var missingPeopleReferencesChangeKey: String {
+        missingPeopleReferencesInCurrentFile()
+            .joined(separator: "|")
+    }
+
+    private func preserveMissingPeopleReferencesInPrivateNotes(_ missing: [String]) {
+        let cleaned = missing
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !cleaned.isEmpty else { return }
+
+        let heading = "People references needing attention:"
+        var notes = vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var linesToAppend: [String] = []
+
+        for item in cleaned {
+            let line = "- \(item)"
+
+            if !notes.localizedCaseInsensitiveContains(line) {
+                linesToAppend.append(line)
+            }
+        }
+
+        guard !linesToAppend.isEmpty else { return }
+
+        if notes.isEmpty {
+            notes = heading
+        } else if !notes.localizedCaseInsensitiveContains(heading) {
+            notes += "\n\n\(heading)"
+        }
+
+        notes += "\n" + linesToAppend.joined(separator: "\n")
+
+        vm.metadata.privateNotes = notes
+    }
+    
     private func suggestedPersonLabel(_ personID: String) -> String {
         if let p = identityStore.peopleSortedForUI.first(where: { $0.id == personID }) {
             return identityStore.checklistLabel(for: p)
@@ -3594,11 +3766,67 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
-    // END PASTE-OVER 1
+    @ViewBuilder
+    private var peopleReferencesWarningBlock: some View {
+        let missing = missingPeopleReferencesInCurrentFile()
 
-    // BEGIN PASTE-OVER 1: advancedPeopleBlock
+        if !missing.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
 
-    // BEGIN PASTE-OVER 2: advancedPeopleBlock
+                    Text("People needing attention")
+                        .font(.caption.bold())
+                        .foregroundStyle(.primary)
+                }
+
+                Text("This picture refers to saved people who are no longer available in Settings > People. The details have been preserved in Private Notes so they are not lost when this picture is saved.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(missing, id: \.self) { item in
+                        Text(item)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .help(item)
+                    }
+                }
+
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button("Open People Settings") {
+                        openSettings()
+                    }
+                    .controlSize(.small)
+                    .help("Open Settings > People to review saved people.")
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.22), lineWidth: 1)
+            )
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .onAppear {
+                preserveMissingPeopleReferencesInPrivateNotes(missing)
+            }
+            .onChange(of: missingPeopleReferencesChangeKey) { _, _ in
+                preserveMissingPeopleReferencesInPrivateNotes(missingPeopleReferencesInCurrentFile())
+            }
+        }
+    }
 
     @ViewBuilder
     private var advancedPeopleBlock: some View {

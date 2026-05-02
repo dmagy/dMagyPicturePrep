@@ -8,7 +8,7 @@ _Last updated: 2026-04-24_
 ## High Priority
 
 
-  
+  - minimize private notes
   
 - First-run instruction window / help.
 

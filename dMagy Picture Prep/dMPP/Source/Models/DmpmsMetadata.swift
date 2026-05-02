@@ -162,6 +162,11 @@ struct DmpmsMetadata: Codable, Hashable {
     var title: String = ""
     var description: String = ""
 
+    // Private curator-facing notes.
+    // Intended for review decisions, uncertainty, repair clues, and follow-up tasks.
+    // Not intended for display in dMPS.
+    var privateNotes: String = ""
+
     /// Human-entered date/era string.
     /// Examples: "1973-08-10", "1973-08", "1973", "1970s", "1930-1931"
     var dateTaken: String = ""
@@ -289,6 +294,7 @@ struct DmpmsMetadata: Codable, Hashable {
         case sourceFile
         case title
         case description
+        case privateNotes
         case dateTaken
         case dateRange
         case gps
@@ -312,6 +318,7 @@ struct DmpmsMetadata: Codable, Hashable {
         sourceFile: String,
         title: String = "",
         description: String = "",
+        privateNotes: String = "",
         dateTaken: String = "",
         dateRange: DmpmsDateRange? = nil,
         gps: DmpmsGPS? = nil,
@@ -331,6 +338,7 @@ struct DmpmsMetadata: Codable, Hashable {
         self.sourceFile = sourceFile
         self.title = title
         self.description = description
+        self.privateNotes = privateNotes
         self.dateTaken = dateTaken
         self.dateRange = dateRange
         self.gps = gps
@@ -359,6 +367,7 @@ struct DmpmsMetadata: Codable, Hashable {
         sourceFile  = try container.decode(String.self, forKey: .sourceFile)
         title       = try container.decode(String.self, forKey: .title)
         description = try container.decode(String.self, forKey: .description)
+        privateNotes = (try? container.decode(String.self, forKey: .privateNotes)) ?? ""
         dateTaken   = try container.decode(String.self, forKey: .dateTaken)
 
         dateRange   = try? container.decode(DmpmsDateRange.self, forKey: .dateRange)
@@ -392,6 +401,7 @@ struct DmpmsMetadata: Codable, Hashable {
         try c.encode(sourceFile, forKey: .sourceFile)
         try c.encode(title, forKey: .title)
         try c.encode(description, forKey: .description)
+        try c.encode(privateNotes, forKey: .privateNotes)
         try c.encode(dateTaken, forKey: .dateTaken)
         try c.encodeIfPresent(dateRange, forKey: .dateRange)
 
