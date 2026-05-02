@@ -2364,18 +2364,37 @@ struct DMPPMetadataFormPane: View {
                 if !unknownTags.isEmpty {
                     Divider().padding(.vertical, 2)
 
-                    Text("Tags in this file not in Settings")
-                        .font(.caption.bold())
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .center, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(unknownTags, id: \.self) { t in
-                            Text(t)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .help("This tag is saved in the picture’s sidecar, but it is not currently defined in Settings > Tags.")
+                            Text("Tags needing attention")
+                                .font(.caption.bold())
+                                .foregroundStyle(.primary)
+                        }
+
+                        Text("These tags are saved with this picture, but are not currently defined in Settings > Tags.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(unknownTags, id: \.self) { tag in
+                                unknownTagRepairRow(tag)
+                            }
                         }
                     }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.50), lineWidth: 2)
+                    )
                 }
             }
             .padding(.horizontal, 8)
@@ -4011,6 +4030,80 @@ private extension DMPPMetadataFormPane {
         return description
     }
 
+    @ViewBuilder
+    private func unknownTagRepairRow(_ tag: String) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(tag)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help("This tag is saved in the picture’s sidecar, but it is not currently defined in Settings > Tags.")
+
+            Spacer(minLength: 8)
+
+            Button("Add") {
+                addUnknownTagToSettings(tag)
+            }
+            .controlSize(.small)
+            .help("Add this tag back to Settings > Tags.")
+
+            Button("Remove") {
+                removeUnknownTagFromPicture(tag)
+            }
+            .controlSize(.small)
+            .help("Remove this tag from this picture.")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.secondary.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private func addUnknownTagToSettings(_ tag: String) {
+        let clean = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+
+        let alreadyExists = tagStore.tagRecords.contains { record in
+            record.name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(clean) == .orderedSame
+        }
+
+        if alreadyExists {
+            availableTags = tagStore.tags
+            return
+        }
+
+        var records = tagStore.tagRecords
+        records.append(
+            DMPPTagStore.TagRecord(
+                id: UUID().uuidString,
+                name: clean,
+                description: "",
+                isReserved: false
+            )
+        )
+
+        tagStore.persistRecordsFromUI(records)
+        availableTags = tagStore.tags
+    }
+
+    private func removeUnknownTagFromPicture(_ tag: String) {
+        let target = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return }
+
+        vm.metadata.tags.removeAll {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
+        }
+    }
+    
     private func unknownTagsInCurrentFile() -> [String] {
         let knownLower = Set(availableTags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
 

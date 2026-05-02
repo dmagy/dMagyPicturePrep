@@ -14,15 +14,11 @@ _Last updated: 2026-04-24_
 
 
 - Validation / health indicators:
-  - Missing dates.
-  - Missing crop.
-  - Missing people / unreviewed people.
   - Unresolved or missing references.
 - Clearer save / dirty status indicators.
 
 
 ### Archive Access / Permissions
-- Add a main-window way to reselect or refresh the Picture Library Folder without needing Settings.
 - Detect when portable archive files cannot be read/written and show a clear “Refresh Picture Library Folder Access” message.
 - Improve Settings lock behavior so lock-writing failures do not block Settings when the real issue is folder access.
 - Consider a diagnostics panel showing whether People, Locations, Tags, Crops, FaceIndex, and _locks are readable/writable.
