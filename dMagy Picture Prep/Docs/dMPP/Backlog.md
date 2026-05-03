@@ -11,10 +11,9 @@ _Last updated: 2026-04-24_
   - minimize private notes
   
 - First-run instruction window / help.
+- share GPT to support dMPP
 
 
-- Validation / health indicators:
-  - Unresolved or missing references.
 - Clearer save / dirty status indicators.
 
 
@@ -148,3 +147,10 @@ _Last updated: 2026-04-24_
   - Added Refresh Access path for stale macOS / cloud-folder permissions.
   - Added warning before creating new portable archive data when the selected folder does not already contain it.
   - Deferred full copy/merge migration until there is a real use case.
+
+
+### Data Integrity
+- Added unknown tag repair actions for tags saved in a sidecar but missing from Settings.
+- Added Private Notes for curator-only notes and repair clues.
+- Added People missing-reference warning.
+- Automatically preserves orphaned People reference details in Private Notes so they are not lost on save/navigation.

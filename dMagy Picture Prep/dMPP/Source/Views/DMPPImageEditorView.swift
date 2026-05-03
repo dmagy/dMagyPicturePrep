@@ -1989,6 +1989,7 @@ struct DMPPMetadataFormPane: View {
 
     // MARK: - [DICT] Help + focus
     @State private var showDictationHelp: Bool = false
+    @State private var showPrivateNotes: Bool = false
     @FocusState private var descriptionFocused: Bool
     @FocusState private var titleFocused: Bool
 
@@ -2194,40 +2195,15 @@ struct DMPPMetadataFormPane: View {
                 }
                 .padding(.horizontal, 8)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .center, spacing: 6) {
-                        Text("Private Notes")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Image(systemName: "lock")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .help("Private notes are for your review process and are not intended for display.")
-                    }
-
-                    TextEditor(text: $vm.metadata.privateNotes)
-                        .font(.body)
-                        .lineSpacing(2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .frame(minHeight: 56, maxHeight: 120)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color(nsColor: .textBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(.secondary.opacity(0.28))
-                        )
-                        .scrollContentBackground(.hidden)
-
-                    Text("For curator notes, uncertainty, repair clues, and follow-up tasks. Not intended for display.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                privateNotesDisclosureBlock
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+            }
+            .onAppear {
+                syncPrivateNotesDisclosureState()
+            }
+            .onChange(of: vm.metadata.sourceFile) { _, _ in
+                syncPrivateNotesDisclosureState()
             }
         }
     }
@@ -3156,6 +3132,7 @@ struct DMPPMetadataFormPane: View {
         notes += "\n" + linesToAppend.joined(separator: "\n")
 
         vm.metadata.privateNotes = notes
+        showPrivateNotes = true
     }
     
     private func suggestedPersonLabel(_ personID: String) -> String {
@@ -4011,6 +3988,77 @@ struct DMPPMetadataFormPane: View {
         .frame(minWidth: 520)
     }
 
+    @ViewBuilder
+    private var privateNotesDisclosureBlock: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showPrivateNotes.toggle()
+                }
+            } label: {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: showPrivateNotes ? "chevron.down" : "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+
+                    Text("Private Notes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+
+                    Spacer(minLength: 0)
+
+                    if !vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Has notes")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Private notes are for your review process and are not intended for display.")
+
+            if showPrivateNotes {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $vm.metadata.privateNotes)
+                        .font(.body)
+                        .lineSpacing(2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 56, maxHeight: 120)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color(nsColor: .textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.secondary.opacity(0.28))
+                        )
+                        .scrollContentBackground(.hidden)
+
+                    if vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("For curator notes, uncertainty, repair clues, and follow-up tasks. Not intended for display.")
+                            .font(.body)
+                            .foregroundStyle(.secondary.opacity(0.75))
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 13)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func syncPrivateNotesDisclosureState() {
+        let hasPrivateNotes = !vm.metadata.privateNotes
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+
+        showPrivateNotes = hasPrivateNotes
+    }
+    
     // MARK: Snapshot row renderer
 
     @ViewBuilder
