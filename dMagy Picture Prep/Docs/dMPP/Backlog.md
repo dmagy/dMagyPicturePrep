@@ -8,17 +8,16 @@ _Last updated: 2026-04-24_
 ## High Priority
 
 
-  - minimize private notes
+
   
 - First-run instruction window / help.
 - share GPT to support dMPP
 
 
-- Clearer save / dirty status indicators.
+
 
 
 ### Archive Access / Permissions
-- Detect when portable archive files cannot be read/written and show a clear “Refresh Picture Library Folder Access” message.
 - Improve Settings lock behavior so lock-writing failures do not block Settings when the real issue is folder access.
 - Consider a diagnostics panel showing whether People, Locations, Tags, Crops, FaceIndex, and _locks are readable/writable.
 
@@ -154,3 +153,6 @@ _Last updated: 2026-04-24_
 - Added Private Notes for curator-only notes and repair clues.
 - Added People missing-reference warning.
 - Automatically preserves orphaned People reference details in Private Notes so they are not lost on save/navigation.
+
+
+  - minimized private notes

@@ -693,6 +693,58 @@ struct DMPPImageEditorView: View {
         }
     }
     
+
+
+    private func orphanedLearnedFaceSuggestionItems() -> [(id: String, faceNumber: Int, personID: String, percent: Int)] {
+        let knownPersonIDs = Set(
+            identityStore.peopleSortedForUI.map { String(describing: $0.id) }
+        )
+
+        return faceSuggestions
+            .compactMap { faceNumber, suggestion in
+                let personID = suggestion.personID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !personID.isEmpty else { return nil }
+                guard !knownPersonIDs.contains(personID) else { return nil }
+
+                let percent = Int((suggestion.similarity * 100).rounded())
+
+                return (
+                    id: "\(faceNumber)|\(personID)",
+                    faceNumber: faceNumber,
+                    personID: personID,
+                    percent: percent
+                )
+            }
+            .sorted {
+                if $0.faceNumber == $1.faceNumber {
+                    return $0.personID < $1.personID
+                }
+                return $0.faceNumber < $1.faceNumber
+            }
+    }
+
+    @MainActor
+    private func removeOrphanedLearnedSamples(for personID: String) {
+        let cleanID = personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanID.isEmpty else { return }
+
+        faceIndexStore.removeAllSamples(for: cleanID)
+
+        // Remove visible suggestions for this deleted person immediately.
+        faceSuggestions = faceSuggestions.filter { _, suggestion in
+            suggestion.personID.trimmingCharacters(in: .whitespacesAndNewlines) != cleanID
+        }
+
+        // Recompute in case another valid match is now the best suggestion.
+        computeFaceSuggestionsForCurrentPhoto()
+    }
+
+    private func shortPersonID(_ personID: String) -> String {
+        let clean = personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count > 8 else { return clean }
+        return String(clean.prefix(8)) + "…"
+    }
+    
     // MARK: - [FACES-RECOG] Compute suggestions for current photo
 
     @MainActor
@@ -769,6 +821,8 @@ struct DMPPImageEditorView: View {
         }
     }
 
+    
+    
     // MARK: - [UI-EMPTY] Legacy wrapper (keep until we’re sure nothing references it)
 
     @ViewBuilder
@@ -1984,6 +2038,10 @@ struct DMPPMetadataFormPane: View {
     @State private var showFaceOneOffSheet: Bool = false
     @State private var faceOneOffDraft: String = ""
 
+    // Person IDs removed from learned-face suggestions during this editor session.
+    // This lets the UI hide an orphaned suggestion immediately after cleanup.
+    @State private var removedOrphanedLearnedPersonIDs: Set<String> = []
+
     // MARK: - [DICT] Input
     @ObservedObject var dictationController: DMPPSpeechDictationController
 
@@ -1995,6 +2053,7 @@ struct DMPPMetadataFormPane: View {
 
     @EnvironmentObject private var identityStore: DMPPIdentityStore
     @EnvironmentObject private var tagStore: DMPPTagStore
+    @EnvironmentObject private var faceIndexStore: DMPPFaceIndexStore
     
     
     @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual" // "manual" or "faces"
@@ -3321,7 +3380,7 @@ struct DMPPMetadataFormPane: View {
                         ForEach(nums, id: \.self) { n in
                             let isActive = (activeFaceNumber == n)
                             let assignedLabel = faceDisplayLabel(for: n)
-                            let suggestion = faceSuggestions[n]
+                            let suggestion = visibleFaceSuggestion(for: n)
 
                             let suggestionPercentText: String? = {
                                 guard assignedLabel == nil, let suggestion else { return nil }
@@ -3377,6 +3436,7 @@ struct DMPPMetadataFormPane: View {
                             )
                         }
                     }
+                    orphanedLearnedFaceSuggestionsBlock
                 }
                 .padding(.vertical, 2)
             }
@@ -3697,11 +3757,155 @@ struct DMPPMetadataFormPane: View {
 
     // BEGIN PASTE-OVER 1: peopleSummaryBlock
 
+    // MARK: - [FACES-RECOG] Orphaned learned-face cleanup
+
+    @ViewBuilder
+    private var orphanedLearnedFaceSuggestionsBlock: some View {
+        let items = orphanedLearnedFaceSuggestionItems()
+
+
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+
+                    Text("Learned faces needing attention")
+                        .font(.caption.bold())
+                        .foregroundStyle(.primary)
+                }
+
+                Text("dMPP is suggesting a face from learned samples for a person who is no longer in Settings > People. Remove those learned samples so this deleted person stops being suggested.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(items, id: \.id) { item in
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let assignedLabel = item.assignedLabel,
+                                   !assignedLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text("Face \(item.faceNumber): assigned to \(assignedLabel)")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+
+                                    Text("Deleted person \(shortPersonID(item.personID)) is still being suggested — \(item.percent)%")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .truncationMode(.middle)
+                                } else {
+                                    Text("Face \(item.faceNumber): deleted person \(shortPersonID(item.personID)) — \(item.percent)%")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                            .help("Person ID: \(item.personID)")
+
+                            Spacer(minLength: 8)
+
+                            Button("Remove Learned Samples") {
+                                removeOrphanedLearnedSamples(for: item.personID)
+                            }
+                            .controlSize(.small)
+                            .help("Remove all learned face samples for this deleted person.")
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.orange.opacity(0.06))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.orange.opacity(0.16), lineWidth: 1)
+                        )
+                    }
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.22), lineWidth: 1)
+            )
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+        }
+    }
+
+    private func visibleFaceSuggestion(for faceNumber: Int) -> DMPPFaceIndexStore.Match? {
+        guard let suggestion = faceSuggestions[faceNumber] else { return nil }
+
+        let personID = suggestion.personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !personID.isEmpty else { return suggestion }
+
+        if removedOrphanedLearnedPersonIDs.contains(personID) {
+            return nil
+        }
+
+        return suggestion
+    }
+    
+    private func orphanedLearnedFaceSuggestionItems() -> [(id: String, faceNumber: Int, personID: String, percent: Int, assignedLabel: String?)] {
+        let knownPersonIDs = Set(
+            identityStore.peopleSortedForUI.map { String(describing: $0.id) }
+        )
+
+        return faceSuggestions
+            .compactMap { faceNumber, suggestion in
+                let personID = suggestion.personID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !personID.isEmpty else { return nil }
+                guard !removedOrphanedLearnedPersonIDs.contains(personID) else { return nil }
+                guard !knownPersonIDs.contains(personID) else { return nil }
+
+                let percent = Int((suggestion.similarity * 100).rounded())
+                let assignedLabel = faceDisplayLabel(for: faceNumber)
+
+                return (
+                    id: "\(faceNumber)|\(personID)",
+                    faceNumber: faceNumber,
+                    personID: personID,
+                    percent: percent,
+                    assignedLabel: assignedLabel
+                )
+            }
+            .sorted {
+                if $0.faceNumber == $1.faceNumber {
+                    return $0.personID < $1.personID
+                }
+                return $0.faceNumber < $1.faceNumber
+            }
+    }
+
+    @MainActor
+    private func removeOrphanedLearnedSamples(for personID: String) {
+        let cleanID = personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanID.isEmpty else { return }
+
+        faceIndexStore.removeAllSamples(for: cleanID)
+        removedOrphanedLearnedPersonIDs.insert(cleanID)
+    }
+
+    private func shortPersonID(_ personID: String) -> String {
+        let clean = personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count > 8 else { return clean }
+        return String(clean.prefix(8)) + "…"
+    }
+    
     @ViewBuilder
     private var peopleSummaryBlock: some View {
         if identifyFacesEnabled {
             VStack(alignment: .leading, spacing: 6) {
                 faceNumberedBlanksRow
+        
                 ignoredFacesRow
             }
         } else {
@@ -3743,6 +3947,8 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
+    
+    
     @ViewBuilder
     private var peopleReferencesWarningBlock: some View {
         let missing = missingPeopleReferencesInCurrentFile()
