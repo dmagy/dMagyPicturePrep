@@ -14,7 +14,12 @@ _Last updated: 2026-04-24_
 - share GPT to support dMPP
 
 
-
+### Face Recognition / Matching Quality
+- Add high-confidence mismatch warning:
+  - If Suggested mode strongly matches Person A and the user assigns Person B, warn that Person A’s learned samples may include a bad example.
+  - Start conservatively around `similarity >= 0.985`, displayed as 99%.
+  - Do not block the user; this is advisory only.
+  - Revisit threshold after more real-world testing.
 
 
 ### Archive Access / Permissions
@@ -156,3 +161,7 @@ _Last updated: 2026-04-24_
 
 
   - minimized private notes
+
+### Face Recognition / Matching Quality
+- Added cleanup for learned face suggestions that point to deleted People records.
+- When a deleted person is still being suggested, dMPP now warns the user and offers to remove learned samples for that deleted person.

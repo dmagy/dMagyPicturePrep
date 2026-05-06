@@ -2037,6 +2037,7 @@ struct DMPPMetadataFormPane: View {
     @State private var suppressModeReset: Bool = false
     @State private var showFaceOneOffSheet: Bool = false
     @State private var faceOneOffDraft: String = ""
+    @State private var pendingHighConfidenceMismatchWarning: HighConfidenceFaceMismatchWarning? = nil
 
     // Person IDs removed from learned-face suggestions during this editor session.
     // This lets the UI hide an orphaned suggestion immediately after cleanup.
@@ -2057,6 +2058,8 @@ struct DMPPMetadataFormPane: View {
     
     
     @AppStorage("dmpp.defaultPeopleMode") private var defaultPeopleMode: String = "manual" // "manual" or "faces"
+    
+    @AppStorage("dmpp.settings.selectedTab") private var selectedSettingsTab: String = "general"
 
     private var defaultModeIsFaces: Bool { defaultPeopleMode == "faces" }
     private func setDefaultMode(isFaces: Bool) { defaultPeopleMode = isFaces ? "faces" : "manual" }
@@ -3257,10 +3260,82 @@ struct DMPPMetadataFormPane: View {
 
     private func assignActiveFace(toPersonKey personKey: String) {
         guard let n = activeFaceNumber else { return }
+
+        let warning = highConfidenceMismatchWarning(
+            faceNumber: n,
+            selectedPersonKey: personKey
+        )
+
+        // Clear any older advisory before applying the new assignment.
+        pendingHighConfidenceMismatchWarning = nil
+
         setAssignmentRaw("id:" + personKey, for: n)
         advanceActiveFaceAfterAssign()
+
+        if let warning {
+            showHighConfidenceMismatchWarning(warning)
+        }
     }
 
+    private struct HighConfidenceFaceMismatchWarning {
+        let suggestedPersonID: String
+        let suggestedName: String
+        let selectedName: String
+        let percent: Int
+    }
+
+    private var highConfidenceMismatchThreshold: Float {
+        0.985
+    }
+
+    private func highConfidenceMismatchWarning(
+        faceNumber: Int,
+        selectedPersonKey: String
+    ) -> HighConfidenceFaceMismatchWarning? {
+        guard identifyFacesEnabled else { return nil }
+
+        let selectedID = selectedPersonKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedID.isEmpty else { return nil }
+
+        guard let suggestion = visibleFaceSuggestion(for: faceNumber) else { return nil }
+
+        let suggestedID = suggestion.personID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !suggestedID.isEmpty else { return nil }
+
+        // Same person: no mismatch.
+        guard suggestedID != selectedID else { return nil }
+
+        // Only warn for very strong matches.
+        guard suggestion.similarity >= highConfidenceMismatchThreshold else { return nil }
+
+        // Only warn when the suggested person still exists in Settings > People.
+        // Deleted/orphaned learned people are handled by the separate orphan cleanup warning.
+        guard let suggestedPerson = identityStore.peopleSortedForUI.first(where: {
+            String(describing: $0.id) == suggestedID
+        }) else {
+            return nil
+        }
+
+        guard let selectedPerson = identityStore.peopleSortedForUI.first(where: {
+            String(describing: $0.id) == selectedID
+        }) else {
+            return nil
+        }
+
+        let percent = Int((suggestion.similarity * 100).rounded())
+
+        return HighConfidenceFaceMismatchWarning(
+            suggestedPersonID: suggestedID,
+            suggestedName: identityStore.checklistLabel(for: suggestedPerson),
+            selectedName: identityStore.checklistLabel(for: selectedPerson),
+            percent: percent
+        )
+    }
+
+    private func showHighConfidenceMismatchWarning(_ warning: HighConfidenceFaceMismatchWarning) {
+        pendingHighConfidenceMismatchWarning = warning
+    }
+    
     private func acceptSuggestion(for faceNumber: Int) {
         guard assignmentRaw(for: faceNumber) == nil else { return }
         guard let suggestion = faceSuggestions[faceNumber] else { return }
@@ -3437,6 +3512,7 @@ struct DMPPMetadataFormPane: View {
                         }
                     }
                     orphanedLearnedFaceSuggestionsBlock
+                    highConfidenceMismatchWarningBlock
                 }
                 .padding(.vertical, 2)
             }
@@ -3841,6 +3917,60 @@ struct DMPPMetadataFormPane: View {
         }
     }
 
+    @ViewBuilder
+    private var highConfidenceMismatchWarningBlock: some View {
+        if let warning = pendingHighConfidenceMismatchWarning {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+
+                    Text("Face learning note")
+                        .font(.caption.bold())
+                        .foregroundStyle(.primary)
+                }
+
+                Text("This face was a very strong match for \(warning.suggestedName) (\(warning.percent)%), but you assigned \(warning.selectedName).")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("If \(warning.suggestedName) is wrong, their learned face samples may include a bad example. You may want to clear learned face samples for \(warning.suggestedName) in Settings > People.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button("Open People Settings") {
+                        selectedSettingsTab = "people"
+                        openSettings()
+                    }
+                    .controlSize(.small)
+                    .help("Open Settings > People to review or clear learned samples.")
+
+                    Button("Dismiss") {
+                        pendingHighConfidenceMismatchWarning = nil
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.22), lineWidth: 1)
+            )
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+        }
+    }
+    
     private func visibleFaceSuggestion(for faceNumber: Int) -> DMPPFaceIndexStore.Match? {
         guard let suggestion = faceSuggestions[faceNumber] else { return nil }
 
