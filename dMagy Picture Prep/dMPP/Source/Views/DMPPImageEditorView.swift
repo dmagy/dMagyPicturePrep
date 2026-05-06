@@ -928,6 +928,7 @@ struct DMPPCropEditorPane: View {
 
     @State private var showNewCropPopover: Bool = false
     @State private var showCropHelp: Bool = false
+    @State private var showCropActionsPopover: Bool = false
 
     // MARK: - [HEADSHOT-PICKER] People list for Headshot menu (from current photo)
 
@@ -1292,10 +1293,7 @@ struct DMPPCropEditorPane: View {
                             .strokeBorder(.secondary.opacity(0.3))
                     )
 
-                    .overlay(alignment: .topTrailing) {
-                        cropActionPanel
-                            .padding(10)
-                    }
+
 
                     // Bottom-right: Hide/Show Face Boxes (Auto-Detect only) + crop pill
                     .overlay(alignment: .bottomTrailing) {
@@ -1409,60 +1407,7 @@ struct DMPPCropEditorPane: View {
         .frame(minWidth: 480)
     }
     
-    // MARK: - [CROP-ACTIONS] Floating panel
 
-    @ViewBuilder
-    private var cropActionPanel: some View {
-        if vm.selectedCrop != nil {
-
-            // Consistent button width (enough for “Export To…”)
-            let buttonWidth: CGFloat = 100
-
-            VStack(alignment: .leading, spacing: 8) {
-
-                Button {
-                    onExportCropRequested()
-                } label: {
-                    Label("Export Crop", systemImage: "square.and.arrow.down")
-                        .frame(width: buttonWidth, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .help("Export using the last selected folder (or choose one if needed)")
-
-                Button {
-                    onExportCropToRequested()
-                } label: {
-                    Label("Export To…", systemImage: "folder")
-                        .frame(width: buttonWidth, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .help("Choose a folder for this export (and remember it for next time)")
-
-                Spacer().frame(height: 6)
-
-                Button {
-                    onDeleteCropRequested()
-                } label: {
-                    Label("Delete Crop", systemImage: "trash")
-                        .frame(width: buttonWidth, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .help("Delete the selected crop")
-            }
-            .font(.callout)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(.secondary.opacity(0.25))
-            )
-
-        } else {
-            EmptyView()
-        }
-    }
 
     // MARK: - Header (chips + menu)
 
@@ -1489,6 +1434,30 @@ struct DMPPCropEditorPane: View {
                                 cropPickerSelection.wrappedValue = crop.id
                             }
                             .help(vm.cropButtonHelp(for: crop) ?? "")
+                            .contextMenu {
+                                Button {
+                                    cropPickerSelection.wrappedValue = crop.id
+                                    onExportCropRequested()
+                                } label: {
+                                    Label("Export “\(cropTabTitle(for: crop))”", systemImage: "square.and.arrow.down")
+                                }
+
+                                Button {
+                                    cropPickerSelection.wrappedValue = crop.id
+                                    onExportCropToRequested()
+                                } label: {
+                                    Label("Export “\(cropTabTitle(for: crop))” To…", systemImage: "folder")
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    cropPickerSelection.wrappedValue = crop.id
+                                    onDeleteCropRequested()
+                                } label: {
+                                    Label("Delete “\(cropTabTitle(for: crop))” from This Picture", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .fixedSize(horizontal: true, vertical: true)
@@ -1503,7 +1472,16 @@ struct DMPPCropEditorPane: View {
                 .popover(isPresented: $showNewCropPopover, arrowEdge: .top) {
                     newCropPopoverContent
                 }
-
+                Button {
+                    showCropActionsPopover.toggle()
+                } label: {
+                    cropHeaderMenuLabel("Actions")
+                }
+                .buttonStyle(.plain)
+                .help("Crop actions")
+                .popover(isPresented: $showCropActionsPopover, arrowEdge: .top) {
+                    cropActionsPopoverContent
+                }
                 Button {
                     showCropHelp.toggle()
                 } label: {
@@ -1759,6 +1737,58 @@ struct DMPPCropEditorPane: View {
         }
         .padding(14)
         .fixedSize()
+    }
+    
+    @ViewBuilder
+    private var cropActionsPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                showCropActionsPopover = false
+                onExportCropRequested()
+            } label: {
+                NewCropPopoverRowLabel(title: "Export Selected Crop")
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.selectedCrop == nil)
+
+            Button {
+                showCropActionsPopover = false
+                onExportCropToRequested()
+            } label: {
+                NewCropPopoverRowLabel(title: "Export Selected Crop To…")
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.selectedCrop == nil)
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Button {
+                showCropActionsPopover = false
+                onDeleteCropRequested()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                        .font(.callout)
+                    Text("Delete Selected Crop")
+                        .font(.callout)
+                }
+                .frame(height: 22)
+                .padding(.horizontal, 14)
+                .foregroundStyle(.red)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.red.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.red.opacity(0.16), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.selectedCrop == nil)
+        }
+        .padding(10)
     }
     
     private func cropHeaderMenuLabel(_ title: String) -> some View {

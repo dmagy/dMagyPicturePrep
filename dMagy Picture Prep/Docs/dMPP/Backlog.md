@@ -1,35 +1,103 @@
 # dMPP Backlog
 
-_Last updated: 2026-04-24_
-
+_Last updated: 2026-05-06_
 
 ---
 
-## High Priority
+## Next / High Priority
 
+### Editor UX / Visible Polish
+- Rework Export / Delete command box.
+  - Current UI feels like an afterthought.
+  - Goal: make crop/export/delete actions feel intentional, clear, and aligned with the rest of the editor.
 
-
-  
-- First-run instruction window / help.
-- share GPT to support dMPP
-
-
-### Face Recognition / Matching Quality
-- Add high-confidence mismatch warning:
-  - If Suggested mode strongly matches Person A and the user assigns Person B, warn that Person A’s learned samples may include a bad example.
-  - Start conservatively around `similarity >= 0.985`, displayed as 99%.
-  - Do not block the user; this is advisory only.
-  - Revisit threshold after more real-world testing.
-
+### Editor / File Opening
+- Add ability to open an image directly from Finder / browser into dMPP.
+  - Previously attempted and shelved.
+  - Needs renewed investigation into macOS file/document handling and app lifecycle.
+  - Goal: user can open a supported image file and have dMPP select the correct working context or guide them safely.
 
 ### Archive Access / Permissions
 - Improve Settings lock behavior so lock-writing failures do not block Settings when the real issue is folder access.
-- Consider a diagnostics panel showing whether People, Locations, Tags, Crops, FaceIndex, and _locks are readable/writable.
+- Consider a diagnostics panel showing whether these areas are readable/writable:
+  - People
+  - Locations
+  - Tags
+  - Crops
+  - FaceIndex
+  - `_locks`
+- Add clearer folder-access recovery messaging when macOS / Dropbox / cloud storage permission expires.
+  - Example: “Refresh Picture Library Folder Access…”
 
 ### Performance
 - Faster folder scanning.
 - Thumbnail caching.
 - Continue to favor correctness and UI stability over premature optimization.
+
+---
+
+## Product / Design Decisions Needed
+
+### Getting Started / Help
+- Refine the Getting Started window purpose and content.
+  - Decide whether it should be:
+    - setup checklist
+    - guided first-use companion
+    - lightweight help panel
+    - or some combination
+- Keep Getting Started available from Settings > General.
+- Consider adding Help menu access later.
+- Revisit whether the Getting Started window should remain open beside the editor as a companion panel.
+
+### Public dMPP Support GPT
+- Discuss whether to create a public/custom GPT for dMPP users, possibly instead of traditional Help.
+- Define what it should support:
+  - getting started
+  - explaining sidecars / portable archive data
+  - troubleshooting folder access
+  - explaining People / Suggested / Manual workflows
+  - explaining Crops, Tags, Locations, and Private Notes
+- Decide what documentation/content it would need to answer safely and consistently.
+- Decide whether in-app Help should point users to the GPT, local docs, or both.
+
+### dMPMS Standard / Publishing
+- Review and formalize the dMPMS sidecar metadata standard before public release.
+- Decide what belongs in the published standard versus app-specific implementation details.
+- Document required, optional, and app-private fields.
+- Clarify display-facing fields versus curator/private fields.
+  - Example: `description` is display-facing.
+  - Example: `privateNotes` is curator-facing and not intended for display.
+- Include examples of real `.dmpms.json` sidecars:
+  - basic photo
+  - photo with people
+  - photo with dates / date ranges
+  - photo with GPS / saved location
+  - photo with virtual crops
+  - photo with Private Notes
+- Decide versioning rules for `dmpmsVersion`.
+- Decide migration expectations for older sidecars.
+- Publish the standard when dMPP / dMPS are ready for outside users.
+
+### Shipping Readiness / Refactor Question
+- Decide whether dMPP can ship with `DMPPImageEditorView.swift` at its current size.
+  - Current concern: approximately 6300+ lines.
+  - Question: is this a shipping risk or primarily a maintainability concern?
+- Recommendation: do not start a broad refactor unless current behavior is stable and committed.
+- If refactoring, plan gradual extraction only:
+  - Title / Description / Private Notes section
+  - Tags section
+  - Location section
+  - People section
+  - Crop header/actions
+- Use versioning checkpoints before each extraction.
+
+---
+
+## Near-Term Backlog
+
+### Documentation / Standards
+- Review `_Read_Me_` and align it with the future published dMPMS standard.
+- Add practical examples that explain what sidecars are and why they exist.
 
 ### Locations
 - Location manager UX parity with People manager.
@@ -37,15 +105,24 @@ _Last updated: 2026-04-24_
   - Prefer saved Locations when reverse geocoding returns a nearby / slightly different street address.
   - Consider a subtle UI note when a saved Location was applied from a nearby GPS result.
   - Consider adding GPS coordinates to saved Locations later for stronger distance-based matching.
-- Bulk apply location to selection.
 
 ### Tags
 - Continue refining tag descriptions / portability as needed.
 - Keep the Tags “Linked file (advanced)” area aligned with People / General behavior.
 
-### Editor / File Opening
-- Ability to open an image directly from Finder / browser into dMPP.
+### Private Notes
+- Continue monitoring whether collapsed/minimized Private Notes feels right.
+- Consider whether Private Notes needs:
+  - clearer help text
+  - visual indicator when populated
+  - “flagged picture” integration later
 
+### Save / Access Recovery
+- Save button brightness currently indicates dirty/clean state.
+- Next Picture is disabled with guidance when Suggested faces still need assignment/ignore decisions.
+- Revisit only if users miss save failures or need stronger folder-access recovery messaging.
+- Future possible improvement:
+  - visible “Save failed” / “Refresh Access” message when sidecar or portable archive writes fail.
 
 ---
 
@@ -66,10 +143,14 @@ _Last updated: 2026-04-24_
 - Per-sample face-learning review instead of only reset-all-for-person.
 - Better review tooling for learned face samples, possibly including source photo.
 - Explore stronger explainability for suggestions if needed.
-- Consider a better way to explicitly reject a wrong match, if the current reset workflow proves insufficient.
+- Consider a better way to explicitly reject a wrong match if current reset/warning workflows prove insufficient.
+- Tune high-confidence mismatch threshold after more real-world testing.
+  - Current starting point: `similarity >= 0.985`, displayed as 99%.
 
 ### Architecture / Future Refactor
 - Separate Person core from Identity versions.
+- Gradually extract sections from `DMPPImageEditorView.swift` only after behavior is stable.
+- Avoid broad refactors without a clear rollback point.
 
 ---
 
@@ -78,11 +159,15 @@ _Last updated: 2026-04-24_
 ### Face Recognition / Matching Quality
 - Suggestion thresholds feel acceptable after real-world batch testing; revisit only if a clear pattern appears.
 - Confidence % display currently feels acceptable; monitor rather than actively tune.
-- Adding short names to face box overlays was investigated and intentionally declined for dMPP (prep app, not display app).
+- Adding short names to face box overlays was investigated and intentionally declined for dMPP.
+  - Rationale: dMPP is the prep app, not the display app.
 
 ### Face Recognition / Workflow
-- The current reset-person workflow is acceptable for wrong-match recovery, but may later be replaced or supplemented by per-sample review.
-- Continue watching whether a stronger explicit “wrong match” workflow is actually needed.
+- The current reset-person workflow is acceptable for wrong-match recovery.
+- Inline warnings now help users recover from:
+  - deleted people still being suggested
+  - high-confidence suggestion mismatch after a different assignment
+- Continue watching whether stronger explicit “wrong match” tooling is actually needed.
 
 ### UI / Layout
 - Continue watching right-column spacing / scrollbar breathing room during UI polish.
@@ -91,11 +176,38 @@ _Last updated: 2026-04-24_
 - Suggested / Manual now feel closer to the same design system after UI polish.
 
 ### Data Integrity
-- Missing-reference handling when sidecar IDs are no longer in the registry.
+- Unknown Tags and missing People references now have basic handling.
+- Continue watching for other unresolved-reference cases beyond:
+  - Tags
+  - People
+  - learned face samples
 
 ---
 
 ## Recently Completed
+
+### Portable Archive / UX
+- Completed safe Picture Library Folder change flow:
+  - Kept portable archive folder naming fixed as `dMagy Portable Archive Data`.
+  - Added “Change or Refresh Picture Library Folder…” language.
+  - Removed the easy shortcut from the File menu.
+  - Added a “What are you trying to do?” choice before changing an existing root.
+  - Added Refresh Access path for stale macOS / cloud-folder permissions.
+  - Added warning before creating new portable archive data when the selected folder does not already contain it.
+  - Deferred full copy/merge migration until there is a real use case.
+
+### Data Integrity
+- Added unknown tag repair actions for tags saved in a sidecar but missing from Settings.
+- Added Private Notes for curator-only notes and repair clues.
+- Added People missing-reference warning.
+- Automatically preserves orphaned People reference details in Private Notes so they are not lost on save/navigation.
+- Minimized / collapsed Private Notes under Description.
+
+### Face Recognition / Matching Quality
+- Added cleanup for learned face suggestions that point to deleted People records.
+- When a deleted person is still being suggested, dMPP warns the user and offers to remove learned samples for that deleted person.
+- Added inline warning when a high-confidence Suggested match differs from the person the user assigns.
+- Warning helps users recover from mis-clicks by pointing them toward clearing learned samples for the suggested person.
 
 ### Locations
 - Fixed GPS-derived location loading so matching saved Locations also apply the saved Location description.
@@ -110,11 +222,11 @@ _Last updated: 2026-04-24_
 - Changed Suggested face chips from rigid two-column layout to content-sized wrapping chips.
 
 ### Face Recognition / Auto-Detect Safety
-- Moved face learning to **Save only**.
-- Added a permanent action to **reset learned face samples for a person**.
+- Moved face learning to Save only.
+- Added a permanent action to reset learned face samples for a person.
 - Audited current face-learning data for contamination from accidental assignments.
 - Verified stale face suggestions do not leak between pictures.
-- Required all visible face chips to be **assigned or ignored** before Save / Previous / Next.
+- Required all visible face chips to be assigned or ignored before Save / Previous / Next.
 - Investigated whether bad accepted suggestions may have already polluted the face index.
 
 ### Image / Crop Performance
@@ -126,14 +238,35 @@ _Last updated: 2026-04-24_
 - Moved crop actions to the upper right.
 - Changed New Crop from a native Menu button to a button / popover.
 - Refined New Crop popover row height and styling.
+- Added Crop help/info popover.
+
+### Title / Description / Private Notes UI
+- Moved description tools beside the Description label.
+- Added Description tool help.
+- Added Private Notes as curator-facing notes not intended for display.
+- Collapsed Private Notes when empty and auto-expanded when populated.
+
+### Location UI
+- Polished Location section layout.
+- Renamed unclear location button behavior.
+- Added Location help/info popover.
+- Added clearer GPS / saved-location / reset / clear guidance.
+
+### Date UI
+- Added Date Taken or Era help/info popover.
+
+### Tags UI
+- Added hover help from tag descriptions.
+- Added clearer unknown-tag handling and repair actions.
 
 ### People UI / Checklist
-- Added **Ignore Other Faces** for remaining unassigned visible faces in Suggested mode.
+- Added Ignore Other Faces for remaining unassigned visible faces in Suggested mode.
 - Added `fatherID`, `motherID`, and `gender` as shared person-level fields.
 - Fixed date-derived-state sync so photo metadata properly filters the people checklist.
 - Added stable tie-break sorting for duplicate short names in the People checklist using birth date, then full name, then person ID.
 - Removed birth-date differentiators from Suggested / Auto-Detect chips.
 - Reset startup review mode/navigation state so relaunch always starts in All Pictures.
+- Added “No faces found” message when Suggested mode detects no faces.
 
 ### Prior CTX15 Punchlist Items
 - Locations added/deleted in Settings now update editor UI sufficiently to move from active punchlist.
@@ -141,27 +274,3 @@ _Last updated: 2026-04-24_
 - Removed “Are you sure?” confirmation when deleting a crop.
 - Added ability to create one-off headshots.
 - Next picture moves focus / scrolls to Title.
-
-### Portable Archive / UX
-- Completed safe Picture Library Folder change flow:
-  - Kept portable archive folder naming fixed as `dMagy Portable Archive Data`.
-  - Added “Change or Refresh Picture Library Folder…” language.
-  - Removed the easy shortcut from the File menu.
-  - Added a “What are you trying to do?” choice before changing an existing root.
-  - Added Refresh Access path for stale macOS / cloud-folder permissions.
-  - Added warning before creating new portable archive data when the selected folder does not already contain it.
-  - Deferred full copy/merge migration until there is a real use case.
-
-
-### Data Integrity
-- Added unknown tag repair actions for tags saved in a sidecar but missing from Settings.
-- Added Private Notes for curator-only notes and repair clues.
-- Added People missing-reference warning.
-- Automatically preserves orphaned People reference details in Private Notes so they are not lost on save/navigation.
-
-
-  - minimized private notes
-
-### Face Recognition / Matching Quality
-- Added cleanup for learned face suggestions that point to deleted People records.
-- When a deleted person is still being suggested, dMPP now warns the user and offers to remove learned samples for that deleted person.
