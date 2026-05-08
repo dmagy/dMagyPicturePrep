@@ -8,43 +8,31 @@ _Last updated: 2026-05-06_
 
 
 
-### Editor / File Opening
-- Add ability to open an image directly from Finder / browser into dMPP.
-  - Previously attempted and shelved.
-  - Needs renewed investigation into macOS file/document handling and app lifecycle.
-  - Goal: user can open a supported image file and have dMPP select the correct working context or guide them safely.
 
-### Archive Access / Permissions
-- Improve Settings lock behavior so lock-writing failures do not block Settings when the real issue is folder access.
-- Consider a diagnostics panel showing whether these areas are readable/writable:
-  - People
-  - Locations
-  - Tags
-  - Crops
-  - FaceIndex
-  - `_locks`
-- Add clearer folder-access recovery messaging when macOS / Dropbox / cloud storage permission expires.
-  - Example: “Refresh Picture Library Folder Access…”
 
-### Performance
-- Faster folder scanning.
-- Thumbnail caching.
-- Continue to favor correctness and UI stability over premature optimization.
+
+
 
 ---
 
 ## Product / Design Decisions Needed
 
 ### Getting Started / Help
-- Refine the Getting Started window purpose and content.
-  - Decide whether it should be:
-    - setup checklist
-    - guided first-use companion
-    - lightweight help panel
-    - or some combination
-- Keep Getting Started available from Settings > General.
-- Consider adding Help menu access later.
-- Revisit whether the Getting Started window should remain open beside the editor as a companion panel.
+- Simplify Getting Started into a short setup-first guide:
+  - Explain Picture Library Folder choice briefly.
+  - Explain Apple Photos export requirement briefly.
+  - Guide user to add key People.
+  - Guide user to add saved Locations.
+  - Explain how to start reviewing pictures.
+- Remove Tags from the initial required checklist because usable tags exist by default.
+- Keep Getting Started available from Help > Getting Started and Settings > General.
+- Explain only the essential workflow:
+  - dMPP saves sidecars.
+  - Original pictures are not changed.
+  - Next Picture saves automatically.
+- Move deeper tips to section help popovers or future dMPP Support GPT.
+
+
 
 ### Public dMPP Support GPT
 - Discuss whether to create a public/custom GPT for dMPP users, possibly instead of traditional Help.
@@ -179,6 +167,18 @@ _Last updated: 2026-05-06_
   - People
   - learned face samples
 
+### Archive Access / Permissions
+- Improve folder-access recovery messaging when macOS / Dropbox / cloud storage permissions expire.
+  - If dMPP can see the saved Picture Library Folder path but cannot read/write portable archive files, show a clear “Refresh Picture Library Folder Access…” message.
+  - Avoid misleading messages such as “Settings are currently being edited” when the real issue is folder access.
+  - Let the user reselect the same Picture Library Folder to refresh macOS permission.
+- Defer full diagnostics panel unless access issues become frequent.
+  - Possible future diagnostic checks: People, Locations, Tags, Crops, FaceIndex, and `_locks` readable/writable.
+
+### Performance
+- Faster folder scanning.
+- Thumbnail caching.
+- Continue to favor correctness and UI stability over premature optimization.
 ---
 
 ## Recently Completed
