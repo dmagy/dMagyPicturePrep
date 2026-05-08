@@ -178,6 +178,34 @@ struct DMPPImageEditorView: View {
             guard let url = note.object as? URL else { return }
             openImageFromSystem(url)
         }
+
+        .onReceive(NotificationCenter.default.publisher(for: .dmppSaveCurrentPicture)) { _ in
+            guard vm != nil else { return }
+            guard isSaveEnabled else { return }
+            guard !hasUnresolvedVisibleFaces else { return }
+
+            saveCurrentMetadata()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppExportSelectedCrop)) { _ in
+            guard vm?.selectedCrop != nil else { return }
+
+            exportSelectedCrop()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppExportSelectedCropTo)) { _ in
+            guard vm?.selectedCrop != nil else { return }
+
+            exportSelectedCropTo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppDeleteSelectedCrop)) { _ in
+            guard let vm else { return }
+            guard vm.selectedCrop != nil else { return }
+
+            vm.deleteSelectedCrop()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppToggleFaceBoxes)) { _ in
+            showFaceBoxes.toggle()
+        }
+        
         .alert("Can’t continue", isPresented: $showContinueError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -575,7 +603,6 @@ struct DMPPImageEditorView: View {
             Button("Save") { saveCurrentMetadata() }
                 .buttonStyle(.borderedProminent)
                 .disabled(!isSaveEnabled || blockedByFaces)
-                .keyboardShortcut("s", modifiers: [.command])
                 .help(
                     blockedByFaces
                     ? "Assign or ignore all detected faces before saving."
@@ -1366,6 +1393,7 @@ struct DMPPCropEditorPane: View {
             customPresetsRefreshToken &+= 1
                 
         }
+
         .sheet(isPresented: $showOneOffHeadshotSheet) { oneOffHeadshotSheet }
         
 
@@ -5250,6 +5278,10 @@ extension DMPPImageEditorView {
         }
     }
 
+ 
+
+ 
+    
     // MARK: - Export Crop
 
     private func exportSelectedCrop() {

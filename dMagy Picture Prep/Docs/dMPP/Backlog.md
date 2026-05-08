@@ -6,10 +6,7 @@ _Last updated: 2026-05-06_
 
 ## Next / High Priority
 
-### Editor UX / Visible Polish
-- Rework Export / Delete command box.
-  - Current UI feels like an afterthought.
-  - Goal: make crop/export/delete actions feel intentional, clear, and aligned with the rest of the editor.
+
 
 ### Editor / File Opening
 - Add ability to open an image directly from Finder / browser into dMPP.
@@ -274,3 +271,9 @@ _Last updated: 2026-05-06_
 - Removed “Are you sure?” confirmation when deleting a crop.
 - Added ability to create one-off headshots.
 - Next picture moves focus / scrolls to Title.
+
+
+### Editor UX / Visible Polish
+- Rework Export / Delete command box.
+  - Current UI feels like an afterthought.
+  - Goal: make crop/export/delete actions feel intentional, clear, and aligned with the rest of the editor.

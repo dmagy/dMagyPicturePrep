@@ -6,6 +6,13 @@ import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let dmppOpenImageURL = Notification.Name("dmppOpenImageURL")
+  
+    static let dmppSaveCurrentPicture = Notification.Name("dmppSaveCurrentPicture")
+    static let dmppExportSelectedCrop = Notification.Name("dmppExportSelectedCrop")
+    static let dmppExportSelectedCropTo = Notification.Name("dmppExportSelectedCropTo")
+    static let dmppDeleteSelectedCrop = Notification.Name("dmppDeleteSelectedCrop")
+    static let dmppToggleFaceBoxes = Notification.Name("dmppToggleFaceBoxes")
+    static let dmppShowGettingStarted = Notification.Name("dmppShowGettingStarted")
 }
 
 @main
@@ -40,22 +47,29 @@ struct dMagy_Picture_PrepApp: App {
                     NotificationCenter.default.post(name: .dmppOpenImageURL, object: url)
                 }
         }
-        // [CMD] Attach commands at the Scene level (applies to main window)
+        // [CMD] Attach commands at the Scene level.
+        // Editor-specific commands post notifications handled by DMPPImageEditorView.
         .commands {
             CommandGroup(after: .newItem) {
 
-                Button("Open…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = true
-                    panel.canChooseDirectories = false
-                    panel.allowsMultipleSelection = false
-                    panel.allowedContentTypes = [.jpeg, .png, .heic, .tiff]
+  
+      
 
-                    if panel.runModal() == .OK, let url = panel.url {
-                        NotificationCenter.default.post(name: .dmppOpenImageURL, object: url)
-                    }
+                Button("Save") {
+                    NotificationCenter.default.post(name: .dmppSaveCurrentPicture, object: nil)
                 }
-                .keyboardShortcut("o", modifiers: [.command])
+                .keyboardShortcut("s", modifiers: [.command])
+
+                Divider()
+
+                Button("Export Selected Crop…") {
+                    NotificationCenter.default.post(name: .dmppExportSelectedCrop, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command])
+
+                Button("Export Selected Crop To…") {
+                    NotificationCenter.default.post(name: .dmppExportSelectedCropTo, object: nil)
+                }
 
                 Divider()
 
@@ -67,6 +81,27 @@ struct dMagy_Picture_PrepApp: App {
                     archiveStore.openPortableArchiveDataFolderInFinder()
                 }
                 .disabled(archiveStore.archiveRootURL == nil)
+            }
+
+            CommandGroup(after: .pasteboard) {
+                Divider()
+
+                Button("Delete Selected Crop from This Picture") {
+                    NotificationCenter.default.post(name: .dmppDeleteSelectedCrop, object: nil)
+                }
+            }
+
+            CommandMenu("View") {
+                Button("Show / Hide Face Boxes") {
+                    NotificationCenter.default.post(name: .dmppToggleFaceBoxes, object: nil)
+                }
+                .keyboardShortcut("b", modifiers: [.command, .option])
+            }
+
+            CommandGroup(replacing: .help) {
+                Button("Getting Started") {
+                    NotificationCenter.default.post(name: .dmppShowGettingStarted, object: nil)
+                }
             }
         }
         // ============================================================
@@ -175,7 +210,9 @@ private struct DMPPArchiveRootGateView: View {
                 }
             }
         }
-
+        .onReceive(NotificationCenter.default.publisher(for: .dmppShowGettingStarted)) { _ in
+            openWindow(id: "Getting-Started")
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
 
