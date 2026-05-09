@@ -9,28 +9,19 @@ _Last updated: 2026-05-06_
 
 
 
-auto hide face boxes when viewing headshots
-can we autostart the headshot crosshairs centered on the bottom of the face box
+
 
 
 ---
 
 ## Product / Design Decisions Needed
 
-### Getting Started / Help
-- Simplify Getting Started into a short setup-first guide:
-  - Explain Picture Library Folder choice briefly.
-  - Explain Apple Photos export requirement briefly.
-  - Guide user to add key People.
-  - Guide user to add saved Locations.
-  - Explain how to start reviewing pictures.
-- Remove Tags from the initial required checklist because usable tags exist by default.
-- Keep Getting Started available from Help > Getting Started and Settings > General.
-- Explain only the essential workflow:
-  - dMPP saves sidecars.
-  - Original pictures are not changed.
-  - Next Picture saves automatically.
-- Move deeper tips to section help popovers or future dMPP Support GPT.
+### Crops / Headshots
+- Improve headshot crop behavior:
+  - Temporarily hide face boxes while viewing/editing headshot crops.
+  - When creating a headshot from a detected face, initialize the crop/crosshair near the lower center of the face box instead of the generic crop center.
+  - Keep the crop fully adjustable after creation.
+  - Use this as a smarter starting point, not an automatic final crop.
 
 
 
@@ -277,3 +268,17 @@ can we autostart the headshot crosshairs centered on the bottom of the face box
 - Rework Export / Delete command box.
   - Current UI feels like an afterthought.
   - Goal: make crop/export/delete actions feel intentional, clear, and aligned with the rest of the editor.
+  
+### Getting Started / Help
+- Moved Getting Started into its own `GettingStartedChecklistView.swift` file.
+- Simplified Getting Started into a short setup-first guide focused on:
+  - Picture Library Folder concept.
+  - Apple Photos export note.
+  - People setup.
+  - Locations setup.
+  - Basic review workflow.
+- Removed longer “watch for these picture types” tutorial-style content.
+- Removed Tags from the required starter checklist because default tags already exist.
+- Changed “Show automatically until setup is complete” to “Show at startup.”
+- Added matching Settings-style icons to People and Location Settings buttons.
+- Kept Getting Started available from Help > Getting Started.

@@ -947,6 +947,14 @@ struct DMPPCropEditorPane: View {
     var detectedFaces: [DMPPFaceDetectionService.DetectedFace]
     @Binding var showFaceBoxes: Bool
 
+    private var selectedCropIsHeadshot: Bool {
+        vm.selectedCrop?.kind == .headshot
+    }
+
+    private var effectiveShowFaceBoxes: Bool {
+        showFaceBoxes && !selectedCropIsHeadshot
+    }
+    
     // MARK: - [CROP-ACTIONS] Callbacks (owned by parent view)
 
     var onDeleteCropRequested: () -> Void
@@ -1218,7 +1226,7 @@ struct DMPPCropEditorPane: View {
                                 // ---------------------------------------------------------
                                 // MARK: - [FACES] Numbered face boxes overlay (Auto-Detect mode)
                                 // ---------------------------------------------------------
-                                if identifyFacesEnabled, showFaceBoxes, !detectedFaces.isEmpty {
+                                if identifyFacesEnabled, effectiveShowFaceBoxes, !detectedFaces.isEmpty {
 
                                     // ---------------------------------------------------------
                                     // MARK: - [FACES] Map normalized face rects into the displayed image
@@ -1331,8 +1339,13 @@ struct DMPPCropEditorPane: View {
                                     showFaceBoxes.toggle()
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(selectedCropIsHeadshot)
                                 .controlSize(.small)
-                                .help(showFaceBoxes ? "Hide face boxes for this photo (temporary)." : "Show face boxes for this photo.")
+                                .help(
+                                    selectedCropIsHeadshot
+                                    ? "Face boxes are temporarily hidden while a headshot crop is selected."
+                                    : (showFaceBoxes ? "Hide face boxes for this photo (temporary)." : "Show face boxes for this photo.")
+                                )
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 8)
                                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
