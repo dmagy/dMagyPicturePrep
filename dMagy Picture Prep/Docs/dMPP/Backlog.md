@@ -9,8 +9,8 @@ _Last updated: 2026-05-06_
 
 
 
-
-
+auto hide face boxes when viewing headshots
+can we autostart the headshot crosshairs centered on the bottom of the face box
 
 
 ---
