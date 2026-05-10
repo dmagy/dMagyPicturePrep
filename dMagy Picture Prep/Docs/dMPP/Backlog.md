@@ -16,25 +16,13 @@ _Last updated: 2026-05-06_
 
 ## Product / Design Decisions Needed
 
-### Crops / Headshots
-- Improve headshot crop behavior:
-  - Temporarily hide face boxes while viewing/editing headshot crops.
-  - When creating a headshot from a detected face, initialize the crop/crosshair near the lower center of the face box instead of the generic crop center.
-  - Keep the crop fully adjustable after creation.
-  - Use this as a smarter starting point, not an automatic final crop.
+
+### Documentation / Standards
+- Review `_Read_Me_` and align it with the future published dMPMS standard.
+- Add practical examples that explain what sidecars are and why they exist.
 
 
 
-### Public dMPP Support GPT
-- Discuss whether to create a public/custom GPT for dMPP users, possibly instead of traditional Help.
-- Define what it should support:
-  - getting started
-  - explaining sidecars / portable archive data
-  - troubleshooting folder access
-  - explaining People / Suggested / Manual workflows
-  - explaining Crops, Tags, Locations, and Private Notes
-- Decide what documentation/content it would need to answer safely and consistently.
-- Decide whether in-app Help should point users to the GPT, local docs, or both.
 
 ### dMPMS Standard / Publishing
 - Review and formalize the dMPMS sidecar metadata standard before public release.
@@ -71,9 +59,7 @@ _Last updated: 2026-05-06_
 
 ## Near-Term Backlog
 
-### Documentation / Standards
-- Review `_Read_Me_` and align it with the future published dMPMS standard.
-- Add practical examples that explain what sidecars are and why they exist.
+
 
 ### Locations
 - Location manager UX parity with People manager.
@@ -282,3 +268,12 @@ _Last updated: 2026-05-06_
 - Changed “Show automatically until setup is complete” to “Show at startup.”
 - Added matching Settings-style icons to People and Location Settings buttons.
 - Kept Getting Started available from Help > Getting Started.
+
+### Crops / Headshots
+- Completed: Temporarily hide face boxes while viewing/editing headshot crops.
+  - Face boxes remain controlled by the user’s normal show/hide setting.
+  - Headshot crops suppress the overlay only while selected.
+  - The face-box toggle is disabled while a headshot crop is selected to avoid a no-visible-change interaction.
+- Deferred: Smarter initial headshot crop placement from detected face boxes.
+  - Current centered default is acceptable for now.
+  - Revisit only if headshot creation becomes a frequent workflow pain point.
