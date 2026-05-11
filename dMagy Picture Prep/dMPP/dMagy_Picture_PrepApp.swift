@@ -13,6 +13,7 @@ extension Notification.Name {
     static let dmppDeleteSelectedCrop = Notification.Name("dmppDeleteSelectedCrop")
     static let dmppToggleFaceBoxes = Notification.Name("dmppToggleFaceBoxes")
     static let dmppShowGettingStarted = Notification.Name("dmppShowGettingStarted")
+    static let dmppShowDMPPHelp = Notification.Name("dmppShowDMPPHelp")
 }
 
 @main
@@ -99,6 +100,10 @@ struct dMagy_Picture_PrepApp: App {
             }
 
             CommandGroup(replacing: .help) {
+                Button("dMPP Help") {
+                    NotificationCenter.default.post(name: .dmppShowDMPPHelp, object: nil)
+                }
+
                 Button("Getting Started") {
                     NotificationCenter.default.post(name: .dmppShowGettingStarted, object: nil)
                 }
@@ -131,6 +136,9 @@ struct dMagy_Picture_PrepApp: App {
               //  .background(DMPPWindowAutosave(name: "DMPP.GettingStartedWindow.v1"))
         }
         .defaultSize(width: 460, height: 760)
+        Window("dMPP Help", id: "DMPP-Help") {
+            DMPPHelpView()
+        }
     }
 }
 // ================================================================
@@ -212,6 +220,9 @@ private struct DMPPArchiveRootGateView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .dmppShowGettingStarted)) { _ in
             openWindow(id: "Getting-Started")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppShowDMPPHelp)) { _ in
+            openWindow(id: "DMPP-Help")
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {

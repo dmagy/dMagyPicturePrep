@@ -277,3 +277,10 @@ _Last updated: 2026-05-06_
 - Deferred: Smarter initial headshot crop placement from detected face boxes.
   - Current centered default is acceptable for now.
   - Revisit only if headshot creation becomes a frequent workflow pain point.
+
+### Help
+- Added traditional in-app dMPP Help window.
+- Bundled Markdown help topics in the app target.
+- Added Help > dMPP Help menu item.
+- Added topic sidebar and lightweight Markdown rendering for headings, paragraphs, lists, and code blocks.
+- Kept Help > Getting Started as a separate setup-focused guide.
