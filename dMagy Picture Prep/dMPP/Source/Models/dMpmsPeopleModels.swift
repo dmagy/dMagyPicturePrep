@@ -2,7 +2,7 @@
 //  DmpmsPeopleModels.swift
 //  dMagy Picture Prep
 //
-//  dMPMS-2025-12-12-PPL3 — People / identity models for dMPMS 1.1
+//  dMPMS-2025-12-12-PPL3 — People / identity models for dMPMS sidecars
 //
 
 import Foundation

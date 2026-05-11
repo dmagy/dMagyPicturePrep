@@ -6389,7 +6389,7 @@ extension DMPPImageEditorView {
         let baseTitle = url.deletingPathExtension().lastPathComponent
 
         return DmpmsMetadata(
-            dmpmsVersion: "1.1",
+            dmpmsVersion: "1.2",
             dmpmsNotice: "Created by dMagy Picture Prep. Stores metadata and crop settings for this photo. Deleting it erases edits (not the original image).",
             sourceFile: filename,
             title: baseTitle,

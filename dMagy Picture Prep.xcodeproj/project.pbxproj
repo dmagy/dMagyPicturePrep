@@ -39,11 +39,11 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				dMPP/Source/Models/AuraFaceEmbedding.mlpackage,
-				"Docs/dMagy Project Collaboration Guide.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.1.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.2.md",
 				"Docs/dMPMS/dMPMS-Spec-v1.3.md",
 				Docs/dMPP/Backlog.md,
+				"Docs/dMPP/dMagy Project Collaboration Guide.md",
 				"Docs/dMPP/dMPP-AI-Context-v1.md",
 				"Docs/dMPP/dMPP-AI-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v1.md",

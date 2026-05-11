@@ -6,9 +6,8 @@ _Last updated: 2026-05-06_
 
 ## Next / High Priority
 
-
-
-
+- update to publishing v1.2 of sidecars
+If I add a new person and immeadiately add an event bofere saving, the original information does not save. just the event.
 
 
 
@@ -17,9 +16,6 @@ _Last updated: 2026-05-06_
 ## Product / Design Decisions Needed
 
 
-### Documentation / Standards
-- Review `_Read_Me_` and align it with the future published dMPMS standard.
-- Add practical examples that explain what sidecars are and why they exist.
 
 
 
@@ -68,32 +64,17 @@ _Last updated: 2026-05-06_
   - Consider a subtle UI note when a saved Location was applied from a nearby GPS result.
   - Consider adding GPS coordinates to saved Locations later for stronger distance-based matching.
 
-### Tags
-- Continue refining tag descriptions / portability as needed.
-- Keep the Tags “Linked file (advanced)” area aligned with People / General behavior.
 
-### Private Notes
-- Continue monitoring whether collapsed/minimized Private Notes feels right.
-- Consider whether Private Notes needs:
-  - clearer help text
-  - visual indicator when populated
-  - “flagged picture” integration later
-
-### Save / Access Recovery
-- Save button brightness currently indicates dirty/clean state.
-- Next Picture is disabled with guidance when Suggested faces still need assignment/ignore decisions.
-- Revisit only if users miss save failures or need stronger folder-access recovery messaging.
-- Future possible improvement:
-  - visible “Save failed” / “Refresh Access” message when sidecar or portable archive writes fail.
-
+### Help
+- Add search to dMPP Help.
+- Add “Open full Help topic…” links from section help popovers.
+- Improve Markdown rendering for bold, inline code, links, and nested lists if needed.
+- Consider screenshots once the UI stabilizes.
 ---
 
 ## Planned / Future
 
 ### Crops
-- Re-examine New Crop menu structure.
-- Headshot (Tight) / Headshot (Full) per-person tabs.
-- Grouping behavior in crop strip.
 - Move crop presets fully to portable JSON.
 
 ### Bulk Operations

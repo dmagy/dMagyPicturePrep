@@ -149,7 +149,7 @@ struct DmpmsMetadata: Codable, Hashable {
     """
 
     // Core version for the dMPMS spec.
-    var dmpmsVersion: String = "1.1"
+    var dmpmsVersion: String = "1.2"
 
     /// Human-facing notice so people know what this file is.
     /// Always included near the top of the JSON.
@@ -191,7 +191,7 @@ struct DmpmsMetadata: Codable, Hashable {
     /// Retained for simple/older workflows.
     var people: [String] = []
 
-    /// v1.1+ rich people metadata.
+    /// Rich structrued people metadata.
     /// Each entry represents a specific person in this photo
     /// (identity ID, display name snapshot, age-at-photo, row/position, etc.).
     var peopleV2: [DmpmsPersonInPhoto] = []
@@ -313,7 +313,7 @@ struct DmpmsMetadata: Codable, Hashable {
     // MARK: - Designated init (used by code)
 
     init(
-        dmpmsVersion: String = "1.1",
+        dmpmsVersion: String = "1.2",
         dmpmsNotice: String = DmpmsMetadata.defaultNotice,
         sourceFile: String,
         title: String = "",
