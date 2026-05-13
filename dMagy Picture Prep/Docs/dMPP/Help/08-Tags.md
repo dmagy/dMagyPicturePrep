@@ -65,11 +65,11 @@ Anna, Zach, and Hannah opening presents in the living room at Grandma Jean’s h
 
 The tags help you find or filter the picture later. The description preserves the specific memory.
 
-## Tags vs. Private Notes
+## Tags vs. Curator Notes
 
 Use Tags for searchable categories.
 
-Use Private Notes for curator-facing notes, uncertainty, repair clues, or follow-up tasks.
+Use Curator Notes for curator-facing notes, uncertainty, repair clues, or follow-up tasks.
 
 Example tag:
 
@@ -138,7 +138,7 @@ Add a new tag when:
 
 Do not add a new tag for every small detail.
 
-If the detail is unique to one picture, use the Description or Private Notes field instead.
+If the detail is unique to one picture, use the Description or Curator Notes field instead.
 
 ## Use tags sparingly at first
 

@@ -26,7 +26,7 @@ A dMPP sidecar may include:
 
 - Title
 - Description
-- Private Notes
+- Curator Notes
 - Date Taken or Era
 - People in the picture
 - Location
@@ -143,13 +143,13 @@ Good shared-library habits:
 
 These pieces work together.
 
-## Private Notes
+## Curator Notes
 
-Private Notes are stored in the sidecar file.
+                Curator Notes are stored in the sidecar file.
 
 They are intended for curator notes, uncertainty, repair clues, and follow-up tasks. They are not intended for display in slideshows or public family views.
 
-Private Notes are not encrypted or hidden. They are stored plainly in the sidecar file.
+Curator Notes are not encrypted or hidden. They are stored plainly in the sidecar file.
 
 ## Original pictures are not changed
 

@@ -109,7 +109,7 @@ The metadata area is where you describe the picture.
 It includes sections such as:
 
 - Title and Description
-- Private Notes
+- Curator Notes
 - Date Taken or Era
 - Tags
 - People
@@ -135,9 +135,9 @@ Description:
 Anna, Zach, and Hannah opening presents at Grandma Jean’s house.
 ```
 
-## Private Notes
+## Curator Notes
 
-Private Notes are for curator-facing notes, uncertainty, repair clues, and follow-up tasks.
+Curator Notes are for curator-facing notes, uncertainty, repair clues, and follow-up tasks.
 
 Examples:
 
@@ -147,7 +147,7 @@ Date may be 1984, not 1985.
 Need better crop before using in slideshow.
 ```
 
-Private Notes are not intended for display, but they are stored plainly in the sidecar file. They are not encrypted or hidden.
+Curator Notes are not intended for display, but they are stored plainly in the sidecar file. They are not encrypted or hidden.
 
 ## Date Taken or Era
 

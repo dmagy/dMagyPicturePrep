@@ -2119,7 +2119,7 @@ struct DMPPMetadataFormPane: View {
 
     // MARK: - [DICT] Help + focus
     @State private var showDictationHelp: Bool = false
-    @State private var showPrivateNotes: Bool = false
+    @State private var showCuratorNotes: Bool = false
     @FocusState private var descriptionFocused: Bool
     @FocusState private var titleFocused: Bool
 
@@ -2328,15 +2328,15 @@ struct DMPPMetadataFormPane: View {
                 }
                 .padding(.horizontal, 8)
 
-                privateNotesDisclosureBlock
+                curatorNotesDisclosureBlock
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
             }
             .onAppear {
-                syncPrivateNotesDisclosureState()
+                syncCuratorNotesDisclosureState()
             }
             .onChange(of: vm.metadata.sourceFile) { _, _ in
-                syncPrivateNotesDisclosureState()
+                syncCuratorNotesDisclosureState()
             }
         }
     }
@@ -3234,7 +3234,7 @@ struct DMPPMetadataFormPane: View {
             .joined(separator: "|")
     }
 
-    private func preserveMissingPeopleReferencesInPrivateNotes(_ missing: [String]) {
+    private func preserveMissingPeopleReferencesInCuratorNotes(_ missing: [String]) {
         let cleaned = missing
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -3242,7 +3242,7 @@ struct DMPPMetadataFormPane: View {
         guard !cleaned.isEmpty else { return }
 
         let heading = "People references needing attention:"
-        var notes = vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        var notes = vm.metadata.curatorNotes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var linesToAppend: [String] = []
 
@@ -3264,8 +3264,8 @@ struct DMPPMetadataFormPane: View {
 
         notes += "\n" + linesToAppend.joined(separator: "\n")
 
-        vm.metadata.privateNotes = notes
-        showPrivateNotes = true
+        vm.metadata.curatorNotes = notes
+        showCuratorNotes = true
     }
     
     private func suggestedPersonLabel(_ personID: String) -> String {
@@ -4166,7 +4166,7 @@ struct DMPPMetadataFormPane: View {
                         .foregroundStyle(.primary)
                 }
 
-                Text("This picture refers to saved people who are no longer available in Settings > People. The details have been preserved in Private Notes so they are not lost when this picture is saved.")
+                Text("This picture refers to saved people who are no longer available in Settings > People. The details have been preserved in Curator Notes so they are not lost when this picture is saved.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -4204,10 +4204,10 @@ struct DMPPMetadataFormPane: View {
             .padding(.horizontal, 6)
             .padding(.top, 4)
             .onAppear {
-                preserveMissingPeopleReferencesInPrivateNotes(missing)
+                preserveMissingPeopleReferencesInCuratorNotes(missing)
             }
             .onChange(of: missingPeopleReferencesChangeKey) { _, _ in
-                preserveMissingPeopleReferencesInPrivateNotes(missingPeopleReferencesInCurrentFile())
+                preserveMissingPeopleReferencesInCuratorNotes(missingPeopleReferencesInCurrentFile())
             }
         }
     }
@@ -4396,27 +4396,27 @@ struct DMPPMetadataFormPane: View {
     }
 
     @ViewBuilder
-    private var privateNotesDisclosureBlock: some View {
+    private var curatorNotesDisclosureBlock: some View {
         VStack(alignment: .leading, spacing: 5) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
-                    showPrivateNotes.toggle()
+                    showCuratorNotes.toggle()
                 }
             } label: {
                 HStack(alignment: .center, spacing: 6) {
-                    Image(systemName: showPrivateNotes ? "chevron.down" : "chevron.right")
+                    Image(systemName: showCuratorNotes ? "chevron.down" : "chevron.right")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 12)
 
-                    Text("Private Notes")
+                    Text("Curator Notes")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
 
                     Spacer(minLength: 0)
 
-                    if !vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if !vm.metadata.curatorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("Has notes")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -4425,11 +4425,11 @@ struct DMPPMetadataFormPane: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Private notes are for your review process and are not intended for display.")
+            .help("Curator notes are for your review process and are not intended for display.")
 
-            if showPrivateNotes {
+            if showCuratorNotes {
                 ZStack(alignment: .topLeading) {
-                    TextEditor(text: $vm.metadata.privateNotes)
+                    TextEditor(text: $vm.metadata.curatorNotes)
                         .font(.body)
                         .lineSpacing(2)
                         .padding(.horizontal, 8)
@@ -4445,7 +4445,7 @@ struct DMPPMetadataFormPane: View {
                         )
                         .scrollContentBackground(.hidden)
 
-                    if vm.metadata.privateNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if vm.metadata.curatorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("For curator notes, uncertainty, repair clues, and follow-up tasks. Not intended for display.")
                             .font(.body)
                             .foregroundStyle(.secondary.opacity(0.75))
@@ -4458,12 +4458,12 @@ struct DMPPMetadataFormPane: View {
         }
     }
     
-    private func syncPrivateNotesDisclosureState() {
-        let hasPrivateNotes = !vm.metadata.privateNotes
+    private func syncCuratorNotesDisclosureState() {
+        let hasCuratorNotes = !vm.metadata.curatorNotes
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
 
-        showPrivateNotes = hasPrivateNotes
+        showCuratorNotes = hasCuratorNotes
     }
     
     // MARK: Snapshot row renderer
@@ -6164,6 +6164,10 @@ extension DMPPImageEditorView {
         guard let vm else { return }
 
         var metadataToSave = vm.metadata
+        
+        // [DMPMS] Publish newly saved sidecars using the current public sidecar version.
+        // Existing v1.1 sidecars remain readable, but any save now writes v1.0.
+        metadataToSave.dmpmsVersion = "1.0"
 
         // ============================================================
         // MARK: - [PEOPLE] Decide peopleMethod from persisted content
@@ -6389,7 +6393,7 @@ extension DMPPImageEditorView {
         let baseTitle = url.deletingPathExtension().lastPathComponent
 
         return DmpmsMetadata(
-            dmpmsVersion: "1.2",
+            dmpmsVersion: "1.0",
             dmpmsNotice: "Created by dMagy Picture Prep. Stores metadata and crop settings for this photo. Deleting it erases edits (not the original image).",
             sourceFile: filename,
             title: baseTitle,

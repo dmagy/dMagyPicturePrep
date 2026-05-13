@@ -92,7 +92,7 @@ For each picture, review what you know:
 - People
 - Location
 - Crops
-- Private Notes, if needed
+- Curator Notes, if needed
 
 You do not need to fill in every field for every picture.
 
@@ -118,7 +118,7 @@ Learn these as they become useful:
 - Tags
 - Virtual crops
 - Headshot crops
-- Private Notes
+- Curator Notes
 - Folder access troubleshooting
 - Advanced Settings
 

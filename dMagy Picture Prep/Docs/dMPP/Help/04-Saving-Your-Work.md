@@ -23,7 +23,7 @@ A sidecar may include:
 
 - Title
 - Description
-- Private Notes
+- Curator Notes
 - Date Taken or Era
 - People
 - Location

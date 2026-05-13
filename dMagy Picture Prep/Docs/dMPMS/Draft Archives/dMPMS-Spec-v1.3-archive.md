@@ -1,3 +1,5 @@
+not used
+
 # dMPMS v1.3 — Draft Specification
 
 **dMagy Photo Metadata Standard**

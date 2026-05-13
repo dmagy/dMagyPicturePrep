@@ -45,7 +45,7 @@ private struct DMPPHelpTopic: Identifiable, Hashable {
         DMPPHelpTopic(id: "locations", title: "Locations", filename: "07-Locations.md"),
         DMPPHelpTopic(id: "tags", title: "Tags", filename: "08-Tags.md"),
         DMPPHelpTopic(id: "crops", title: "Crops", filename: "09-Crops.md"),
-        DMPPHelpTopic(id: "private-notes", title: "Private Notes", filename: "10-Private-Notes.md"),
+        DMPPHelpTopic(id: "private-notes", title: "Curator Notes", filename: "10-Private-Notes.md"),
         DMPPHelpTopic(id: "settings", title: "Settings", filename: "11-Settings.md"),
         DMPPHelpTopic(id: "troubleshooting", title: "Troubleshooting", filename: "12-Troubleshooting.md")
     ]

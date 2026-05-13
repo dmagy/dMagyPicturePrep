@@ -166,7 +166,7 @@ This helps prevent old or accidental learning from continuing to affect suggesti
 
 If a picture sidecar refers to a person who no longer exists in Settings, dMPP may show a People warning.
 
-When possible, dMPP preserves useful details in Private Notes so the clue is not lost when the picture is saved.
+When possible, dMPP preserves useful details in Curator Notes so the clue is not lost when the picture is saved.
 
 ## Good habits
 

@@ -149,7 +149,7 @@ struct DmpmsMetadata: Codable, Hashable {
     """
 
     // Core version for the dMPMS spec.
-    var dmpmsVersion: String = "1.2"
+    var dmpmsVersion: String = "1.0"
 
     /// Human-facing notice so people know what this file is.
     /// Always included near the top of the JSON.
@@ -165,7 +165,7 @@ struct DmpmsMetadata: Codable, Hashable {
     // Private curator-facing notes.
     // Intended for review decisions, uncertainty, repair clues, and follow-up tasks.
     // Not intended for display in dMPS.
-    var privateNotes: String = ""
+    var curatorNotes: String = ""
 
     /// Human-entered date/era string.
     /// Examples: "1973-08-10", "1973-08", "1973", "1970s", "1930-1931"
@@ -294,7 +294,7 @@ struct DmpmsMetadata: Codable, Hashable {
         case sourceFile
         case title
         case description
-        case privateNotes
+        case curatorNotes
         case dateTaken
         case dateRange
         case gps
@@ -313,12 +313,12 @@ struct DmpmsMetadata: Codable, Hashable {
     // MARK: - Designated init (used by code)
 
     init(
-        dmpmsVersion: String = "1.2",
+        dmpmsVersion: String = "1.0",
         dmpmsNotice: String = DmpmsMetadata.defaultNotice,
         sourceFile: String,
         title: String = "",
         description: String = "",
-        privateNotes: String = "",
+        curatorNotes: String = "",
         dateTaken: String = "",
         dateRange: DmpmsDateRange? = nil,
         gps: DmpmsGPS? = nil,
@@ -338,7 +338,7 @@ struct DmpmsMetadata: Codable, Hashable {
         self.sourceFile = sourceFile
         self.title = title
         self.description = description
-        self.privateNotes = privateNotes
+        self.curatorNotes = curatorNotes
         self.dateTaken = dateTaken
         self.dateRange = dateRange
         self.gps = gps
@@ -367,7 +367,7 @@ struct DmpmsMetadata: Codable, Hashable {
         sourceFile  = try container.decode(String.self, forKey: .sourceFile)
         title       = try container.decode(String.self, forKey: .title)
         description = try container.decode(String.self, forKey: .description)
-        privateNotes = (try? container.decode(String.self, forKey: .privateNotes)) ?? ""
+        curatorNotes = (try? container.decode(String.self, forKey: .curatorNotes)) ?? ""
         dateTaken   = try container.decode(String.self, forKey: .dateTaken)
 
         dateRange   = try? container.decode(DmpmsDateRange.self, forKey: .dateRange)
@@ -380,7 +380,7 @@ struct DmpmsMetadata: Codable, Hashable {
 
         peopleV2 = (try? container.decode([DmpmsPersonInPhoto].self, forKey: .peopleV2)) ?? []
 
-        // NEW (v1.2+)
+        // NEW (v1.0+)
         peopleV2Snapshots = (try? container.decode([DmpmsPeopleSnapshot].self, forKey: .peopleV2Snapshots)) ?? []
 
         peopleMethod = (try? container.decode(String.self, forKey: .peopleMethod)) ?? "manual"
@@ -401,7 +401,7 @@ struct DmpmsMetadata: Codable, Hashable {
         try c.encode(sourceFile, forKey: .sourceFile)
         try c.encode(title, forKey: .title)
         try c.encode(description, forKey: .description)
-        try c.encode(privateNotes, forKey: .privateNotes)
+        try c.encode(curatorNotes, forKey: .curatorNotes)
         try c.encode(dateTaken, forKey: .dateTaken)
         try c.encodeIfPresent(dateRange, forKey: .dateRange)
 
