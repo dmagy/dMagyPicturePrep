@@ -413,7 +413,7 @@ struct DmpmsMetadata: Codable, Hashable {
         try c.encode(people, forKey: .people)
         try c.encode(peopleV2, forKey: .peopleV2)
 
-        // NEW (v1.2+)
+        // NEW (v1.0+)
         try c.encode(peopleV2Snapshots, forKey: .peopleV2Snapshots)
         try c.encode(peopleMethod, forKey: .peopleMethod)
         // NEW (v1.4+ concept)

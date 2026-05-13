@@ -882,7 +882,13 @@ struct DMPPPeopleManagerView: View {
     }
 
     private func addIdentityVersion(for personID: String) {
+        // [PEOPLE] Commit current draft fields before adding an event.
+        // Without this, adding an event reloads from the store and can wipe
+        // unsaved edits to the original/person identity.
+        saveAllDrafts(for: personID)
+
         _ = identityStore.addIdentityVersion(forPersonID: personID)
+
         loadDrafts(for: personID)
         refreshToken = UUID()
     }

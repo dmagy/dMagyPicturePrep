@@ -6,8 +6,8 @@ _Last updated: 2026-05-06_
 
 ## Next / High Priority
 
-- update to publishing v1.2 of sidecars
-If I add a new person and immeadiately add an event bofere saving, the original information does not save. just the event.
+
+If I add a new person in settings and immeadiately add an event bofere saving, the original information does not save. just the event.
 
 
 
