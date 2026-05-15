@@ -1,0 +1,52 @@
+{
+  "dmpmsVersion": "1.0",
+  "sourceFile": "portrait.jpg",
+  "title": "Everett 2nd Grade",
+  "description": "Portrait with a person-linked headshot crop.",
+  "people": [
+    "Everett"
+  ],
+  "peopleV2": [
+    {
+      "id": "C222DCC0-FB61-4AA1-ABB9-E40B66FFD120",
+      "personID": "A80B7E5B-424B-40A9-B1C8-E5FFE958AD84",
+      "identityID": "5D15DCD5-6C85-4CA9-883A-35180EBF115A",
+      "isUnknown": false,
+      "shortNameSnapshot": "Everett",
+      "displayNameSnapshot": "Everett Samuel Colburn",
+      "ageAtPhoto": "7",
+      "rowIndex": 0,
+      "rowName": "Faces",
+      "positionIndex": 0,
+      "roleHint": "facesDerived"
+    }
+  ],
+  "virtualCrops": [
+    {
+      "id": "crop-4x5",
+      "label": "Portrait 4:5 (4×5, 8×10...)",
+      "aspectRatio": "4:5",
+      "kind": "standard",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1
+      }
+    },
+    {
+      "id": "crop-4x5-2",
+      "label": "Headshot (Tight)",
+      "aspectRatio": "4:5",
+      "kind": "headshot",
+      "headshotVariant": "tight",
+      "headshotPersonID": "A80B7E5B-424B-40A9-B1C8-E5FFE958AD84",
+      "rect": {
+        "x": 0.11822515359175433,
+        "y": 0.04102349405436526,
+        "width": 0.7922400841346154,
+        "height": 0.7922400841346154
+      }
+    }
+  ]
+}

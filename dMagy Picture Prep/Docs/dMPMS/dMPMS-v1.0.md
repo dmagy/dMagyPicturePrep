@@ -91,14 +91,14 @@ The sidecar filename appends `.dmpms.json` to the original image filename.
 Examples:
 
 ```text
-IMG_0001.jpg
-IMG_0001.jpg.dmpms.json
+Picture: IMG_0001.jpg
+Sidecar: IMG_0001.jpg.dmpms.json
 
-family_photo.heic
-family_photo.heic.dmpms.json
+Picture: family_photo.heic
+Sidecar: family_photo.heic.dmpms.json
 
-scan_1978.png
-scan_1978.png.dmpms.json
+Picture: scan_1978.png
+Sidecar: scan_1978.png.dmpms.json
 ```
 
 ### 3.2 Relationship to the original image
@@ -630,18 +630,6 @@ Example:
 }
 ```
 
-### 10.3 Embedded locations
-
-dMPMS v1.0 uses embedded location data rather than requiring `locationID`.
-
-A locations registry may exist as support data, but the sidecar should remain understandable without it.
-
-### 10.4 GPS drift
-
-GPS and reverse geocoding may be approximate.
-
-A tool may allow a user to correct or replace GPS-derived address information with a saved human-readable location.
-
 ---
 
 ## 11. Tags
@@ -659,52 +647,6 @@ Example:
 ```json
 "tags": ["Flagged", "Christmas", "Family"]
 ```
-
-### 11.2 Human-readable tags
-
-dMPMS v1.0 intentionally keeps tags readable in the sidecar.
-
-This is preferred:
-
-```json
-"tags": ["Flagged", "Christmas"]
-```
-
-This is not required by dMPMS v1.0:
-
-```json
-"tagIDs": ["reserved.flagged", "event.christmas"]
-```
-
-### 11.3 Standard dMagy tags
-
-dMPMS itself allows human-readable tag strings.
-
-dMagy apps may treat certain tag names as standard tags with shared behavior.
-
-Examples may include:
-
-```text
-Flagged
-Do Not Display
-```
-
-`Flagged` may be used for follow-up or review.
-
-`Do Not Display` may be used by display tools to avoid showing a photo in slideshows, public views, or family presentations.
-
-### 11.4 Tag registries
-
-A tag registry may exist as archive support data for:
-
-- descriptions
-- sorting
-- default tags
-- reserved behavior
-- UI support
-- consistency checking
-
-A registry should enrich the archive, not make the sidecar unreadable without lookup.
 
 ---
 
@@ -819,8 +761,6 @@ Example:
 
 Headshot crops are person-focused virtual crops.
 
-They are part of dMPMS v1.0 because current dMagy sidecars may include them.
-
 ### 13.1 Headshot crop structure
 
 A headshot crop uses:
@@ -873,12 +813,6 @@ Links the headshot crop to a person record.
 
 If the referenced person is missing from available registries, readers should preserve and display the crop rather than deleting it.
 
-### 13.4 Future compatibility
-
-Future versions may refine headshot crop naming or registry relationships.
-
-Readers should preserve unknown crop fields.
-
 ---
 
 ## 14. Curator Notes
@@ -906,12 +840,6 @@ Examples:
 Display tools should not normally show `curatorNotes`.
 
 Use `description` for display-facing story or context.
-
-### 14.3 Not encrypted or hidden
-
-Curator Notes are plain JSON.
-
-Do not store sensitive information in `curatorNotes` unless it is appropriate for the archive metadata.
 
 ---
 
@@ -980,42 +908,9 @@ Readers and writers should preserve workflow/app-private fields when possible, e
 
 ---
 
-## 16. Portable Archive Support Data
+## 16. Reader and Writer Expectations
 
-dMPMS v1.0 defines the sidecar format.
-
-Apps may also maintain portable archive support data beside the photo archive.
-
-Examples may include:
-
-```text
-People
-Locations
-Tags
-Crops
-FaceIndex
-_locks
-_meta
-_indexes
-```
-
-These registries and folders can support:
-
-- consistent People
-- saved Locations
-- Tag descriptions
-- Crop presets
-- face recognition data
-- rebuildable indexes
-- collaboration warnings
-
-However, the sidecar should remain useful and readable without requiring lookup into these support files.
-
----
-
-## 17. Reader and Writer Expectations
-
-### 17.1 Readers
+### 16.1 Readers
 
 Readers should:
 
@@ -1027,7 +922,7 @@ Readers should:
 - prefer display-facing fields for presentation
 - avoid displaying curator-facing fields unless explicitly requested
 
-### 17.2 Writers
+### 16.2 Writers
 
 Writers should:
 
@@ -1038,7 +933,7 @@ Writers should:
 - keep sidecars human-readable
 - avoid requiring registry lookup for basic sidecar meaning
 
-### 17.3 Unknown fields
+### 16.3 Unknown fields
 
 Unknown fields should not make a sidecar invalid.
 
@@ -1046,9 +941,9 @@ Writers should preserve them when possible.
 
 ---
 
-## 18. Versioning
+## 17. Versioning
 
-### 18.1 `dmpmsVersion`
+### 17.1 `dmpmsVersion`
 
 The public v1.0 standard writes:
 
@@ -1056,33 +951,29 @@ The public v1.0 standard writes:
 "dmpmsVersion": "1.0"
 ```
 
-### 18.2 Earlier internal drafts
+### 17.2 Earlier internal drafts
 
 Earlier internal drafts may have used other version strings.
 
 Readers should handle older known sidecars gracefully when possible.
 
-### 18.3 Future minor versions
+### 17.3 Future minor versions
 
 Future minor versions should be non-destructive when possible.
 
 Minor version changes should not require readers to discard unknown data.
 
-### 18.4 Breaking changes
+### 17.4 Breaking changes
 
 A future breaking change should use a major version bump.
 
 ---
 
-## 19. Migration Expectations
+## 18. Migration Expectations
 
 Existing sidecars from internal drafts do not need to be rewritten immediately.
 
 Tools may naturally update `dmpmsVersion` when a sidecar is next saved, provided the sidecar conforms to the public v1.0 structure.
-
-For the internal-to-public transition, tools may migrate `privateNotes` to `curatorNotes`.
-
-A reader may continue to tolerate `privateNotes` as a legacy synonym, but writers should prefer `curatorNotes` for v1.0 sidecars.
 
 A reader should not reject older internal sidecars solely because their `dmpmsVersion` differs.
 
@@ -1090,9 +981,9 @@ Future migrations may include richer registries or refined crop fields, but shou
 
 ---
 
-## 20. Example Sidecars
+## 19. Example Sidecars
 
-### 20.1 Basic photo
+### 19.1 Basic photo
 
 ```json
 {
@@ -1103,7 +994,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.2 Photo with date range
+### 19.2 Photo with date range
 
 ```json
 {
@@ -1118,7 +1009,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.3 Photo with GPS and location
+### 19.3 Photo with GPS and location
 
 ```json
 {
@@ -1141,7 +1032,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.4 Photo with tags and curator notes
+### 19.4 Photo with tags and curator notes
 
 ```json
 {
@@ -1154,7 +1045,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.5 Photo with people
+### 19.5 Photo with people
 
 ```json
 {
@@ -1192,7 +1083,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.6 Photo with virtual crops and headshot crop
+### 19.6 Photo with virtual crops and headshot crop
 
 ```json
 {
@@ -1230,7 +1121,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 }
 ```
 
-### 20.7 Photo with workflow fields
+### 19.7 Photo with workflow fields
 
 ```json
 {
@@ -1255,7 +1146,7 @@ Future migrations may include richer registries or refined crop fields, but shou
 
 ---
 
-## 21. Non-Goals
+## 20. Non-Goals
 
 dMPMS v1.0 does not define:
 
@@ -1272,25 +1163,28 @@ dMPMS v1.0 does not define:
 
 ---
 
-## 22. License and Attribution
+## 21. License and Attribution
 
-The dMagy Photo Metadata Standard is authored by:
+The dMagy Photo Metadata Standard (dMPMS) is authored by:
 
 ```text
 Daniel P. Magyar (“dMagy”)
 ```
 
-License to be determined before public publication.
+This specification is licensed under the **Creative Commons Attribution 4.0 International License (CC BY 4.0)**.
 
-Recommended placeholder:
+You may share, copy, redistribute, adapt, and build upon this specification for any purpose, including commercial use, provided appropriate attribution is given.
+
+Suggested attribution:
 
 ```text
-© Daniel P. Magyar. License pending.
+dMPMS — dMagy Photo Metadata Standard, by Daniel P. Magyar (“dMagy”), licensed under CC BY 4.0.
 ```
 
+Implementations of dMPMS are not required to use the same license as this specification.
 ---
 
-## 23. Summary
+## 22. Summary
 
 dMPMS v1.0 is the first public version of the dMagy Photo Metadata Standard.
 

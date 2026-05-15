@@ -39,9 +39,23 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				dMPP/Source/Models/AuraFaceEmbedding.mlpackage,
+				"Docs/dMPMS/dMPMS-v1.0.md",
+				"Docs/dMPMS/Draft Archives/dMPMS-Schema.json",
 				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.1.md",
 				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.2.md",
 				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.3-archive.md",
+				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.4-archive.md",
+				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.md",
+				"Docs/dMPMS/Examples/basic-photo.dmpms.json",
+				"Docs/dMPMS/Examples/complete-example-photo.dmpms.json",
+				"Docs/dMPMS/Examples/date-range-photo.dmpms.json",
+				"Docs/dMPMS/Examples/headshot-crop-photo.dmpms.json",
+				"Docs/dMPMS/Examples/location-gps-photo.dmpms.json",
+				"Docs/dMPMS/Examples/people-photo.dmpms.json",
+				"Docs/dMPMS/Examples/tags-curator-notes-photo.dmpms.json",
+				"Docs/dMPMS/Examples/virtual-crops-photo.dmpms.json",
+				"Docs/dMPMS/Examples/workflow-fields-photo.dmpms.json",
+				Docs/dMPMS/README.md,
 				Docs/dMPP/Backlog.md,
 				"Docs/dMPP/dMagy Project Collaboration Guide.md",
 				"Docs/dMPP/dMPP-AI-Context-v1.md",
@@ -49,6 +63,7 @@
 				"Docs/dMPP/dMPP-Context-v1.md",
 				"Docs/dMPP/dMPP-Context-v2.md",
 				"Docs/dMPP/dMPP-Context-v3.md",
+				"Docs/dMPP/dMPP-Context-v4.md",
 				"Docs/dMPP/dMPP-Context-v5.md",
 				"Docs/dMPP/dMPP-Context-v6.md",
 				"Docs/dMPP/dMPP-Context-v7.md",
@@ -59,6 +74,7 @@
 				"Docs/dMPP/dMPP-Context-v12.md",
 				"Docs/dMPP/dMPP-Context-v13.md",
 				"Docs/dMPP/dMPP-Context-v14.md",
+				"Docs/dMPP/dMPP-Context-v15.md",
 				"Docs/dMPP/dMPP-Context-v16.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
@@ -470,8 +486,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to capture audio for dictation when filling photo metadata.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used to dictate the Description field for photo metadata.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -518,8 +534,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Used to capture audio for dictation when filling photo metadata.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Used to dictate the Description field for photo metadata.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

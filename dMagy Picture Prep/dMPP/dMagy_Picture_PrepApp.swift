@@ -189,7 +189,7 @@ private struct DMPPArchiveRootGateView: View {
                     Text("Choose Your Picture Library Folder")
                         .font(.title2)
 
-                    Text("dMPP needs one top-level folder that contains your pictures. Portable registry data will be stored inside it.")
+                    Text("Choose the main folder for the full picture collection you plan to prepare. dMPP will save its notes, people, places, tags, and crop choices inside that folder so everything stays together.")
                         .foregroundStyle(.secondary)
 
                     if let msg = archiveStore.archiveRootStatusMessage, !msg.isEmpty {
@@ -319,6 +319,9 @@ private struct DMPPArchiveRootGateView: View {
     private func configureStoresIfNeeded(for root: URL) {
         let path = root.path
         guard lastConfiguredRootPath != path else { return }
+
+        // [BOOT] Repair required portable archive folders before stores read/write.
+        _ = archiveStore.ensurePortableArchiveStructure(at: root)
 
         identityStore.configureForArchiveRoot(root)
         tagStore.configureForArchiveRoot(root)

@@ -25,6 +25,8 @@ Our default mindset: **clarity over clever**, **replace over splice**, and **kee
 * We ask a question when it materially improves correctness or reduces rework.
 * Otherwise, we proceed with a reasonable assumption and label it clearly.
 
+* When 
+
 ---
 
 ## How We Deliver Code Changes

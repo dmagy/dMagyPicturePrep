@@ -1,0 +1,44 @@
+{
+  "dmpmsVersion": "1.0",
+  "sourceFile": "family-portrait.jpg",
+  "title": "Family Portrait",
+  "description": "Family portrait prepared for multiple display formats.",
+  "virtualCrops": [
+    {
+      "id": "crop-16x9",
+      "label": "Landscape 16:9",
+      "aspectRatio": "16:9",
+      "kind": "standard",
+      "rect": {
+        "x": 0,
+        "y": 0.2109375,
+        "width": 1,
+        "height": 0.5625
+      }
+    },
+    {
+      "id": "crop-4x5",
+      "label": "Portrait 4:5 (4×5, 8×10...)",
+      "aspectRatio": "4:5",
+      "kind": "standard",
+      "rect": {
+        "x": 0.215,
+        "y": 0.05,
+        "width": 0.57,
+        "height": 0.89
+      }
+    },
+    {
+      "id": "crop-original",
+      "label": "Original (full image)",
+      "aspectRatio": "3:2",
+      "kind": "standard",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1
+      }
+    }
+  ]
+}

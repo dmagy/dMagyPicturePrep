@@ -1,0 +1,11 @@
+{
+  "dmpmsVersion": "1.0",
+  "sourceFile": "school-photo.jpg",
+  "title": "Second grade school photo",
+  "description": "School portrait from early fall.",
+  "dateTaken": "2025-09",
+  "dateRange": {
+    "earliest": "2025-09-01",
+    "latest": "2025-09-30"
+  }
+}

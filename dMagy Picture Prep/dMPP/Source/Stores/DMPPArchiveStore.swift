@@ -330,20 +330,45 @@ final class DMPPArchiveStore: ObservableObject {
         bootstrapPortableArchiveIfPossible(url)
     }
 
-    // ============================================================
-    // MARK: - [BOOT] Portable Archive Bootstrap
-    // ============================================================
+    // ------------------------------------------------------------
+    // [BOOT] Ensure portable archive folder structure exists under root
+    // ------------------------------------------------------------
+
+    @discardableResult
+    func ensurePortableArchiveStructure(at rootURL: URL) -> Bool {
+        do {
+            _ = try DMPPPortableArchiveBootstrap.ensurePortableArchive(at: rootURL)
+            return true
+        } catch {
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = "dMPP could not create its support folders inside your Picture Library Folder."
+            }
+
+            print("Portable archive bootstrap failed: \(error)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func ensurePortableArchiveStructureForCurrentRoot() -> Bool {
+        guard let rootURL = archiveRootURL else {
+            DispatchQueue.main.async {
+                self.archiveRootStatusMessage = "Picture Library Folder is not set."
+            }
+            return false
+        }
+
+        return ensurePortableArchiveStructure(at: rootURL)
+    }
+
+
+
+
 
     private func bootstrapPortableArchiveIfPossible(_ rootURL: URL) {
-        DispatchQueue.global(qos: .utility).async {
-            do {
-                _ = try DMPPPortableArchiveBootstrap.ensurePortableArchive(at: rootURL)
-            } catch {
-                DispatchQueue.main.async {
-                    self.archiveRootStatusMessage = "Creating portable archive data failed."
-                    print("Portable archive bootstrap failed: \(error)")
-                }
-            }
+        // File IO off the main thread for normal bookmark restoration.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.ensurePortableArchiveStructure(at: rootURL)
         }
     }
 

@@ -1,0 +1,23 @@
+{
+  "dmpmsVersion": "1.0",
+  "sourceFile": "field-trip.jpg",
+  "title": "Art Show",
+  "description": "Student artwork on display at the fairgrounds.",
+  "dateTaken": "2025-04-18",
+  "dateRange": {
+    "earliest": "2025-04-18",
+    "latest": "2025-04-18"
+  },
+  "gps": {
+    "latitude": 40.15561116666667,
+    "longitude": -105.12904716666667,
+    "altitudeMeters": 1497.09
+  },
+  "location": {
+    "description": "Boulder County Fair Grounds",
+    "streetAddress": "9595 Nelson Rd",
+    "city": "Longmont",
+    "state": "CO",
+    "country": "United States"
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "dmpmsVersion": "1.0",
+  "dmpmsNotice": "Created by dMagy Picture Prep. Stores metadata and crop settings for this photo. Deleting it erases edits (not the original image).",
+  "sourceFile": "complete-example.jpg",
+  "title": "Everett and Emmalyn in New York",
+  "description": "Everett and Emmalyn near Times Square during a family trip.",
+  "curatorNotes": "Confirm whether this was taken before or after dinner.",
+  "dateTaken": "2025-04-30",
+  "dateRange": {
+    "earliest": "2025-04-30",
+    "latest": "2025-04-30"
+  },
+  "gps": {
+    "latitude": 40.75906666666667,
+    "longitude": -73.98374166666666,
+    "altitudeMeters": -15.79
+  },
+  "location": {
+    "streetAddress": "157 W 47th St",
+    "city": "New York",
+    "state": "NY",
+    "country": "United States"
+  },
+  "tags": [
+    "Flagged",
+    "Family"
+  ],
+  "people": [
+    "Emmalyn",
+    "Everett"
+  ],
+  "peopleV2": [
+    {
+      "id": "26068499-327E-46EB-B3EA-83F2AB42C56F",
+      "personID": "EB6860E9-8E46-43DA-A3AD-9A3436469152",
+      "identityID": "D212EC8E-DE74-4D23-AB88-CC237917677E",
+      "isUnknown": false,
+      "shortNameSnapshot": "Emmalyn",
+      "displayNameSnapshot": "Emmalyn Taylor Colburn",
+      "nameSnapshot": {
+        "given": "Emmalyn",
+        "middle": "Taylor",
+        "surname": "Colburn",
+        "display": "Emmalyn Taylor Colburn",
+        "sort": "Colburn, Emmalyn Taylor"
+      },
+      "ageAtPhoto": "9",
+      "rowIndex": 0,
+      "positionIndex": 0
+    },
+    {
+      "id": "285C251B-CFDE-43E5-ADBB-3E3C8A341F61",
+      "personID": "A80B7E5B-424B-40A9-B1C8-E5FFE958AD84",
+      "identityID": "5D15DCD5-6C85-4CA9-883A-35180EBF115A",
+      "isUnknown": false,
+      "shortNameSnapshot": "Everett",
+      "displayNameSnapshot": "Everett Samuel Colburn",
+      "nameSnapshot": {
+        "given": "Everett",
+        "middle": "Samuel",
+        "surname": "Colburn",
+        "display": "Everett Samuel Colburn",
+        "sort": "Colburn, Everett Samuel"
+      },
+      "ageAtPhoto": "7",
+      "rowIndex": 0,
+      "positionIndex": 1
+    }
+  ],
+  "peopleMethod": "manual",
+  "ignoredFaceNumbers": [],
+  "faceAssignments": {},
+  "peopleV2Snapshots": [],
+  "virtualCrops": [
+    {
+      "id": "crop-16x9",
+      "label": "Landscape 16:9",
+      "aspectRatio": "16:9",
+      "kind": "standard",
+      "rect": {
+        "x": 0,
+        "y": 0.455708912037037,
+        "width": 1,
+        "height": 0.421875
+      }
+    },
+    {
+      "id": "crop-4x5",
+      "label": "Portrait 4:5 (4×5, 8×10...)",
+      "aspectRatio": "4:5",
+      "kind": "standard",
+      "rect": {
+        "x": 0.26081659053539524,
+        "y": 0.3210961381176738,
+        "width": 0.724164119341148,
+        "height": 0.6789038618823262
+      }
+    },
+    {
+      "id": "crop-4x5-2",
+      "label": "Headshot (Tight)",
+      "aspectRatio": "4:5",
+      "kind": "headshot",
+      "headshotVariant": "tight",
+      "headshotPersonID": "EB6860E9-8E46-43DA-A3AD-9A3436469152",
+      "rect": {
+        "x": 0.37257349193962885,
+        "y": 0.45232656651747605,
+        "width": 0.3099996210590139,
+        "height": 0.29062464474282557
+      }
+    }
+  ],
+  "history": [
+    {
+      "action": "updateCropRect",
+      "cropID": "crop-4x5-2",
+      "newName": "Headshot (Tight)",
+      "timestamp": "2026-05-11T11:45:49Z"
+    }
+  ]
+}

@@ -60,6 +60,11 @@ struct DMPPImageEditorView: View {
     // [LOCK] Warning-only soft lock UI
     @State private var softLockWarningText: String? = nil
     @State private var currentPhotoRelPathForLock: String? = nil
+
+    // [SIDECAR-READ] Warning when an existing .dmpms.json file could not be read.
+    // If the user saves, dMPP backs up the unreadable file before replacing it.
+    @State private var sidecarReadWarningText: String? = nil
+    @State private var unreadableSidecarURL: URL? = nil
     // [LOCK] Heartbeat timer (updates our lock timestamp while we’re on a picture)
     @State private var softLockHeartbeatTimer: Timer? = nil
     // MARK: - [DICT] Speech dictation controller (Description field)
@@ -137,6 +142,7 @@ struct DMPPImageEditorView: View {
         VStack(spacing: 0) {
             toolbarView
             softLockBannerView
+            sidecarReadWarningBannerView
             Divider()
             mainContentView
         }
@@ -848,7 +854,41 @@ struct DMPPImageEditorView: View {
         }
     }
 
-    
+    // [SIDECAR-READ] Full-width warning banner for unreadable sidecar files
+    @ViewBuilder
+    private var sidecarReadWarningBannerView: some View {
+        if let sidecarReadWarningText, !sidecarReadWarningText.isEmpty {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.headline)
+
+                Text(sidecarReadWarningText)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(3)
+
+                Spacer(minLength: 8)
+
+                Button("Dismiss") {
+                    self.sidecarReadWarningText = nil
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(
+                Rectangle()
+                    .fill(Color.yellow)
+            )
+            .overlay(
+                Rectangle()
+                    .stroke(Color.orange.opacity(0.65), lineWidth: 1)
+            )
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: sidecarReadWarningText)
+        }
+    }
     
     // MARK: - [UI-EMPTY] Legacy wrapper (keep until we’re sure nothing references it)
 
@@ -6269,12 +6309,21 @@ extension DMPPImageEditorView {
         let newBaseline = metadataHash(metadataToSave)
 
         do {
+            let backupURL = try backupUnreadableSidecarIfNeeded(sidecarURL: url)
+
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted]
             let data = try encoder.encode(metadataToSave)
             try data.write(to: url, options: .atomic)
 
             loadedMetadataHash = newBaseline
+
+            if let backupURL {
+                sidecarReadWarningText = "dMPP replaced an unreadable saved information file and kept a backup named \(backupURL.lastPathComponent)."
+            } else {
+                sidecarReadWarningText = nil
+            }
+            unreadableSidecarURL = nil
 
             // Learn immediately after a successful save, before navigation clears face state.
             learnFacesFromSavedMetadata(metadataToSave)
@@ -6284,6 +6333,9 @@ extension DMPPImageEditorView {
             print("      Domain: \(nsError.domain)")
             print("      Code:   \(nsError.code)")
             print("      Desc:   \(nsError.localizedDescription)")
+
+            continueErrorMessage = "dMPP could not save changes for this picture. Check that the folder is writable, then try again."
+            showContinueError = true
         }
     }
 
@@ -6367,6 +6419,25 @@ extension DMPPImageEditorView {
         return h.finalize()
     }
 
+    private func backupUnreadableSidecarIfNeeded(sidecarURL: URL) throws -> URL? {
+        guard unreadableSidecarURL == sidecarURL else { return nil }
+
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sidecarURL.path) else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+
+        let stamp = formatter.string(from: Date())
+        let backupName = "\(sidecarURL.lastPathComponent).unreadable-\(stamp).backup"
+        let backupURL = sidecarURL.deletingLastPathComponent().appendingPathComponent(backupName)
+
+        try fm.copyItem(at: sidecarURL, to: backupURL)
+        return backupURL
+    }
+
     private func loadMetadata(for imageURL: URL) -> DmpmsMetadata {
         let sidecar = sidecarURL(for: imageURL)
         let fm = FileManager.default
@@ -6378,12 +6449,23 @@ extension DMPPImageEditorView {
 
                 metadata.sourceFile = imageURL.lastPathComponent
                 normalizePeople(in: &metadata)
+
+                unreadableSidecarURL = nil
+                sidecarReadWarningText = nil
+
                 return metadata
             } catch {
                 print("dMPP: Failed to read metadata from \(sidecar.lastPathComponent): \(error)")
+
+                unreadableSidecarURL = sidecar
+                sidecarReadWarningText = "dMPP found saved information for this picture, but could not read it. Your original picture was not changed. If you save, dMPP will keep a backup of the unreadable file and create a new saved information file."
+
                 return makeDefaultMetadata(for: imageURL)
             }
         } else {
+            unreadableSidecarURL = nil
+            sidecarReadWarningText = nil
+
             return makeDefaultMetadata(for: imageURL)
         }
     }

@@ -4,53 +4,261 @@ _Last updated: 2026-05-06_
 
 ---
 
-## Next / High Priority
+### dMPP Launch Readiness
+
+1. Privacy Policy / App Store Privacy — Complete
+
+   - Privacy policy updated to cover local sidecars, portable archive data, face processing, and user-selected folders.
+   - App Store privacy answer: Data Not Collected, pending final code sanity check during item 9 / release build.
+
+2. Folder Access / First-Run Clarity — Complete
+
+   - First-run explains that the user should choose the main folder for the picture collection they plan to prepare.
+   - First-run explains that dMPP saves notes, people, places, tags, and crop choices inside that folder so everything stays together.
+   - Settings exposes the selected Picture Library Folder and the portable archive data location.
+   - Users are informed that dMPP keeps its working information inside the selected folder rather than sending it elsewhere.
+
+3. Sandbox / Entitlements Review — Complete
+
+- App Sandbox is enabled.
+- Hardened Runtime is enabled.
+- User Selected Files is set to Read/Write.
+- Audio Input is enabled for speech-to-text description entry.
+- Microphone and Speech Recognition usage descriptions are present.
+- Network incoming/outgoing, camera, contacts, location, calendar, printing, USB, and other unused capabilities are disabled.
+- Code Signing Entitlements is blank, so Xcode appears to be managing effective sandbox entitlements through target settings rather than an explicit entitlements file.
+
+Release-build check:
+- Reconfirm these settings before Archive / App Store submission.
+
+4. **Failure-State Testing**
+   - Test missing folder, renamed folder, read-only folder, invalid sidecar JSON, deleted image, and missing portable archive folders.
+   - Improve messaging only where a normal user would be stuck.
+
+5. **dMPMS Publishing**
+   - Commit `dMPMS-v1.0.md` and example sidecars under `Docs/dMPMS`.
+   - Publish the dMagy.com/dmpms overview page and link to the canonical spec.
+
+6. **Help / README Alignment**
+   - Update Help files, `_Read_Me_`, and any in-app text to use `curatorNotes`, `dmpmsVersion: "1.0"`, and current dMPMS language.
+   - Make sure dMPMS docs are repo-only unless intentionally bundled.
+
+7. **Sample Archive / Screenshots**
+   - Create a small clean sample archive for testing, screenshots, and App Review notes.
+   - Use it to produce App Store screenshots and verify the new-user path.
+
+8. **App Review Notes**
+   - Write a short reviewer note explaining local folder selection, sidecar writing, and that original photos are not modified or uploaded.
+   - Include simple test steps using a folder of sample images.
+
+9. **Final Data-Safety Pass**
+   - Confirm save, Next Picture auto-save, sidecar versioning, `curatorNotes`, people, tags, locations, and crops behave correctly.
+   - Confirm existing sidecars remain readable.
+
+10. **Release Build / Distribution Check**
+   - Build a clean release archive and test it outside Xcode.
+   - Verify app icon, version/build number, signing, notarization/App Store packaging, and launch behavior.  
 
 
-If I add a new person in settings and immeadiately add an event bofere saving, the original information does not save. just the event.
 
+Here are the failure-state test results so far.
 
+## 4. Failure-State Testing — Results So Far
+
+### Test 1 — Renamed Picture Library Folder
+
+**Result: Pass**
+
+What you did:
+
+* Renamed the selected Picture Library Folder outside dMPP.
+* Relaunched dMPP.
+
+What happened:
+
+* dMPP successfully found and continued using the renamed folder.
+
+Conclusion:
+
+* No fix needed.
+* This is good behavior. macOS/security-scoped bookmarks can often continue tracking a renamed folder.
 
 ---
 
-## Product / Design Decisions Needed
+### Test 1b — Picture Library Folder moved to Trash
 
+**Result: Pass**
 
+What you did:
 
+* Moved the selected Picture Library Folder to Trash.
+* Relaunched dMPP.
 
+What happened:
 
+* dMPP still found and used the folder.
 
-### dMPMS Standard / Publishing
-- Review and formalize the dMPMS sidecar metadata standard before public release.
-- Decide what belongs in the published standard versus app-specific implementation details.
-- Document required, optional, and app-private fields.
-- Clarify display-facing fields versus curator/private fields.
-  - Example: `description` is display-facing.
-  - Example: `privateNotes` is curator-facing and not intended for display.
-- Include examples of real `.dmpms.json` sidecars:
-  - basic photo
-  - photo with people
-  - photo with dates / date ranges
-  - photo with GPS / saved location
-  - photo with virtual crops
-  - photo with Private Notes
-- Decide versioning rules for `dmpmsVersion`.
-- Decide migration expectations for older sidecars.
-- Publish the standard when dMPP / dMPS are ready for outside users.
+Conclusion:
 
-### Shipping Readiness / Refactor Question
-- Decide whether dMPP can ship with `DMPPImageEditorView.swift` at its current size.
-  - Current concern: approximately 6300+ lines.
-  - Question: is this a shipping risk or primarily a maintainability concern?
-- Recommendation: do not start a broad refactor unless current behavior is stable and committed.
-- If refactoring, plan gradual extraction only:
-  - Title / Description / Private Notes section
-  - Tags section
-  - Location section
-  - People section
-  - Crop header/actions
-- Use versioning checkpoints before each extraction.
+* No fix needed.
+* Still acceptable behavior because the folder technically still existed.
 
+---
+
+### Test 1c — Picture Library Folder permanently deleted
+
+**Result: Pass**
+
+What you did:
+
+* Emptied Trash so the selected Picture Library Folder was actually gone.
+* Relaunched dMPP.
+
+What happened:
+
+* dMPP asked you to select a new Picture Library Folder.
+
+Conclusion:
+
+* No fix needed.
+* This is the correct recovery path.
+
+Backlog note:
+
+```markdown
+- Missing / deleted Picture Library Folder: Pass
+  - Renamed or moved folders may still resolve correctly.
+  - When the folder was permanently deleted, dMPP prompted for a new Picture Library Folder.
+  - No fix needed.
+```
+
+---
+
+### Test 5a — Deleted `Tags` support folder
+
+**Initial Result: Confusing / suspected fail**
+
+What you did:
+
+* Deleted:
+
+```text
+dMagy Portable Archive Data/Tags
+```
+
+* Relaunched dMPP.
+
+What happened:
+
+* `Tags` did not recreate immediately.
+* Tags were still available in the app.
+* Opening Settings > General recreated the folder.
+
+Then we investigated:
+
+* Console showed sandbox permission errors: “Operation not permitted.”
+* After refreshing access to the Picture Library Folder, `Tags` was regenerated properly.
+
+**Final Result: Pass after folder access refresh**
+
+Conclusion:
+
+* Missing folder repair works when dMPP has valid write access.
+* The first failure was likely stale/lost sandbox permission after the rename/trash/delete testing.
+
+Backlog note:
+
+```markdown
+- Deleted Tags support folder: Pass after access refresh
+  - dMPP recreated the missing Tags folder once write access to the Picture Library Folder was refreshed.
+  - Finding: stale macOS folder permission can prevent support-folder repair.
+  - Possible polish: if dMPP cannot write inside the Picture Library Folder, show a plain message prompting the user to refresh folder access.
+```
+
+---
+
+### Test 5b — Deleted `Locations` support folder
+
+**Result: Pass**
+
+What you did:
+
+* Deleted:
+
+```text
+dMagy Portable Archive Data/Locations
+```
+
+* Relaunched dMPP after folder access had been refreshed.
+
+What happened:
+
+* `Locations` was recreated automatically.
+
+Conclusion:
+
+* No structural repair fix needed.
+* This confirms the bootstrap repair behavior works when folder permission is valid.
+
+Backlog note:
+
+```markdown
+- Deleted Locations support folder: Pass
+  - dMPP recreated the missing Locations folder on relaunch.
+  - No fix needed.
+```
+
+---
+
+## Summary so far
+
+```markdown
+4. Failure-State Testing — In progress
+
+Completed:
+- Renamed Picture Library Folder: Pass
+- Picture Library Folder moved to Trash: Pass
+- Picture Library Folder permanently deleted: Pass
+- Deleted Tags support folder: Pass after access refresh
+- Deleted Locations support folder: Pass
+
+Finding:
+- Missing portable archive folders are repaired correctly when dMPP has valid write access.
+- Stale/lost macOS sandbox folder permission can prevent repair and cause “Operation not permitted” console errors.
+
+Possible polish:
+- Add a user-facing message when dMPP cannot write inside the Picture Library Folder:
+  “dMPP needs permission to save inside your Picture Library Folder. Choose the folder again to refresh access.”
+
+Remaining tests:
+- Read-only folder / save failure
+- Invalid `.dmpms.json` sidecar
+- Deleted image while app is open
+- Deleted entire `dMagy Portable Archive Data` folder
+```
+
+My read: nothing here is a launch blocker yet, but the stale-permission message may be worth adding if we hit it again in another test.
+
+### Test 2 — Invalid `.dmpms.json` sidecar
+
+Result: Partial fail / Fix needed
+
+What I did:
+- Created a valid `.dmpms.json` sidecar.
+- Replaced its contents with invalid JSON:
+  `{ "title": "Broken"`
+- Relaunched dMPP and navigated to that picture.
+
+What happened:
+- dMPP did not crash.
+- Console logged a decoding failure: “The given data was not valid JSON.”
+- No user-facing warning appeared.
+- I could continue working.
+- Saving overwrote the broken sidecar with valid new data.
+
+Fix needed:
+- Show a plain warning when a sidecar cannot be read.
+- Prevent silent overwrite, or back up/quarantine the unreadable sidecar before writing a replacement.
 ---
 
 ## Near-Term Backlog
@@ -265,3 +473,34 @@ If I add a new person in settings and immeadiately add an event bofere saving, t
 - Added Help > dMPP Help menu item.
 - Added topic sidebar and lightweight Markdown rendering for headings, paragraphs, lists, and code blocks.
 - Kept Help > Getting Started as a separate setup-focused guide.
+
+### People Settings
+- Fixed Add Event flow so unsaved original person fields are committed before adding an identity event.
+- Prevents new-person draft details from being lost when an event is added immediately.
+
+### dMPMS Standard / Publishing — Complete
+- Formalized dMPMS v1.0 as the first public sidecar metadata standard.
+- Separated the public sidecar standard from dMPP-specific implementation details.
+- Documented required, optional, display-facing, curator-facing, and workflow/app-private fields.
+- Renamed `privateNotes` to `curatorNotes` before public release to avoid implying encryption or privacy protection.
+- Confirmed `description` is display-facing and `curatorNotes` is curator-facing.
+- Included examples for basic sidecars, people, dates/date ranges, GPS/location, tags, virtual crops, headshots, workflow fields, and curator notes.
+- Chose `dmpmsVersion: "1.0"` for the first public release.
+- Clarified migration expectations for older internal-draft sidecars.
+- Licensed the specification under CC BY 4.0.
+
+### Shipping Readiness / Refactor Question — Decision Made
+- Decided `DMPPImageEditorView.swift` size is primarily a maintainability concern, not an immediate shipping blocker.
+- Do not begin a broad refactor before first outside-user readiness unless current behavior is stable, committed, and there is a specific bug or pain point requiring extraction.
+- Continue using `// MARK:` anchors to keep the large file navigable.
+- Refactor later in small, reversible extractions only.
+- Use a versioning checkpoint before each extraction.
+
+Future extraction candidates:
+- Title / Description / Curator Notes section
+- Tags section
+- Location section
+- People section
+- Crop header/actions
+- File/folder toolbar helpers
+- Save/navigation command handling

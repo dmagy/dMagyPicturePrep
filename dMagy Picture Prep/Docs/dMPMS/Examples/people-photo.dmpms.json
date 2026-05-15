@@ -1,0 +1,36 @@
+{
+  "dmpmsVersion": "1.0",
+  "sourceFile": "class-photo.jpg",
+  "title": "Everett 2nd Grade",
+  "description": "Everett's second grade school photo.",
+  "dateTaken": "2025-09",
+  "dateRange": {
+    "earliest": "2025-09-01",
+    "latest": "2025-09-30"
+  },
+  "people": [
+    "Everett"
+  ],
+  "peopleV2": [
+    {
+      "id": "C222DCC0-FB61-4AA1-ABB9-E40B66FFD120",
+      "personID": "A80B7E5B-424B-40A9-B1C8-E5FFE958AD84",
+      "identityID": "5D15DCD5-6C85-4CA9-883A-35180EBF115A",
+      "isUnknown": false,
+      "shortNameSnapshot": "Everett",
+      "displayNameSnapshot": "Everett Samuel Colburn",
+      "nameSnapshot": {
+        "given": "Everett",
+        "middle": "Samuel",
+        "surname": "Colburn",
+        "display": "Everett Samuel Colburn",
+        "sort": "Colburn, Everett Samuel"
+      },
+      "ageAtPhoto": "7",
+      "rowIndex": 0,
+      "rowName": "Faces",
+      "positionIndex": 0,
+      "roleHint": "facesDerived"
+    }
+  ]
+}
