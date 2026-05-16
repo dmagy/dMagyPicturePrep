@@ -128,7 +128,8 @@ Current product positioning:
 
 ```text
 Name: dMagy Picture Prep
-Subtitle: Same pictures, more meaning.
+Subtitle: More meaning, same pictures.
+Promotional text: Prepare your photo collection locally with notes, people, places, tags, and crops—without changing your original pictures.
 ```
 
 Category recommendation:
@@ -186,7 +187,7 @@ Make photo curation repeatable, not heroic.
 Product promise:
 
 ```text
-Same pictures, more meaning.
+More meaning, same pictures.
 ```
 
 Core dMPMS promise:
