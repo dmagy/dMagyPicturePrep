@@ -76,6 +76,7 @@
 				"Docs/dMPP/dMPP-Context-v14.md",
 				"Docs/dMPP/dMPP-Context-v15.md",
 				"Docs/dMPP/dMPP-Context-v16.md",
+				"Docs/dMPP/dMPP-Context-v17.md",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};
@@ -485,7 +486,7 @@
 				INFOPLIST_FILE = "dMagy-Picture-Prep-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Daniel P. Magyar. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -533,7 +534,7 @@
 				INFOPLIST_FILE = "dMagy-Picture-Prep-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Daniel P. Magyar. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (

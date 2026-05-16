@@ -1,506 +1,351 @@
-# dMPP Backlog
+# dMPP Backlog — Post 1.0 / Version 2.0 Planning
 
-_Last updated: 2026-05-06_
-
----
-
-### dMPP Launch Readiness
-
-1. Privacy Policy / App Store Privacy — Complete
-
-   - Privacy policy updated to cover local sidecars, portable archive data, face processing, and user-selected folders.
-   - App Store privacy answer: Data Not Collected, pending final code sanity check during item 9 / release build.
-
-2. Folder Access / First-Run Clarity — Complete
-
-   - First-run explains that the user should choose the main folder for the picture collection they plan to prepare.
-   - First-run explains that dMPP saves notes, people, places, tags, and crop choices inside that folder so everything stays together.
-   - Settings exposes the selected Picture Library Folder and the portable archive data location.
-   - Users are informed that dMPP keeps its working information inside the selected folder rather than sending it elsewhere.
-
-3. Sandbox / Entitlements Review — Complete
-
-- App Sandbox is enabled.
-- Hardened Runtime is enabled.
-- User Selected Files is set to Read/Write.
-- Audio Input is enabled for speech-to-text description entry.
-- Microphone and Speech Recognition usage descriptions are present.
-- Network incoming/outgoing, camera, contacts, location, calendar, printing, USB, and other unused capabilities are disabled.
-- Code Signing Entitlements is blank, so Xcode appears to be managing effective sandbox entitlements through target settings rather than an explicit entitlements file.
-
-Release-build check:
-- Reconfirm these settings before Archive / App Store submission.
-
-4. **Failure-State Testing**
-   - Test missing folder, renamed folder, read-only folder, invalid sidecar JSON, deleted image, and missing portable archive folders.
-   - Improve messaging only where a normal user would be stuck.
-
-5. **dMPMS Publishing**
-   - Commit `dMPMS-v1.0.md` and example sidecars under `Docs/dMPMS`.
-   - Publish the dMagy.com/dmpms overview page and link to the canonical spec.
-
-6. **Help / README Alignment**
-   - Update Help files, `_Read_Me_`, and any in-app text to use `curatorNotes`, `dmpmsVersion: "1.0"`, and current dMPMS language.
-   - Make sure dMPMS docs are repo-only unless intentionally bundled.
-
-7. **Sample Archive / Screenshots**
-   - Create a small clean sample archive for testing, screenshots, and App Review notes.
-   - Use it to produce App Store screenshots and verify the new-user path.
-
-8. **App Review Notes**
-   - Write a short reviewer note explaining local folder selection, sidecar writing, and that original photos are not modified or uploaded.
-   - Include simple test steps using a folder of sample images.
-
-9. **Final Data-Safety Pass**
-   - Confirm save, Next Picture auto-save, sidecar versioning, `curatorNotes`, people, tags, locations, and crops behave correctly.
-   - Confirm existing sidecars remain readable.
-
-10. **Release Build / Distribution Check**
-   - Build a clean release archive and test it outside Xcode.
-   - Verify app icon, version/build number, signing, notarization/App Store packaging, and launch behavior.  
-
-
-
-Here are the failure-state test results so far.
-
-## 4. Failure-State Testing — Results So Far
-
-### Test 1 — Renamed Picture Library Folder
-
-**Result: Pass**
-
-What you did:
-
-* Renamed the selected Picture Library Folder outside dMPP.
-* Relaunched dMPP.
-
-What happened:
-
-* dMPP successfully found and continued using the renamed folder.
-
-Conclusion:
-
-* No fix needed.
-* This is good behavior. macOS/security-scoped bookmarks can often continue tracking a renamed folder.
+*Last updated: May 2026*
 
 ---
 
-### Test 1b — Picture Library Folder moved to Trash
+## Version 2.0 Theme
 
-**Result: Pass**
+**Make dMPP faster, safer, and more useful for working through real photo collections at scale.**
 
-What you did:
-
-* Moved the selected Picture Library Folder to Trash.
-* Relaunched dMPP.
-
-What happened:
-
-* dMPP still found and used the folder.
-
-Conclusion:
-
-* No fix needed.
-* Still acceptable behavior because the folder technically still existed.
+Version 1.0 establishes the foundation: local sidecars, portable archive data, people, locations, tags, crops, face suggestions, help, and launch readiness. Version 2.0 should focus on the next practical leap: better batch work, better repair/recovery, stronger archive insight, and a cleaner editor structure.
 
 ---
 
-### Test 1c — Picture Library Folder permanently deleted
+# Version 2.0 Candidates
 
-**Result: Pass**
+## 1. Bulk Operations
 
-What you did:
+**Goal:** Help users apply repeated information without editing every picture one at a time.
 
-* Emptied Trash so the selected Picture Library Folder was actually gone.
-* Relaunched dMPP.
+Possible work:
 
-What happened:
+* Apply location to selected pictures.
+* Apply tags to selected pictures.
+* Apply people to selected pictures where appropriate.
+* Batch mark pictures as Flagged or Do Not Display.
+* Batch clear or replace a location/tag.
+* Batch save/update sidecars safely.
 
-* dMPP asked you to select a new Picture Library Folder.
+Why it matters:
 
-Conclusion:
+* This is the clearest productivity upgrade for anyone processing a large collection.
+* It makes dMPP feel less like “one picture at a time forever,” which is important for real-world adoption.
 
-* No fix needed.
-* This is the correct recovery path.
-
-Backlog note:
-
-```markdown
-- Missing / deleted Picture Library Folder: Pass
-  - Renamed or moved folders may still resolve correctly.
-  - When the folder was permanently deleted, dMPP prompted for a new Picture Library Folder.
-  - No fix needed.
-```
+Suggested priority: **High**
 
 ---
 
-### Test 5a — Deleted `Tags` support folder
+## 2. Archive Health / Diagnostics
 
-**Initial Result: Confusing / suspected fail**
+**Goal:** Give users a clear way to understand whether their picture collection and dMPP data are healthy.
 
-What you did:
+Possible checks:
 
-* Deleted:
+* Missing or unreadable `.dmpms.json` sidecars.
+* Invalid sidecar JSON.
+* Missing People / Locations / Tags references.
+* Missing or unreadable `dMagy Portable Archive Data`.
+* Permission problems with the selected Picture Library Folder.
+* Registry files readable/writable:
+
+  * People
+  * Locations
+  * Tags
+  * Crops
+  * FaceIndex
+  * `_locks`
+* Sidecars with unknown tags or missing people references.
+* Pictures with missing dates, people, tags, or crops, depending on user-selected goals.
+
+Why it matters:
+
+* The current backlog already notes possible diagnostics for People, Locations, Tags, Crops, FaceIndex, and `_locks`, but defers a full panel unless access issues become frequent. 
+* After launch, a health/diagnostics panel becomes one of the best ways to build user trust.
+
+Suggested priority: **High**
+
+---
+
+## 3. Folder Access Recovery Improvements
+
+**Goal:** Make stale macOS / cloud folder permission problems easier for normal users to recover from.
+
+Possible work:
+
+* Detect when dMPP can see the saved Picture Library Folder path but cannot write inside it.
+* Show a clear “Refresh Picture Library Folder Access…” message.
+* Offer a one-click path to reselect the same folder.
+* Avoid misleading messages when the real problem is folder access.
+* Add a lightweight access check for portable archive folders.
+
+Suggested user message:
 
 ```text
-dMagy Portable Archive Data/Tags
+dMPP needs permission to save inside your Picture Library Folder. Choose the folder again to refresh access.
 ```
 
-* Relaunched dMPP.
+Why it matters:
 
-What happened:
+* This came up during failure-state testing.
+* The current backlog already identifies this as a watch-list item under Archive Access / Permissions. 
 
-* `Tags` did not recreate immediately.
-* Tags were still available in the app.
-* Opening Settings > General recreated the folder.
+Suggested priority: **High**
 
-Then we investigated:
+---
 
-* Console showed sandbox permission errors: “Operation not permitted.”
-* After refreshing access to the Picture Library Folder, `Tags` was regenerated properly.
+## 4. Location Manager UX Parity
 
-**Final Result: Pass after folder access refresh**
+**Goal:** Bring Locations closer to the polish and clarity of People Settings.
 
-Conclusion:
+Possible work:
 
-* Missing folder repair works when dMPP has valid write access.
-* The first failure was likely stale/lost sandbox permission after the rename/trash/delete testing.
+* Improve Locations Settings layout.
+* Make saved locations easier to review, edit, and reuse.
+* Improve linked-file / advanced information if needed.
+* Show clearer confidence when GPS-derived data matched a saved location.
+* Consider adding GPS coordinates to saved Locations for better distance-based matching.
 
-Backlog note:
+Why it matters:
+
+* Locations are already in the near-term backlog. 
+* dMPP’s value depends heavily on consistent places, especially for family history and recurring event locations.
+
+Suggested priority: **High / Medium**
+
+---
+
+## 5. Crop System 2.0
+
+**Goal:** Make crops more powerful and more portable.
+
+Possible work:
+
+* Move crop presets fully to portable JSON.
+* Improve crop preset editing.
+* Add better reusable crop definitions.
+* Revisit smarter initial headshot crop placement from detected face boxes.
+* Improve crop/export/delete action layout if it still feels visually bolted on.
+* Consider crop quality warnings, such as “this crop may be too small for display.”
+
+Why it matters:
+
+* Crop presets are already listed as planned future work. 
+* Headshot placement was intentionally deferred because the centered default was acceptable for now. 
+* The editor crop action box is also noted as visible polish work. 
+
+Suggested priority: **Medium**
+
+---
+
+## 6. Face Review and Learning Tools
+
+**Goal:** Make face suggestions easier to inspect, repair, and trust over time.
+
+Possible work:
+
+* Per-sample face-learning review instead of only reset-all-for-person.
+* Show source photo for learned samples.
+* Add a clearer “wrong suggestion” recovery path.
+* Continue tuning high-confidence mismatch thresholds after real-world testing.
+* Consider better explanation for why a suggestion appeared.
+
+Why it matters:
+
+* The current backlog already identifies per-sample review, source photo review, explainability, and wrong-match handling as future face-recognition improvements. 
+* The current reset-person workflow is acceptable for now, but not the end state. 
+
+Suggested priority: **Medium**
+
+---
+
+## 7. Help System Improvements
+
+**Goal:** Make in-app Help easier to search and connect to the current screen.
+
+Possible work:
+
+* Add search to dMPP Help.
+* Add “Open full Help topic…” links from section help popovers.
+* Improve Markdown rendering for:
+
+  * bold text
+  * inline code
+  * links
+  * nested lists
+* Add screenshots once the UI stabilizes.
+
+Why it matters:
+
+* These are already listed as near-term Help items. 
+* dMPP has concepts that are clear once explained, but unusual at first: Picture Library Folder, sidecars, portable archive data, curator notes, and local face suggestions.
+
+Suggested priority: **Medium**
+
+---
+
+## 8. Performance and Responsiveness
+
+**Goal:** Make large folders feel faster and smoother.
+
+Possible work:
+
+* Faster folder scanning.
+* Thumbnail caching.
+* Avoid blocking the main thread during large-folder operations.
+* Improve perceived loading state.
+* Consider background preloading for adjacent pictures.
+* Keep correctness and UI stability ahead of premature optimization.
+
+Why it matters:
+
+* Faster folder scanning and thumbnail caching are already called out in the backlog. 
+* Large collections are one of dMPP’s natural use cases.
+
+Suggested priority: **Medium**
+
+---
+
+## 9. Editor Decomposition / Maintainability
+
+**Goal:** Carefully reduce the size and complexity of `DMPPImageEditorView.swift` after launch.
+
+Possible extractions:
+
+* Title / Description / Curator Notes section.
+* Tags section.
+* Location section.
+* People section.
+* Crop header/actions.
+* File/folder toolbar helpers.
+* Save/navigation command handling.
+
+Rules:
+
+* Do not do broad refactors without a clear reason.
+* Keep extractions small and reversible.
+* Use versioning checkpoints before each extraction.
+* Preserve `// MARK:` anchors.
+
+Why it matters:
+
+* The backlog already says the large editor file is a maintainability concern, not a shipping blocker. 
+* This should be v2.0 infrastructure work only when it supports real feature work or reduces risk.
+
+Suggested priority: **Medium / Low**
+
+---
+
+## 10. Accessibility Review
+
+**Goal:** Improve support for users relying on macOS accessibility features.
+
+Possible work:
+
+* Test onboarding, Settings, Help, editor fields, crop controls, people assignment, and navigation with VoiceOver.
+* Add accessibility labels to custom controls.
+* Review Voice Control behavior.
+* Review contrast and color-only status indicators.
+* Review Dark Mode.
+* Revisit App Store accessibility declarations only after verified support.
+
+Why it matters:
+
+* This came up during App Store submission.
+* v1.0 should not overclaim accessibility support, but v2.0 can improve it intentionally.
+
+Suggested priority: **Medium / Low**
+
+---
+
+# Watch List
+
+## Face Matching Quality
+
+Current status:
+
+* Suggestion thresholds feel acceptable after real-world batch testing.
+* Confidence percentage display feels acceptable.
+* Reset-person workflow is acceptable for wrong-match recovery.
+* Inline warnings now help users recover from deleted people and high-confidence mismatches. 
+
+Watch for:
+
+* Repeated false positives.
+* Users misunderstanding confidence.
+* Need for explicit “wrong match” feedback.
+
+---
+
+## Data Integrity
+
+Current status:
+
+* Unknown tags and missing people references have basic handling.
+* Orphaned people reference details are preserved in curator notes. 
+
+Watch for:
+
+* Missing location references.
+* Broken crop references.
+* Face sample references to deleted people.
+* Invalid or older draft sidecars.
+
+---
+
+## UI / Layout
+
+Current status:
+
+* Suggested and Manual people modes are closer to the same design system.
+* Right-column spacing and scrollbar breathing room remain worth watching.
+* Manual row behavior is acceptable for now. 
+
+Watch for:
+
+* Crowded action areas.
+* Users missing important controls.
+* Sections that need progressive disclosure.
+
+---
+
+# Recently Completed / Version 1.0 Foundation
+
+I would keep this much shorter than the current backlog:
 
 ```markdown
-- Deleted Tags support folder: Pass after access refresh
-  - dMPP recreated the missing Tags folder once write access to the Picture Library Folder was refreshed.
-  - Finding: stale macOS folder permission can prevent support-folder repair.
-  - Possible polish: if dMPP cannot write inside the Picture Library Folder, show a plain message prompting the user to refresh folder access.
+## Recently Completed / Version 1.0 Foundation
+
+- Public dMPMS v1.0 standard created and licensed under CC BY 4.0.
+- dMPP writes `dmpmsVersion: "1.0"`.
+- `privateNotes` renamed to `curatorNotes`.
+- Picture Library Folder workflow stabilized.
+- `dMagy Portable Archive Data` structure established.
+- Sidecar read/write failure handling improved.
+- Invalid sidecars now warn users and preserve a backup before replacement.
+- Privacy policy, App Store privacy answers, support pages, and App Review notes prepared.
+- Sandbox entitlements reviewed.
+- Failure-state testing completed for missing folders, deleted images, invalid sidecars, save failures, and portable archive repair.
+- Help and Getting Started windows added.
+- People, Locations, Tags, Crops, and face suggestion workflows reached v1.0 readiness.
 ```
 
 ---
 
-### Test 5b — Deleted `Locations` support folder
+# My Version 2.0 Recommendation
 
-**Result: Pass**
+If I were choosing the actual **2.0 headline**, I would make it:
 
-What you did:
+## **dMPP 2.0 — Bulk Work and Archive Health**
 
-* Deleted:
+That gives you a version with a clear promise:
 
-```text
-dMagy Portable Archive Data/Locations
-```
+1. **Bulk apply tags and locations**
+2. **Archive health / diagnostics panel**
+3. **Better folder-access recovery**
+4. **Location manager polish**
+5. **Performance improvements**
 
-* Relaunched dMPP after folder access had been refreshed.
+That is the version most likely to make users say, “Okay, now I can use this on a real collection.”
 
-What happened:
-
-* `Locations` was recreated automatically.
-
-Conclusion:
-
-* No structural repair fix needed.
-* This confirms the bootstrap repair behavior works when folder permission is valid.
-
-Backlog note:
-
-```markdown
-- Deleted Locations support folder: Pass
-  - dMPP recreated the missing Locations folder on relaunch.
-  - No fix needed.
-```
-
----
-
-## Summary so far
-
-```markdown
-4. Failure-State Testing — In progress
-
-Completed:
-- Renamed Picture Library Folder: Pass
-- Picture Library Folder moved to Trash: Pass
-- Picture Library Folder permanently deleted: Pass
-- Deleted Tags support folder: Pass after access refresh
-- Deleted Locations support folder: Pass
-
-Finding:
-- Missing portable archive folders are repaired correctly when dMPP has valid write access.
-- Stale/lost macOS sandbox folder permission can prevent repair and cause “Operation not permitted” console errors.
-
-Possible polish:
-- Add a user-facing message when dMPP cannot write inside the Picture Library Folder:
-  “dMPP needs permission to save inside your Picture Library Folder. Choose the folder again to refresh access.”
-
-Remaining tests:
-- Read-only folder / save failure
-- Invalid `.dmpms.json` sidecar
-- Deleted image while app is open
-- Deleted entire `dMagy Portable Archive Data` folder
-```
-
-My read: nothing here is a launch blocker yet, but the stale-permission message may be worth adding if we hit it again in another test.
-
-### Test 2 — Invalid `.dmpms.json` sidecar
-
-Result: Partial fail / Fix needed
-
-What I did:
-- Created a valid `.dmpms.json` sidecar.
-- Replaced its contents with invalid JSON:
-  `{ "title": "Broken"`
-- Relaunched dMPP and navigated to that picture.
-
-What happened:
-- dMPP did not crash.
-- Console logged a decoding failure: “The given data was not valid JSON.”
-- No user-facing warning appeared.
-- I could continue working.
-- Saving overwrote the broken sidecar with valid new data.
-
-Fix needed:
-- Show a plain warning when a sidecar cannot be read.
-- Prevent silent overwrite, or back up/quarantine the unreadable sidecar before writing a replacement.
----
-
-## Near-Term Backlog
-
-
-
-### Locations
-- Location manager UX parity with People manager.
-- Improve GPS-derived location confidence and correction:
-  - Prefer saved Locations when reverse geocoding returns a nearby / slightly different street address.
-  - Consider a subtle UI note when a saved Location was applied from a nearby GPS result.
-  - Consider adding GPS coordinates to saved Locations later for stronger distance-based matching.
-
-
-### Help
-- Add search to dMPP Help.
-- Add “Open full Help topic…” links from section help popovers.
-- Improve Markdown rendering for bold, inline code, links, and nested lists if needed.
-- Consider screenshots once the UI stabilizes.
----
-
-## Planned / Future
-
-### Crops
-- Move crop presets fully to portable JSON.
-
-### Bulk Operations
-- Apply location to selection.
-- Apply tags to selection.
-- Batch operations more broadly.
-
-### Face Recognition / Later Improvements
-- Per-sample face-learning review instead of only reset-all-for-person.
-- Better review tooling for learned face samples, possibly including source photo.
-- Explore stronger explainability for suggestions if needed.
-- Consider a better way to explicitly reject a wrong match if current reset/warning workflows prove insufficient.
-- Tune high-confidence mismatch threshold after more real-world testing.
-  - Current starting point: `similarity >= 0.985`, displayed as 99%.
-
-### Architecture / Future Refactor
-- Separate Person core from Identity versions.
-- Gradually extract sections from `DMPPImageEditorView.swift` only after behavior is stable.
-- Avoid broad refactors without a clear rollback point.
-
----
-
-## Watch List / Complete for Now
-
-### Face Recognition / Matching Quality
-- Suggestion thresholds feel acceptable after real-world batch testing; revisit only if a clear pattern appears.
-- Confidence % display currently feels acceptable; monitor rather than actively tune.
-- Adding short names to face box overlays was investigated and intentionally declined for dMPP.
-  - Rationale: dMPP is the prep app, not the display app.
-
-### Face Recognition / Workflow
-- The current reset-person workflow is acceptable for wrong-match recovery.
-- Inline warnings now help users recover from:
-  - deleted people still being suggested
-  - high-confidence suggestion mismatch after a different assignment
-- Continue watching whether stronger explicit “wrong match” tooling is actually needed.
-
-### UI / Layout
-- Continue watching right-column spacing / scrollbar breathing room during UI polish.
-- Manual row behavior is currently acceptable even if an extra blank row is saved at the end.
-- Toggling to Suggested and back can be used to clear the current Manual row state and start over.
-- Suggested / Manual now feel closer to the same design system after UI polish.
-
-### Data Integrity
-- Unknown Tags and missing People references now have basic handling.
-- Continue watching for other unresolved-reference cases beyond:
-  - Tags
-  - People
-  - learned face samples
-
-### Archive Access / Permissions
-- Improve folder-access recovery messaging when macOS / Dropbox / cloud storage permissions expire.
-  - If dMPP can see the saved Picture Library Folder path but cannot read/write portable archive files, show a clear “Refresh Picture Library Folder Access…” message.
-  - Avoid misleading messages such as “Settings are currently being edited” when the real issue is folder access.
-  - Let the user reselect the same Picture Library Folder to refresh macOS permission.
-- Defer full diagnostics panel unless access issues become frequent.
-  - Possible future diagnostic checks: People, Locations, Tags, Crops, FaceIndex, and `_locks` readable/writable.
-
-### Performance
-- Faster folder scanning.
-- Thumbnail caching.
-- Continue to favor correctness and UI stability over premature optimization.
----
-
-## Recently Completed
-
-### Portable Archive / UX
-- Completed safe Picture Library Folder change flow:
-  - Kept portable archive folder naming fixed as `dMagy Portable Archive Data`.
-  - Added “Change or Refresh Picture Library Folder…” language.
-  - Removed the easy shortcut from the File menu.
-  - Added a “What are you trying to do?” choice before changing an existing root.
-  - Added Refresh Access path for stale macOS / cloud-folder permissions.
-  - Added warning before creating new portable archive data when the selected folder does not already contain it.
-  - Deferred full copy/merge migration until there is a real use case.
-
-### Data Integrity
-- Added unknown tag repair actions for tags saved in a sidecar but missing from Settings.
-- Added Private Notes for curator-only notes and repair clues.
-- Added People missing-reference warning.
-- Automatically preserves orphaned People reference details in Private Notes so they are not lost on save/navigation.
-- Minimized / collapsed Private Notes under Description.
-
-### Face Recognition / Matching Quality
-- Added cleanup for learned face suggestions that point to deleted People records.
-- When a deleted person is still being suggested, dMPP warns the user and offers to remove learned samples for that deleted person.
-- Added inline warning when a high-confidence Suggested match differs from the person the user assigns.
-- Warning helps users recover from mis-clicks by pointing them toward clearing learned samples for the suggested person.
-
-### Locations
-- Fixed GPS-derived location loading so matching saved Locations also apply the saved Location description.
-- Added near-address matching so GPS results like a neighboring house number can still match a saved Location on the same street / city / state / country.
-- Updated GPS saved-location enrichment so the saved Location can overwrite the reverse-geocoded street address when a saved match is found.
-
-### People UI / Suggested + Manual Polish
-- Moved the People mode help icon into the People GroupBox title row.
-- Removed duplicated help icon spacing from Suggested and Manual modes.
-- Tightened vertical spacing between Suggested instructions and the Faces section.
-- Restyled Suggested face chips to align more closely with Manual pills.
-- Changed Suggested face chips from rigid two-column layout to content-sized wrapping chips.
-
-### Face Recognition / Auto-Detect Safety
-- Moved face learning to Save only.
-- Added a permanent action to reset learned face samples for a person.
-- Audited current face-learning data for contamination from accidental assignments.
-- Verified stale face suggestions do not leak between pictures.
-- Required all visible face chips to be assigned or ignored before Save / Previous / Next.
-- Investigated whether bad accepted suggestions may have already polluted the face index.
-
-### Image / Crop Performance
-- Resolved crop drag and crop slider jerkiness by caching a decoded image in the editor view model.
-- Continued batch-testing responsiveness across a variety of real photo sets.
-
-### Crop UI
-- Rearranged crop header so crop chips and New Crop sit on the same row.
-- Moved crop actions to the upper right.
-- Changed New Crop from a native Menu button to a button / popover.
-- Refined New Crop popover row height and styling.
-- Added Crop help/info popover.
-
-### Title / Description / Private Notes UI
-- Moved description tools beside the Description label.
-- Added Description tool help.
-- Added Private Notes as curator-facing notes not intended for display.
-- Collapsed Private Notes when empty and auto-expanded when populated.
-
-### Location UI
-- Polished Location section layout.
-- Renamed unclear location button behavior.
-- Added Location help/info popover.
-- Added clearer GPS / saved-location / reset / clear guidance.
-
-### Date UI
-- Added Date Taken or Era help/info popover.
-
-### Tags UI
-- Added hover help from tag descriptions.
-- Added clearer unknown-tag handling and repair actions.
-
-### People UI / Checklist
-- Added Ignore Other Faces for remaining unassigned visible faces in Suggested mode.
-- Added `fatherID`, `motherID`, and `gender` as shared person-level fields.
-- Fixed date-derived-state sync so photo metadata properly filters the people checklist.
-- Added stable tie-break sorting for duplicate short names in the People checklist using birth date, then full name, then person ID.
-- Removed birth-date differentiators from Suggested / Auto-Detect chips.
-- Reset startup review mode/navigation state so relaunch always starts in All Pictures.
-- Added “No faces found” message when Suggested mode detects no faces.
-
-### Prior CTX15 Punchlist Items
-- Locations added/deleted in Settings now update editor UI sufficiently to move from active punchlist.
-- Tags added/deleted in Settings now update editor UI sufficiently to move from active punchlist.
-- Removed “Are you sure?” confirmation when deleting a crop.
-- Added ability to create one-off headshots.
-- Next picture moves focus / scrolls to Title.
-
-
-### Editor UX / Visible Polish
-- Rework Export / Delete command box.
-  - Current UI feels like an afterthought.
-  - Goal: make crop/export/delete actions feel intentional, clear, and aligned with the rest of the editor.
-  
-### Getting Started / Help
-- Moved Getting Started into its own `GettingStartedChecklistView.swift` file.
-- Simplified Getting Started into a short setup-first guide focused on:
-  - Picture Library Folder concept.
-  - Apple Photos export note.
-  - People setup.
-  - Locations setup.
-  - Basic review workflow.
-- Removed longer “watch for these picture types” tutorial-style content.
-- Removed Tags from the required starter checklist because default tags already exist.
-- Changed “Show automatically until setup is complete” to “Show at startup.”
-- Added matching Settings-style icons to People and Location Settings buttons.
-- Kept Getting Started available from Help > Getting Started.
-
-### Crops / Headshots
-- Completed: Temporarily hide face boxes while viewing/editing headshot crops.
-  - Face boxes remain controlled by the user’s normal show/hide setting.
-  - Headshot crops suppress the overlay only while selected.
-  - The face-box toggle is disabled while a headshot crop is selected to avoid a no-visible-change interaction.
-- Deferred: Smarter initial headshot crop placement from detected face boxes.
-  - Current centered default is acceptable for now.
-  - Revisit only if headshot creation becomes a frequent workflow pain point.
-
-### Help
-- Added traditional in-app dMPP Help window.
-- Bundled Markdown help topics in the app target.
-- Added Help > dMPP Help menu item.
-- Added topic sidebar and lightweight Markdown rendering for headings, paragraphs, lists, and code blocks.
-- Kept Help > Getting Started as a separate setup-focused guide.
-
-### People Settings
-- Fixed Add Event flow so unsaved original person fields are committed before adding an identity event.
-- Prevents new-person draft details from being lost when an event is added immediately.
-
-### dMPMS Standard / Publishing — Complete
-- Formalized dMPMS v1.0 as the first public sidecar metadata standard.
-- Separated the public sidecar standard from dMPP-specific implementation details.
-- Documented required, optional, display-facing, curator-facing, and workflow/app-private fields.
-- Renamed `privateNotes` to `curatorNotes` before public release to avoid implying encryption or privacy protection.
-- Confirmed `description` is display-facing and `curatorNotes` is curator-facing.
-- Included examples for basic sidecars, people, dates/date ranges, GPS/location, tags, virtual crops, headshots, workflow fields, and curator notes.
-- Chose `dmpmsVersion: "1.0"` for the first public release.
-- Clarified migration expectations for older internal-draft sidecars.
-- Licensed the specification under CC BY 4.0.
-
-### Shipping Readiness / Refactor Question — Decision Made
-- Decided `DMPPImageEditorView.swift` size is primarily a maintainability concern, not an immediate shipping blocker.
-- Do not begin a broad refactor before first outside-user readiness unless current behavior is stable, committed, and there is a specific bug or pain point requiring extraction.
-- Continue using `// MARK:` anchors to keep the large file navigable.
-- Refactor later in small, reversible extractions only.
-- Use a versioning checkpoint before each extraction.
-
-Future extraction candidates:
-- Title / Description / Curator Notes section
-- Tags section
-- Location section
-- People section
-- Crop header/actions
-- File/folder toolbar helpers
-- Save/navigation command handling
+I would **not** make 2.0 primarily a face-recognition release. Face improvements matter, but they are more complex, riskier, and harder to explain. Bulk operations plus archive health is practical, understandable, and deeply aligned with what dMPP is becoming.
