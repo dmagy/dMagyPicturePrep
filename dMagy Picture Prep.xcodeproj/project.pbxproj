@@ -56,10 +56,12 @@
 				"Docs/dMPMS/Examples/virtual-crops-photo.dmpms.json",
 				"Docs/dMPMS/Examples/workflow-fields-photo.dmpms.json",
 				Docs/dMPMS/README.md,
+				"Docs/dMPP/dMagy Design Standards.md",
 				"Docs/dMPP/dMagy Project Collaboration Guide.md",
 				"Docs/dMPP/dMPP Backlog.md",
 				"Docs/dMPP/dMPP-AI-Collaboration.md",
 				"Docs/dMPP/dMPP-Context-v17.md",
+				"Docs/dMPP/Sample Imports/dMPS Flagged Review Queue.json",
 			);
 			target = 9968B98C2ED1092A001B37FA /* dMagy Picture Prep */;
 		};
@@ -449,7 +451,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 58V8GU52MS;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -469,8 +471,14 @@
 				INFOPLIST_FILE = "dMagy-Picture-Prep-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "dMPP does not use your music library. This permission may appear only if you choose a folder in a protected media location. dMPP reads selected image files and saves local picture information for those files.";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose a picture folder on your Desktop to prepare those photos.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose a photo collection stored in Documents.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose exported photos in Downloads before moving them to a permanent picture collection.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Daniel P. Magyar. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
+				INFOPLIST_KEY_NSNetworkVolumesUsageDescription = "dMPP needs access to network folders only when you choose a picture folder there. For example, you can prepare photos stored on a shared drive and save dMPP sidecar files with them.";
+				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "dMPP needs access to removable drives only when you choose a picture folder there. For example, you can prepare photos stored on an external drive and save dMPP sidecar files with them.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -497,7 +505,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 58V8GU52MS;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -517,8 +525,14 @@
 				INFOPLIST_FILE = "dMagy-Picture-Prep-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "dMagy Picture Prep";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "dMPP does not use your music library. This permission may appear only if you choose a folder in a protected media location. dMPP reads selected image files and saves local picture information for those files.";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose a picture folder on your Desktop to prepare those photos.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose a photo collection stored in Documents.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "dMPP needs access to folders you choose so it can read pictures and save local .dmpms.json sidecar files and support data. For example, choose exported photos in Downloads before moving them to a permanent picture collection.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Daniel P. Magyar. All rights reserved.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dMPP uses the microphone only when you choose speech-to-text to help fill in a photo description.";
+				INFOPLIST_KEY_NSNetworkVolumesUsageDescription = "dMPP needs access to network folders only when you choose a picture folder there. For example, you can prepare photos stored on a shared drive and save dMPP sidecar files with them.";
+				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "dMPP needs access to removable drives only when you choose a picture folder there. For example, you can prepare photos stored on an external drive and save dMPP sidecar files with them.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "dMPP uses speech recognition only when you choose speech-to-text to help turn your spoken description into text.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

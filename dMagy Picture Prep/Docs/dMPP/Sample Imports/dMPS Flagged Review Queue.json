@@ -1,0 +1,69 @@
+{
+  "createdAt" : "2026-05-25T16:08:00Z",
+  "createdBy" : "dMagy Picture Show",
+  "items" : [
+    {
+      "flagSource" : "dMPS slideshow",
+      "flaggedAt" : "2026-05-28T02:55:52Z",
+      "id" : "14B35749-D1B2-4E48-A4F3-45A49AED41F2",
+      "imageAbsolutePath" : "\/Users\/danandamy\/Library\/CloudStorage\/Dropbox\/Dan and Amy\/Our Pictures\/Full Size Originals\/2020s\/2025 Pictures\/Test Pictures - may delete\/2025-02-03 14.27.02.jpg",
+      "runtimeFlagState" : "flagged",
+      "sidecarStatusAtFlag" : "notChecked",
+      "suggestedDMPMSTags" : [
+        "Flagged"
+      ],
+      "suggestedReviewNote" : "Flagged in dMagy Picture Show for later review."
+    },
+    {
+      "flagSource" : "dMPS slideshow",
+      "flaggedAt" : "2026-05-26T11:49:55Z",
+      "id" : "D6A2FBD0-BD0B-4171-B3E1-92F43CDB104E",
+      "imageAbsolutePath" : "\/Users\/danandamy\/Library\/CloudStorage\/Dropbox\/Dan and Amy\/Our Pictures\/Full Size Originals\/2020s\/2025 Pictures\/Test Pictures - may delete\/2025-01-26 07.37.28.jpg",
+      "runtimeFlagState" : "flagged",
+      "sidecarStatusAtFlag" : "notChecked",
+      "suggestedDMPMSTags" : [
+        "Flagged"
+      ],
+      "suggestedReviewNote" : "Flagged in dMagy Picture Show for later review."
+    },
+    {
+      "flagSource" : "dMPS slideshow",
+      "flaggedAt" : "2026-05-28T02:40:32Z",
+      "id" : "47C7CDE6-FD51-4395-AF6A-2B4B9AD79727",
+      "imageAbsolutePath" : "\/Users\/danandamy\/Library\/CloudStorage\/Dropbox\/Dan and Amy\/Our Pictures\/Full Size Originals\/2020s\/2025 Pictures\/Test Pictures - may delete\/2025-02-01 11.30.08-1.jpg",
+      "runtimeFlagState" : "flagged",
+      "sidecarStatusAtFlag" : "notChecked",
+      "suggestedDMPMSTags" : [
+        "Flagged"
+      ],
+      "suggestedReviewNote" : "Flagged in dMagy Picture Show for later review."
+    },
+    {
+      "flagSource" : "dMPS slideshow",
+      "flaggedAt" : "2026-05-28T02:55:50Z",
+      "id" : "3610B995-8648-49AE-B1FB-AAF95777135B",
+      "imageAbsolutePath" : "\/Users\/danandamy\/Library\/CloudStorage\/Dropbox\/Dan and Amy\/Our Pictures\/Full Size Originals\/2020s\/2025 Pictures\/Test Pictures - may delete\/2025-02-01 11.29.00.jpg",
+      "runtimeFlagState" : "flagged",
+      "sidecarStatusAtFlag" : "notChecked",
+      "suggestedDMPMSTags" : [
+        "Flagged"
+      ],
+      "suggestedReviewNote" : "Flagged in dMagy Picture Show for later review."
+    },
+    {
+      "flagSource" : "dMPS slideshow",
+      "flaggedAt" : "2026-05-28T02:55:55Z",
+      "id" : "5B8C74AA-63E6-47CD-9713-82A7D85B6A2F",
+      "imageAbsolutePath" : "\/Users\/danandamy\/Library\/CloudStorage\/Dropbox\/Dan and Amy\/Our Pictures\/Full Size Originals\/2020s\/2025 Pictures\/Test Pictures - may delete\/2025-02-05 15.13.44.jpg",
+      "runtimeFlagState" : "flagged",
+      "sidecarStatusAtFlag" : "notChecked",
+      "suggestedDMPMSTags" : [
+        "Flagged"
+      ],
+      "suggestedReviewNote" : "Flagged in dMagy Picture Show for later review."
+    }
+  ],
+  "schema" : "com.dmagy.dmps.flaggedReviewQueue",
+  "schemaVersion" : 1,
+  "updatedAt" : "2026-05-28T02:55:55Z"
+}
