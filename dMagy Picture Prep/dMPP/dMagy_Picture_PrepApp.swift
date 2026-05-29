@@ -14,6 +14,7 @@ extension Notification.Name {
     static let dmppToggleFaceBoxes = Notification.Name("dmppToggleFaceBoxes")
     static let dmppShowGettingStarted = Notification.Name("dmppShowGettingStarted")
     static let dmppShowDMPPHelp = Notification.Name("dmppShowDMPPHelp")
+    static let dmppImportDMPSFlaggedReport = Notification.Name("dmppImportDMPSFlaggedReport")
 }
 
 @main
@@ -27,6 +28,7 @@ struct dMagy_Picture_PrepApp: App {
     @StateObject private var locationStore = DMPPLocationStore()
     @StateObject private var archiveStore = DMPPArchiveStore()
     @StateObject private var faceIndexStore = DMPPFaceIndexStore()
+    @StateObject private var flaggedReportImportCoordinator = DMPSFlaggedReportImportCoordinator()
 
     var body: some Scene {
 
@@ -70,6 +72,12 @@ struct dMagy_Picture_PrepApp: App {
 
                 Button("Export Selected Crop To…") {
                     NotificationCenter.default.post(name: .dmppExportSelectedCropTo, object: nil)
+                }
+
+                Divider()
+
+                Button("Import dMPS Flagged Pictures Report…") {
+                    NotificationCenter.default.post(name: .dmppImportDMPSFlaggedReport, object: nil)
                 }
 
                 Divider()
@@ -139,6 +147,13 @@ struct dMagy_Picture_PrepApp: App {
         Window("dMPP Help", id: "DMPP-Help") {
             DMPPHelpView()
         }
+
+        Window("dMPS Flagged Report", id: "DMPS-Flagged-Report-Import") {
+            DMPSFlaggedReportImportView()
+                .environmentObject(archiveStore)
+                .environmentObject(flaggedReportImportCoordinator)
+        }
+        .defaultSize(width: 1080, height: 720)
     }
 }
 // ================================================================
@@ -223,6 +238,9 @@ private struct DMPPArchiveRootGateView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .dmppShowDMPPHelp)) { _ in
             openWindow(id: "DMPP-Help")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .dmppImportDMPSFlaggedReport)) { _ in
+            openWindow(id: "DMPS-Flagged-Report-Import")
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -539,6 +557,3 @@ private struct DMPPSettingsLockGateView: View {
     }
     
 }
-
-
-
