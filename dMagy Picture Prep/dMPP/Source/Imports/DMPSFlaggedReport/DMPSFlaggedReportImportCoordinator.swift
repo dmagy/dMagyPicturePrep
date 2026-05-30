@@ -8,18 +8,21 @@ import UniformTypeIdentifiers
 //
 // Purpose:
 // - Coordinates the read-only dMPS Flagged Review Queue import flow.
-// - Owns the current parsed import session and import error.
+// - Owns the current parsed import session, read-only sidecar inspection
+//   results, and import error.
 //
 // Dependencies & Effects:
 // - Uses NSOpenPanel to let the user choose a dMPS Flagged Review Queue file.
 // - Uses DMPSFlaggedReportParser and the Picture Library Folder URL when one
 //   is available.
+// - Reads current sidecar status through DMPSFlaggedSidecarInspector only.
 // - Does not reference sidecar writers, tag stores, or durable metadata helpers.
 //
 // Data Flow:
 // - App command or import window calls importReport(archiveRootURL:).
 // - Coordinator asks the user for a report file, parses it, and publishes the
 //   transient read-only session for DMPSFlaggedReportImportView.
+// - Coordinator inspects sidecars into an in-memory result map for display.
 //
 // Section Index:
 // - Published State
@@ -35,13 +38,19 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
     // MARK: - Published State
 
     @Published var currentSession: DMPSFlaggedImportSession?
+    @Published var sidecarInspectionResults: [String: DMPSFlaggedSidecarInspectionResult] = [:]
     @Published var importErrorMessage: String?
 
     private var lastImportFolderURL: URL?
     private let chooseReportURL: (URL?) -> URL?
+    private let sidecarInspector: DMPSFlaggedSidecarInspector
 
-    init(chooseReportURL: ((URL?) -> URL?)? = nil) {
+    init(
+        chooseReportURL: ((URL?) -> URL?)? = nil,
+        sidecarInspector: DMPSFlaggedSidecarInspector = DMPSFlaggedSidecarInspector()
+    ) {
         self.chooseReportURL = chooseReportURL ?? Self.presentReportOpenPanel(startingDirectory:)
+        self.sidecarInspector = sidecarInspector
     }
 
     // MARK: - Public Actions
@@ -57,6 +66,7 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
         do {
             let session = try parser.parse(fileURL: reportURL)
             currentSession = session
+            inspectSidecars()
             importErrorMessage = nil
             lastImportFolderURL = reportURL.deletingLastPathComponent()
             return true
@@ -68,7 +78,21 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
 
     func clearSession() {
         currentSession = nil
+        sidecarInspectionResults = [:]
         importErrorMessage = nil
+    }
+
+    func inspectSidecars() {
+        guard let currentSession else {
+            sidecarInspectionResults = [:]
+            return
+        }
+
+        sidecarInspectionResults = sidecarInspector.inspect(items: currentSession.items)
+    }
+
+    func sidecarInspection(for itemID: String) -> DMPSFlaggedSidecarInspectionResult? {
+        sidecarInspectionResults[itemID]
     }
 
     // MARK: - Session Summaries
@@ -98,6 +122,10 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
                 return false
             }
         }.count ?? 0
+    }
+
+    var sidecarInspectionSummary: DMPSFlaggedSidecarInspectionSummary {
+        DMPSFlaggedSidecarInspectionSummary(results: Array(sidecarInspectionResults.values))
     }
 
     // MARK: - File Selection
