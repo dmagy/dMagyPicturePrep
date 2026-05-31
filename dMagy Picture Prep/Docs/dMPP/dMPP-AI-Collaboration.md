@@ -11,7 +11,7 @@
 Before giving architecture guidance, code changes, or backlog recommendations for dMagy Picture Prep, use these documents:
 
 ```text
-Docs/dMagy Project Collaboration Guide.md
+Docs/dMPP/dMagy Project Collaboration Guide.md
 Docs/dMPP/dMPP-Context-v17.md
 Docs/dMPP/dMPP Backlog.md
 ```
@@ -25,6 +25,13 @@ dMPP Backlog = what we might do next
 ```
 
 This file does not replace the main context file. It is a short working brief for AI assistance.
+
+Source-of-truth roles:
+
+- `Docs/dMPP/dMPP-Context-v17.md` is the app/project truth for current dMPP architecture and implementation reality.
+- `Docs/dMPMS/dMPMS-v1.0.md` is the public schema truth for dMPMS.
+- `Docs/dMPP/dMPP-Codex-Reports/` contains phase-specific history, proposals, and implementation notes. Use the current/relevant reports for active work, but do not treat every historical report as permanent architecture.
+- `Docs/dMPMS/Draft Archives/` is historical only. Do not infer current behavior from draft version numbers unless the task is explicitly migration research.
 
 ---
 
@@ -107,6 +114,8 @@ dMPP is local-first:
 - no remote storage
 - no custom crash reporting
 - no upload of photos, metadata, face data, or settings
+
+Important: dMPMS v1.0 is the current public standard. dMPP writes `dmpmsVersion: "1.0"`. Older draft specs are historical only. Do not infer that dMPP should write 1.1 or later unless a new public spec decision is explicitly made.
 
 ---
 
@@ -223,6 +232,19 @@ Current public version:
 ```text
 dmpmsVersion: "1.0"
 ```
+
+Version guardrail:
+
+- The concern that current dMPP might still write `dmpmsVersion: "1.1"` is closed.
+- Current repo review confirmed dMPP writes `dmpmsVersion: "1.0"`.
+- Archived draft specs may mention `1.1`, `1.2`, `1.3`, or `1.4`; those are historical draft numbers, not current implementation guidance.
+- Do not propose a public version bump unless Dan explicitly asks for a new public dMPMS version decision.
+
+Current implementation watch point:
+
+- Public dMPMS v1.0 requires only `dmpmsVersion` and `sourceFile`.
+- dMPP implementation should move toward tolerant decoding of public-valid minimal sidecars.
+- Before importer-driven batch writes, explicitly address unknown-field preservation or document a deliberate deferral.
 
 Use:
 

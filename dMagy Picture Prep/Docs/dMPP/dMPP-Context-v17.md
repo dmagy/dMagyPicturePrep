@@ -29,6 +29,40 @@ dmpmsVersion: "1.0"
   - example sidecars
   - overview content for `dmagy.com/dmpms`
 
+#### dMPMS version guardrail
+
+- The previous concern that dMPP might still be writing `dmpmsVersion: "1.1"` is closed.
+- Current source review confirmed that dMPP writes:
+
+```text
+dmpmsVersion: "1.0"
+```
+
+- `Docs/dMPMS/dMPMS-v1.0.md` is the current public schema truth.
+- Older draft specs under `Docs/dMPMS/Draft Archives/` are historical only and must not guide current implementation unless the task is explicitly migration research.
+- The active dMPMS implementation concern is not version number alignment. The active concern is:
+  - making dMPP decoding tolerant of public-valid minimal sidecars where only `dmpmsVersion` and `sourceFile` are required
+  - deciding how unknown-field preservation should be handled before importer-driven batch writes
+
+#### Current dMPS Flagged Review Queue phase
+
+- dMPS records slideshow review intent.
+- dMPP applies durable saved picture information.
+- dMPS Flagged Review Queue Phases 1-3 are implemented:
+  - Phase 1: parser/model/session groundwork
+  - Phase 2: read-only import window
+  - Phase 3: read-only saved-information inspection
+- Phase 4 proposal exists in:
+
+```text
+Docs/dMPP/dMPP-Codex-Reports/008-dmps-flagged-report-phase-4-apply-actions-proposal.md
+```
+
+- Phase 4 implementation is paused until context cleanup and sidecar I/O decisions are complete.
+- Recommended split:
+  - Phase 4A: no-write action selection / preview
+  - Phase 4B: durable sidecar writes only after decoder tolerance and unknown-field preservation are deliberately addressed or explicitly deferred
+
 #### Launch-readiness work completed
 
 The 1.0 launch-readiness checklist has been completed or cleared for submission:
@@ -630,14 +664,31 @@ Export crops are for personal downstream use outside dMPS:
 ### 10.4 Planned crop improvements
 
 - Re-examine New Crop menu structure.
-- Headshot (Tight) / Headshot (Full) per-person tabs.
 - Grouping behavior in crop strip.
 - Move crop presets fully to portable JSON.
 - Consider smarter initial headshot crop placement from detected face boxes.
 
-### 10.5 Planned headshot model
+### 10.5 Headshot crop status
 
-Future intended model:
+Implemented:
+
+- Headshot crop kind exists in sidecar crop models.
+- Headshot variants exist:
+  - `tight`
+  - `full`
+- Headshot crops can store a `headshotPersonID`.
+- Existing headshot helper code can select or create per-person headshot crops.
+- Face boxes are temporarily hidden while viewing/editing headshot crops.
+
+Still planned / watch:
+
+- Headshot crop strip grouping by variant and person.
+- Better UI for deleted/missing linked people.
+- Smarter initial headshot placement from detected face boxes.
+- Continued polish around "Tight" vs "Full" language and defaults.
+
+Intended headshot model:
+
 
 ```text
 crop.kind = .headshot

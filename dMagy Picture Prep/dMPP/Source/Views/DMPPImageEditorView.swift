@@ -6206,7 +6206,7 @@ extension DMPPImageEditorView {
         var metadataToSave = vm.metadata
         
         // [DMPMS] Publish newly saved sidecars using the current public sidecar version.
-        // Existing v1.1 sidecars remain readable, but any save now writes v1.0.
+  
         metadataToSave.dmpmsVersion = "1.0"
 
         // ============================================================
