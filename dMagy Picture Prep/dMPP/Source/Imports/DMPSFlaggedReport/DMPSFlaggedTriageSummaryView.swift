@@ -34,10 +34,9 @@ struct DMPSFlaggedTriageSummaryView: View {
     var body: some View {
         HStack(spacing: 8) {
             summaryTile("\(summary.totalCount)", "pictures in review queue")
-            summaryTile("\(summary.readyToUpdateCount)", "ready to tag as Flagged")
-            summaryTile("\(summary.readyToCreateSavedInformationCount)", "ready to create saved information")
+            summaryTile("\(summary.readyForFutureUpdateCount)", "ready to tag as Flagged")
             summaryTile("\(summary.alreadyUpdatedCount)", "already updated")
-            summaryTile("\(summary.needsAttentionCount)", "need attention")
+            summaryTile("\(summary.needsAttentionCount)", "needs attention")
         }
     }
 

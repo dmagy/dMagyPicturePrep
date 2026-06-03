@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // ================================================================
@@ -189,9 +190,31 @@ struct DMPSFlaggedReportImportView: View {
             ForEach(coordinator.currentSession?.items ?? []) { item in
                 itemRow(item)
                     .tag(item.id)
+                    .contextMenu {
+                        itemContextMenu(for: item)
+                    }
             }
         }
         .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func itemContextMenu(for item: DMPSFlaggedImportSessionItem) -> some View {
+        if let url = pictureURL(for: item), FileManager.default.fileExists(atPath: url.path) {
+            Button("Show Picture in Finder") {
+                revealInFinder(url)
+            }
+        } else {
+            Button("Show Picture in Finder") {
+            }
+            .disabled(true)
+        }
+
+        if let path = originalPathText(for: item) {
+            Button("Copy Original Path") {
+                copyToPasteboard(path)
+            }
+        }
     }
 
     private func itemRow(_ item: DMPSFlaggedImportSessionItem) -> some View {
@@ -477,6 +500,35 @@ struct DMPSFlaggedReportImportView: View {
         }
 
         return "Untitled report item"
+    }
+
+    private func pictureURL(for item: DMPSFlaggedImportSessionItem) -> URL? {
+        item.pathResolution.candidateURL
+    }
+
+    private func originalPathText(for item: DMPSFlaggedImportSessionItem) -> String? {
+        if let candidatePath = item.pathResolution.candidateURL?.path, !candidatePath.isEmpty {
+            return candidatePath
+        }
+
+        if let absolutePath = item.reportItem.imageAbsolutePath, !absolutePath.isEmpty {
+            return absolutePath
+        }
+
+        if let relativePath = item.reportItem.relativePath, !relativePath.isEmpty {
+            return relativePath
+        }
+
+        return nil
+    }
+
+    private func revealInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func reviewStatusMessage(for item: DMPSFlaggedImportSessionItem) -> String {

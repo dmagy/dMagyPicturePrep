@@ -119,7 +119,7 @@ struct DMPSFlaggedTriageDetailView: View {
     }
 
     private var message: String {
-        triageItem?.message ?? "dMPP will not update this picture from the queue until the issue is resolved."
+        triageItem?.message ?? "This picture needs attention before dMPP can safely update saved information."
     }
 
     private var detail: String? {

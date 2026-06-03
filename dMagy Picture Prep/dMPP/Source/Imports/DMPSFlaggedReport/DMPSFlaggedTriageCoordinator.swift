@@ -154,13 +154,13 @@ final class DMPSFlaggedTriageCoordinator: ObservableObject {
             return needsAttention(
                 itemID: item.id,
                 message: "The saved information for this picture appears to belong to a different picture.",
-                detail: "dMPP will not update it from this queue. Open the picture in dMPP to inspect the saved information before making changes."
+                detail: "Open the picture in dMPP to inspect the saved information and review why it was flagged."
             )
         case .sidecarInvalid, .readError:
             return needsAttention(
                 itemID: item.id,
                 message: "dMPP found saved information for this picture but could not read it.",
-                detail: "Open the picture in dMPP to inspect or repair the saved information before updating it from this queue."
+                detail: "Open the picture in dMPP to inspect or repair the saved information and review why it was flagged."
             )
         case .imageMissing:
             return needsAttention(
@@ -179,8 +179,8 @@ final class DMPSFlaggedTriageCoordinator: ObservableObject {
 
     // MARK: - Messages
 
-    private static let genericNeedsAttentionMessage = "dMPP will not update this picture from the queue until the issue is resolved."
-    private static let genericNeedsAttentionDetail = "Find or open the picture in dMPP to see what needs attention."
+    private static let genericNeedsAttentionMessage = "This picture needs attention before dMPP can safely update saved information."
+    private static let genericNeedsAttentionDetail = "Open the picture in dMPP or show it in Finder to see what needs attention."
 
     private static func validSavedInformationItem(
         itemID: String,
