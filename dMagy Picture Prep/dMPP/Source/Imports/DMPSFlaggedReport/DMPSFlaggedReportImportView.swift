@@ -4,9 +4,9 @@ import SwiftUI
 // DMPSFlaggedReportImportView.swift
 //
 // Purpose:
-// - Presents a read-only dMPS Flagged Pictures Report import session.
-// - Lets the user inspect parsed report items, validation issues, and path
-//   classifications without applying metadata changes.
+// - Presents a read-only dMPS Flagged Review Queue import triage session.
+// - Lets the user inspect which queue items can safely be brought into the
+//   normal dMPP Flagged review workflow later.
 //
 // Dependencies & Effects:
 // - Reads DMPSFlaggedReportImportCoordinator and DMPPArchiveStore from the
@@ -17,8 +17,8 @@ import SwiftUI
 //
 // Data Flow:
 // - Coordinator publishes a DMPSFlaggedImportSession.
-// - View renders summary counts, report-level issues, item list, and selected
-//   item details, including read-only current sidecar inspection results.
+// - View renders triage counts, report-level issues, item list, and selected
+//   item details, including read-only current saved-information inspection.
 //
 // Section Index:
 // - Main View
@@ -62,10 +62,10 @@ struct DMPSFlaggedReportImportView: View {
                 Text("dMPS Flagged Review Queue")
                     .font(.title3.weight(.semibold))
 
-                Text("Inspection only. dMPP has not changed saved information for these pictures.")
+                Text("Import triage only. dMPP has not changed saved information for these pictures.")
                     .font(.callout.weight(.semibold))
 
-                Text("dMagy Picture Show recorded pictures for later review. dMagy Picture Prep can inspect that queue here. No saved picture information has been changed.")
+                Text("dMagy Picture Show recorded pictures for later review. dMagy Picture Prep can check whether they can safely enter your normal Flagged review workflow.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -98,7 +98,7 @@ struct DMPSFlaggedReportImportView: View {
             Text("Import a dMPS Flagged Review Queue file exported by dMagy Picture Show.")
                 .font(.headline)
 
-            Text("dMPP will parse the report and show validation/path status. Nothing will be applied to your saved information in this phase.")
+            Text("dMPP will parse the queue and show which pictures can safely be tagged later. Nothing will be applied to your saved information in this phase.")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
@@ -166,12 +166,13 @@ struct DMPSFlaggedReportImportView: View {
                     }
                 }
 
-                HStack(spacing: 8) {
-                    summaryTile("\(coordinator.totalItemCount)", "pictures in review queue")
-                    summaryTile("\(readyToUpdateCount)", "ready to update")
-                    summaryTile("\(needsAttentionCount)", "need attention")
-                    summaryTile("\(coordinator.sidecarInspectionSummary.alreadyFlaggedCount)", "previously flagged in dMPP")
-                }
+                DMPSFlaggedTriageSummaryView(
+                    triageCoordinator: coordinator.triageCoordinator
+                )
+
+                DMPSFlaggedTriageActionView(
+                    triageCoordinator: coordinator.triageCoordinator
+                )
 
                 if !session.topLevelIssues.isEmpty {
                     issueGroup(title: "Report-level issues", issues: session.topLevelIssues)
@@ -179,40 +180,6 @@ struct DMPSFlaggedReportImportView: View {
             }
         }
         .padding(14)
-    }
-
-    private func summaryTile(_ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.title3.weight(.semibold))
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(minWidth: 170, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.secondary.opacity(0.10))
-        )
-    }
-
-    private func countPill(_ label: String, _ value: Int) -> some View {
-        HStack(spacing: 5) {
-            Text(label)
-                .foregroundStyle(.secondary)
-            Text("\(value)")
-                .fontWeight(.semibold)
-        }
-        .font(.caption)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.secondary.opacity(0.10))
-        )
     }
 
     // MARK: - Item List
@@ -265,7 +232,9 @@ struct DMPSFlaggedReportImportView: View {
 
                         sidecarDetailSection(for: item)
 
-                        suggestedUpdateSection(for: item)
+                        DMPSFlaggedTriageDetailView(
+                            triageItem: coordinator.triageCoordinator.triageItem(for: item.id)
+                        )
 
                         advancedDetailsSection(for: item)
                     }
@@ -383,7 +352,7 @@ struct DMPSFlaggedReportImportView: View {
                 )
 
                 detailRow("Flagged tag", inspection.containsFlaggedTag ? "Already saved in dMPP" : "Not yet added")
-                detailRow("Review note", reviewNoteStatus(for: inspection, item: item))
+                detailRow("dMPS review note", reviewNoteStatus(for: inspection))
                 detailRow("Current tags", inspection.currentTags.isEmpty ? "None" : inspection.currentTags.joined(separator: ", "))
                 detailRow("Curator notes", inspection.curatorNotesPreview ?? "No curator notes")
 
@@ -393,17 +362,6 @@ struct DMPSFlaggedReportImportView: View {
             } else {
                 detailRow("Saved information status", "Not inspected")
             }
-        }
-    }
-
-    private func suggestedUpdateSection(for item: DMPSFlaggedImportSessionItem) -> some View {
-        detailSection("Suggested update") {
-            detailRow("Tag", "Add the Flagged tag")
-            detailRow("Review note", "Add this review note: \"\(item.reportItem.suggestedReviewNote ?? "Flagged in dMagy Picture Show for later review.")\"")
-            Text("Actions will be added in a future step. Nothing has been changed yet.")
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -482,33 +440,9 @@ struct DMPSFlaggedReportImportView: View {
 
     // MARK: - Formatting Helpers
 
-    private var readyToUpdateCount: Int {
-        coordinator.currentSession?.items.filter { item in
-            guard item.validationStatus == .valid,
-                  let inspection = coordinator.sidecarInspection(for: item.id)
-            else { return false }
-
-            return inspection.readiness == .readyForFutureApply
-        }.count ?? 0
-    }
-
-    private var needsAttentionCount: Int {
-        coordinator.currentSession?.items.filter { itemNeedsAttention($0) }.count ?? 0
-    }
-
     private func itemNeedsAttention(_ item: DMPSFlaggedImportSessionItem) -> Bool {
-        guard item.validationStatus == .valid else { return true }
-
-        guard let inspection = coordinator.sidecarInspection(for: item.id) else {
-            return true
-        }
-
-        switch inspection.readiness {
-        case .readyForFutureApply, .alreadyFlagged:
-            return false
-        case .needsSidecar, .needsRepair, .needsResolvedImage:
-            return true
-        }
+        coordinator.triageCoordinator.triageItem(for: item.id)?.status == .needsAttention
+            || coordinator.triageCoordinator.triageItem(for: item.id) == nil
     }
 
     private func importReviewQueue() {
@@ -545,117 +479,44 @@ struct DMPSFlaggedReportImportView: View {
         return "Untitled report item"
     }
 
-    private func statusText(for status: DMPSFlaggedReportItemValidationStatus) -> String {
-        switch status {
-        case .valid:
-            return "Ready for later review"
-        case .validWithWarnings:
-            return "Needs attention before review"
-        case .invalid:
-            return "Cannot be reviewed yet"
-        }
-    }
-
     private func reviewStatusMessage(for item: DMPSFlaggedImportSessionItem) -> String {
-        if itemNeedsAttention(item) {
-            return "This picture was flagged in dMagy Picture Show, but it needs attention before later review actions."
-        }
-
-        return "This picture was flagged in dMagy Picture Show and is ready for you to review in dMagy Picture Prep."
+        coordinator.triageCoordinator.triageItem(for: item.id)?.message
+            ?? "dMPP is checking whether this dMPS flagged picture can safely enter your normal Flagged review workflow."
     }
 
     private func reviewStatusTitle(for item: DMPSFlaggedImportSessionItem) -> String {
-        if itemNeedsAttention(item) {
-            return "Needs attention before review"
-        }
-
-        return "Ready for later review"
+        coordinator.triageCoordinator.triageItem(for: item.id)?.status.userLabel
+            ?? "Import triage"
     }
 
     private func reviewStatusSymbol(for item: DMPSFlaggedImportSessionItem) -> String {
-        itemNeedsAttention(item) ? "exclamationmark.triangle" : "checkmark.circle"
+        switch coordinator.triageCoordinator.triageItem(for: item.id)?.status {
+        case .readyToUpdate, .readyToCreateSavedInformation, .updatedCuratorNoteOnly:
+            return "checkmark.circle"
+        case .alreadyUpdated:
+            return "checkmark.seal"
+        case .needsAttention, nil:
+            return "exclamationmark.triangle"
+        }
     }
 
     private func reviewStatusColor(for item: DMPSFlaggedImportSessionItem) -> Color {
-        itemNeedsAttention(item) ? .orange : .green
+        switch coordinator.triageCoordinator.triageItem(for: item.id)?.status {
+        case .readyToUpdate, .readyToCreateSavedInformation, .updatedCuratorNoteOnly:
+            return .green
+        case .alreadyUpdated:
+            return .blue
+        case .needsAttention, nil:
+            return .orange
+        }
     }
 
-    private func reviewNoteStatus(
-        for inspection: DMPSFlaggedSidecarInspectionResult,
-        item: DMPSFlaggedImportSessionItem
-    ) -> String {
-        guard let suggestedNote = item.reportItem.trimmedSuggestedReviewNote else {
-            return "No suggested review note"
-        }
-
-        if let notesPreview = inspection.curatorNotesPreview,
-           notesPreview.localizedCaseInsensitiveContains(suggestedNote) {
-            return "Already appears in curator notes"
-        }
-
-        return "Not yet added"
+    private func reviewNoteStatus(for inspection: DMPSFlaggedSidecarInspectionResult) -> String {
+        inspection.curatorNotesContainsStableDMPSReviewNote ? "Already saved" : "Not yet added"
     }
 
     private func itemRowStatusText(for item: DMPSFlaggedImportSessionItem) -> String {
-        guard item.validationStatus == .valid else {
-            return "Needs attention"
-        }
-
-        guard let inspection = coordinator.sidecarInspection(for: item.id) else {
-            return "Needs attention"
-        }
-
-        switch inspection.readiness {
-        case .readyForFutureApply:
-            return "Ready to update"
-        case .alreadyFlagged:
-            return "Previously flagged in dMPP"
-        case .needsSidecar:
-            return "Needs saved information file"
-        case .needsRepair, .needsResolvedImage:
-            return "Needs attention"
-        }
-    }
-
-    private func statusSymbol(for status: DMPSFlaggedReportItemValidationStatus) -> String {
-        switch status {
-        case .valid:
-            return "checkmark.circle"
-        case .validWithWarnings:
-            return "exclamationmark.triangle"
-        case .invalid:
-            return "xmark.octagon"
-        }
-    }
-
-    private func statusColor(for status: DMPSFlaggedReportItemValidationStatus) -> Color {
-        switch status {
-        case .valid:
-            return .green
-        case .validWithWarnings:
-            return .orange
-        case .invalid:
-            return .red
-        }
-    }
-
-    private func pathStatusText(for status: DMPSFlaggedPathResolutionStatus) -> String {
-        switch status {
-        case .notResolved:
-            return "Not resolved"
-        case .hasAbsolutePath:
-            return "Found from report path"
-        case .hasRelativePath:
-            return "Found from relative path"
-        case .missingLocator:
-            return "No usable path in report"
-        case .outsideArchiveRoot:
-            return "Outside current Picture Library Folder"
-        case .missingFile:
-            return "File not found at report path"
-        case .unsupportedImageExtension:
-            return "Unsupported image type"
-        }
+        coordinator.triageCoordinator.triageItem(for: item.id)?.status.userLabel ?? "Import triage"
     }
 
     private func sidecarStatusText(for inspection: DMPSFlaggedSidecarInspectionResult) -> String {

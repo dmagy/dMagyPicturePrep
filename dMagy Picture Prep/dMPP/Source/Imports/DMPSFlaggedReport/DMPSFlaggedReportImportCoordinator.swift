@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 // Purpose:
 // - Coordinates the read-only dMPS Flagged Review Queue import flow.
 // - Owns the current parsed import session, read-only sidecar inspection
-//   results, and import error.
+//   results, no-write triage plan, and import error.
 //
 // Dependencies & Effects:
 // - Uses NSOpenPanel to let the user choose a dMPS Flagged Review Queue file.
@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
 // - Coordinator asks the user for a report file, parses it, and publishes the
 //   transient read-only session for DMPSFlaggedReportImportView.
 // - Coordinator inspects sidecars into an in-memory result map for display.
+// - Coordinator resets Phase 4A triage results when the session changes.
 //
 // Section Index:
 // - Published State
@@ -41,16 +42,20 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
     @Published var sidecarInspectionResults: [String: DMPSFlaggedSidecarInspectionResult] = [:]
     @Published var importErrorMessage: String?
 
+    let triageCoordinator: DMPSFlaggedTriageCoordinator
+
     private var lastImportFolderURL: URL?
     private let chooseReportURL: (URL?) -> URL?
     private let sidecarInspector: DMPSFlaggedSidecarInspector
 
     init(
         chooseReportURL: ((URL?) -> URL?)? = nil,
-        sidecarInspector: DMPSFlaggedSidecarInspector = DMPSFlaggedSidecarInspector()
+        sidecarInspector: DMPSFlaggedSidecarInspector? = nil,
+        triageCoordinator: DMPSFlaggedTriageCoordinator? = nil
     ) {
         self.chooseReportURL = chooseReportURL ?? Self.presentReportOpenPanel(startingDirectory:)
-        self.sidecarInspector = sidecarInspector
+        self.sidecarInspector = sidecarInspector ?? DMPSFlaggedSidecarInspector()
+        self.triageCoordinator = triageCoordinator ?? DMPSFlaggedTriageCoordinator()
     }
 
     // MARK: - Public Actions
@@ -80,15 +85,18 @@ final class DMPSFlaggedReportImportCoordinator: ObservableObject {
         currentSession = nil
         sidecarInspectionResults = [:]
         importErrorMessage = nil
+        triageCoordinator.clear()
     }
 
     func inspectSidecars() {
         guard let currentSession else {
             sidecarInspectionResults = [:]
+            triageCoordinator.clear()
             return
         }
 
         sidecarInspectionResults = sidecarInspector.inspect(items: currentSession.items)
+        triageCoordinator.reset(for: currentSession, inspections: sidecarInspectionResults)
     }
 
     func sidecarInspection(for itemID: String) -> DMPSFlaggedSidecarInspectionResult? {

@@ -47,6 +47,7 @@
 				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.4-archive.md",
 				"Docs/dMPMS/Draft Archives/dMPMS-Spec-v1.md",
 				"Docs/dMPMS/Draft Archives/Read Me.md",
+				"Docs/dMPMS/Draft Archives/README.md",
 				"Docs/dMPMS/Examples/basic-photo.dmpms.json",
 				"Docs/dMPMS/Examples/complete-example-photo.dmpms.json",
 				"Docs/dMPMS/Examples/date-range-photo.dmpms.json",

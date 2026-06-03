@@ -66,9 +66,15 @@ struct DMPSFlaggedSidecarInspectionResult: Identifiable, Equatable {
     var sourceFileMatches: Bool?
     var currentTags: [String]
     var containsFlaggedTag: Bool
+    var curatorNotesText: String?
     var curatorNotesPreview: String?
     var curatorNotesIsEmpty: Bool
     var errorMessage: String?
+
+    var curatorNotesContainsStableDMPSReviewNote: Bool {
+        guard let curatorNotesText else { return false }
+        return curatorNotesText.localizedCaseInsensitiveContains(DMPSFlaggedTriageConstants.stableCuratorNote)
+    }
 }
 
 // MARK: - Inspection Summary
@@ -208,6 +214,7 @@ struct DMPSFlaggedSidecarInspector {
                 sourceFileMatches: sourceFileMatches,
                 currentTags: metadata.tags,
                 containsFlaggedTag: containsFlaggedTag,
+                curatorNotesText: metadata.curatorNotes,
                 curatorNotesPreview: notesPreview(metadata.curatorNotes),
                 curatorNotesIsEmpty: metadata.curatorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 errorMessage: sourceFileMatches ? nil : "The saved information sourceFile does not match this picture filename."
@@ -255,6 +262,7 @@ struct DMPSFlaggedSidecarInspector {
             sourceFileMatches: nil,
             currentTags: [],
             containsFlaggedTag: false,
+            curatorNotesText: nil,
             curatorNotesPreview: nil,
             curatorNotesIsEmpty: true,
             errorMessage: errorMessage
